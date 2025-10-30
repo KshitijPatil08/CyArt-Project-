@@ -1,9 +1,0 @@
-<decoder name="usb-device-linux">
-  <prematch>^usb|^sd[b-z]</prematch>
-</decoder>
-
-<decoder name="usb-device-details">
-  <parent>usb-device-linux</parent>
-  <regex offset="after_parent">(\S+)\s+(\S+)\s+(.+)</regex>
-  <order>device_type,device_id,device_info</order>
-</decoder>
