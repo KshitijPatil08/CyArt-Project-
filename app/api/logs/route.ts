@@ -13,7 +13,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Insert log into database
     const { data, error } = await supabase.from("logs").insert([
       {
         device_id,
@@ -32,8 +31,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Check for security alerts based on log content
     await checkAndCreateAlerts(supabase, device_id, log_type, message, severity)
+
+    if (log_type === "usb" && message.toLowerCase().includes("transfer")) {
+      await trackDataTransfer(supabase, device_id, message, raw_data)
+    }
 
     return NextResponse.json({ success: true, data }, { status: 201 })
   } catch (error) {
@@ -60,5 +62,36 @@ async function checkAndCreateAlerts(
         description: message,
       },
     ])
+  }
+
+  if (message.toLowerCase().includes("unauthorized") || message.toLowerCase().includes("denied")) {
+    await supabase.from("alerts").insert([
+      {
+        device_id,
+        alert_type: "suspicious_activity",
+        severity: "high",
+        title: "Suspicious Activity Detected",
+        description: message,
+      },
+    ])
+  }
+}
+
+async function trackDataTransfer(supabase: any, device_id: string, message: string, raw_data: any) {
+  try {
+    const dataTransferred = raw_data?.data_transferred_mb || 0
+    const fileName = raw_data?.file_name || "Unknown"
+
+    await supabase.from("audit_trail").insert([
+      {
+        device_id,
+        action: "file_write",
+        file_path: fileName,
+        data_transferred_mb: dataTransferred,
+        timestamp: new Date().toISOString(),
+      },
+    ])
+  } catch (error) {
+    console.error("[v0] Error tracking data transfer:", error)
   }
 }
