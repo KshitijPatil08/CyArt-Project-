@@ -2,17 +2,14 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { type NextRequest, NextResponse } from "next/server"
 
-// Enable CORS for all origins
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-// Create Supabase client directly in this file to avoid import issues
 async function getSupabaseClient() {
   const cookieStore = await cookies()
-  
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
@@ -51,7 +48,6 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Check environment variables first
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       console.error("Missing Supabase environment variables")
       return NextResponse.json(
@@ -60,7 +56,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create Supabase client
     let supabase
     try {
       supabase = await getSupabaseClient()
@@ -71,8 +66,8 @@ export async function POST(request: NextRequest) {
         { status: 500, headers: corsHeaders }
       )
     }
-    
-    // Parse request body
+
+    // Parse JSON body
     let body
     try {
       body = await request.json()
@@ -95,7 +90,6 @@ export async function POST(request: NextRequest) {
       agent_version 
     } = body
 
-    // Validate required fields
     if (!device_name || !device_type) {
       return NextResponse.json(
         { error: "Missing required fields: device_name and device_type" },
@@ -108,7 +102,7 @@ export async function POST(request: NextRequest) {
     // Check if device already exists by hostname
     const { data: existingDevice, error: fetchError } = await supabase
       .from("devices")
-      .select("id")
+      .select("id, readable_id")
       .eq("hostname", hostname)
       .maybeSingle()
 
@@ -121,11 +115,14 @@ export async function POST(request: NextRequest) {
     }
 
     let deviceId
+    let readableId
 
     if (existingDevice) {
-      // Update existing device
+      // Reuse existing readable ID
+      readableId = existingDevice.readable_id
+
       console.log("Updating existing device:", existingDevice.id)
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("devices")
         .update({
           device_name,
@@ -141,8 +138,6 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingDevice.id)
-        .select()
-        .single()
 
       if (error) {
         console.error("Error updating device:", error)
@@ -152,10 +147,17 @@ export async function POST(request: NextRequest) {
         )
       }
       deviceId = existingDevice.id
-      console.log("Device updated successfully:", deviceId)
     } else {
-      // Create new device
-      console.log("Creating new device")
+      // Generate next readable ID
+      const { count } = await supabase
+        .from("devices")
+        .select("id", { count: "exact", head: true })
+
+      const nextNumber = (count || 0) + 1
+      readableId = `Device-${nextNumber.toString().padStart(3, "0")}`
+
+      console.log("Creating new device with readable ID:", readableId)
+
       const { data, error } = await supabase
         .from("devices")
         .insert([
@@ -168,6 +170,7 @@ export async function POST(request: NextRequest) {
             hostname,
             os_version,
             agent_version,
+            readable_id: readableId,
             status: "online",
             last_seen: new Date().toISOString(),
           },
@@ -183,11 +186,10 @@ export async function POST(request: NextRequest) {
         )
       }
       deviceId = data.id
-      console.log("Device created successfully:", deviceId)
     }
 
     return NextResponse.json(
-      { success: true, device_id: deviceId },
+      { success: true, device_id: deviceId, readable_id: readableId },
       { status: 201, headers: corsHeaders }
     )
   } catch (error: any) {
@@ -203,7 +205,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Handle other methods
 export async function GET(request: NextRequest) {
   return NextResponse.json(
     { error: "Method not allowed. Use POST to register a device." },

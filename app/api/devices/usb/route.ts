@@ -1,105 +1,50 @@
-import { createClient } from "@/lib/supabase/server"
-import { type NextRequest, NextResponse } from "next/server"
+// app/api/devices/usb/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export async function POST(request: NextRequest) {
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+// Handles CORS preflight
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
+export async function POST(req: Request) {
   try {
-    const supabase = await createClient()
-    const body = await request.json()
+    const body = await req.json();
 
-    const {
-      device_id,
-      usb_name,
-      usb_vendor,
-      usb_product_id,
-      usb_vendor_id,
-      device_type,
-      serial_number,
-      action, // 'insert' or 'remove'
-      data_transferred_mb,
-    } = body
+    // Connect to Supabase (server key required)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!  // use the private key here
+    );
 
-    if (!device_id || !usb_name || !device_type || !action) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    // Insert the alert into the 'logs' table
+    const { error } = await supabase
+      .from("logs")
+      .insert([{ type: "usb", data: body, created_at: new Date().toISOString() }]);
+
+    if (error) {
+      console.error("Supabase insert error:", error);
+      return new NextResponse(JSON.stringify({ ok: false, error: error.message }), {
+        status: 500,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
     }
 
-    if (action === "insert") {
-      // Record USB device insertion
-      const { data, error } = await supabase
-        .from("usb_devices")
-        .insert([
-          {
-            device_id,
-            usb_name,
-            usb_vendor,
-            usb_product_id,
-            usb_vendor_id,
-            device_type,
-            serial_number,
-            insertion_time: new Date().toISOString(),
-            status: "connected",
-          },
-        ])
-        .select()
-
-      if (error) throw error
-
-      // Create alert for USB connection
-      await supabase.from("alerts").insert([
-        {
-          device_id,
-          alert_type: "usb_connection",
-          severity: "medium",
-          title: `USB Device Connected: ${usb_name}`,
-          description: `${device_type} connected to device`,
-        },
-      ])
-
-      return NextResponse.json({ success: true, data }, { status: 201 })
-    } else if (action === "remove") {
-      // Find and update USB device removal
-      const { data: usbDevice, error: findError } = await supabase
-        .from("usb_devices")
-        .select("id")
-        .eq("device_id", device_id)
-        .eq("serial_number", serial_number)
-        .eq("status", "connected")
-        .order("insertion_time", { ascending: false })
-        .limit(1)
-        .single()
-
-      if (findError || !usbDevice) {
-        return NextResponse.json({ error: "USB device not found" }, { status: 404 })
-      }
-
-      const { data, error } = await supabase
-        .from("usb_devices")
-        .update({
-          removal_time: new Date().toISOString(),
-          status: "disconnected",
-          data_transferred_mb: data_transferred_mb || 0,
-        })
-        .eq("id", usbDevice.id)
-        .select()
-
-      if (error) throw error
-
-      // Create alert for USB disconnection
-      await supabase.from("alerts").insert([
-        {
-          device_id,
-          alert_type: "usb_connection",
-          severity: "low",
-          title: `USB Device Disconnected: ${usb_name}`,
-          description: `${device_type} disconnected from device`,
-        },
-      ])
-
-      return NextResponse.json({ success: true, data }, { status: 201 })
-    }
-
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 })
-  } catch (error) {
-    console.error("[v0] USB tracking error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return new NextResponse(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    console.error("POST /api/devices/usb error:", err);
+    return new NextResponse(JSON.stringify({ ok: false, error: String(err) }), {
+      status: 500,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
   }
 }

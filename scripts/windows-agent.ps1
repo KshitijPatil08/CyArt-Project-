@@ -2,7 +2,7 @@
 # This script collects USB device events, system logs, and sends them to the API
 
 param(
-    [string]$ApiUrl = "http://localhost:3000",
+    [string]$ApiUrl = "https://v0-project1-r9.vercel.app",
     [string]$DeviceName = $env:COMPUTERNAME,
     [string]$Owner = $env:USERNAME,
     [string]$Location = "Office"
