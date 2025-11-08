@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
         .select("id", { count: "exact", head: true })
 
       const nextNumber = (count || 0) + 1
-      readableId = `Device-${nextNumber.toString().padStart(3, "0")}`
+      readableId = `Device-${crypto.randomUUID().slice(0, 8)}`
 
       console.log("Creating new device with readable ID:", readableId)
 
