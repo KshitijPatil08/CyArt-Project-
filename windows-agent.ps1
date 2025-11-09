@@ -162,7 +162,7 @@ function Send-LogEvent {
     $jsonBody = $body | ConvertTo-Json -Depth 5
 
     try {
-        $response = Invoke-RestMethod -Uri "$global:API_BASE/api/devices/logs" `
+        $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
             -Method POST -Body $jsonBody -ContentType "application/json" -ErrorAction Stop
         
         Write-Host "[+] Event logged: $hardware_type $event"
@@ -170,7 +170,7 @@ function Send-LogEvent {
     }
     catch {
         Write-Host "[-] Failed to send event: $_"
-        Write-Host "    Endpoint: $global:API_BASE/api/devices/logs"
+        Write-Host "    Endpoint: $global:API_BASE/api/logs"
         return $null
     }
 }
@@ -217,7 +217,7 @@ function Register-UsbEventHandlers {
         } | ConvertTo-Json -Depth 5
 
         try {
-            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/devices/logs" `
+            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
                 -Method POST -Body $body -ContentType "application/json"
             Write-Host "    [OK] Event sent to backend"
             
@@ -255,7 +255,7 @@ function Register-UsbEventHandlers {
         } | ConvertTo-Json -Depth 5
 
         try {
-            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/devices/logs" `
+            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
                 -Method POST -Body $body -ContentType "application/json"
             Write-Host "    [OK] Event sent to backend"
         }
