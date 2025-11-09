@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
+import { checkAndCreateAlerts } from "@/lib/alerts";
+import { trackDataTransfer } from "@/lib/trackers";
 
 export async function POST(request: NextRequest) {
   try {
