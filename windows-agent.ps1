@@ -1,5 +1,5 @@
 # ==========================================================
-# Windows Device Tracking Agent v3.0
+# Windows Device Tracking Agent v3.1
 # Compatible with Supabase Backend
 # ==========================================================
 
@@ -42,7 +42,7 @@ function Initialize-Device {
         hostname      = $global:HOSTNAME
         ip_address    = $ipAddress
         os_version    = $osVersion
-        agent_version = "3.0.0"
+        agent_version = "3.1.0"
     } | ConvertTo-Json
 
     try {
@@ -86,30 +86,63 @@ function Update-DeviceStatus {
 }
 
 # ----------------------------------------------------------
-# GET USB DEVICE DETAILS
+# GET USB DEVICE DETAILS - IMPROVED VERSION
 # ----------------------------------------------------------
 function Get-UsbDeviceDetails {
+    param(
+        [string]$InstanceId = $null
+    )
+    
     try {
-        $usbDevices = Get-PnpDevice | Where-Object {
-            $_.Class -eq "USB" -and $_.Status -eq "OK"
-        } | Select-Object -First 1
+        # If InstanceId provided, get specific device
+        if ($InstanceId) {
+            $device = Get-PnpDevice | Where-Object { $_.InstanceId -eq $InstanceId }
+        }
+        else {
+            # Get most recently connected USB device
+            $device = Get-PnpDevice | Where-Object {
+                $_.Class -eq "USB" -and 
+                $_.Status -eq "OK" -and
+                $_.InstanceId -match "USB"
+            } | Sort-Object -Property @{Expression={$_.InstallDate}; Descending=$true} | 
+            Select-Object -First 1
+        }
 
-        if ($usbDevices) {
-            $instanceId = $usbDevices.InstanceId
+        if ($device) {
+            $instanceId = $device.InstanceId
+            $deviceName = $device.FriendlyName
             
-            # Extract VID and PID
-            if ($instanceId -match "VID_([0-9A-F]{4})") {
+            # Extract VID and PID from InstanceId
+            $vendorId = $null
+            $productId = $null
+            $serialNumber = $null
+            
+            if ($instanceId -match "VID[_]([0-9A-F]{4})") {
                 $vendorId = $matches[1]
             }
-            if ($instanceId -match "PID_([0-9A-F]{4})") {
+            if ($instanceId -match "PID[_]([0-9A-F]{4})") {
                 $productId = $matches[1]
             }
+            if ($instanceId -match "\\([^\\]+)$") {
+                $serialNumber = $matches[1]
+            }
+
+            # Get additional device properties
+            $deviceInfo = Get-PnpDeviceProperty -InstanceId $instanceId -ErrorAction SilentlyContinue
+            
+            $manufacturer = ($deviceInfo | Where-Object { $_.KeyName -eq "DEVPKEY_Device_Manufacturer" }).Data
+            $description = ($deviceInfo | Where-Object { $_.KeyName -eq "DEVPKEY_Device_DeviceDesc" }).Data
 
             return @{
-                device_name = $usbDevices.FriendlyName
+                device_name = if ($deviceName) { $deviceName } else { "Unknown USB Device" }
                 vendor_id = $vendorId
                 product_id = $productId
+                serial_number = $serialNumber
                 instance_id = $instanceId
+                manufacturer = $manufacturer
+                description = $description
+                class = $device.Class
+                status = $device.Status
             }
         }
     }
@@ -176,7 +209,7 @@ function Send-LogEvent {
 }
 
 # ----------------------------------------------------------
-# USB EVENT HANDLERS
+# USB EVENT HANDLERS - IMPROVED VERSION
 # ----------------------------------------------------------
 function Register-UsbEventHandlers {
     Write-Host "[+] Registering USB event handlers..."
@@ -194,10 +227,26 @@ function Register-UsbEventHandlers {
         Write-Host "[!] USB DEVICE CONNECTED!" -ForegroundColor Green
         Write-Host "    Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         
-        Start-Sleep -Milliseconds 500
+        # Wait for device to be fully recognized
+        Start-Sleep -Seconds 2
         
-        # Get device details
-        $usbDetails = Get-UsbDeviceDetails
+        # Get the newly connected device's instance ID from the event
+        $dependent = $Event.SourceEventArgs.NewEvent.TargetInstance.Dependent
+        
+        # Extract instance ID from the dependent path
+        $usbDetails = $null
+        if ($dependent -match 'DeviceID="([^"]+)"') {
+            $instanceId = $matches[1] -replace '\\\\', '\'
+            Write-Host "    Instance ID: $instanceId"
+            
+            # Get detailed device information
+            $usbDetails = Get-UsbDeviceDetails -InstanceId $instanceId
+        }
+        else {
+            # Fallback: get most recent USB device
+            $usbDetails = Get-UsbDeviceDetails
+        }
+        
         $deviceName = if ($usbDetails) { $usbDetails.device_name } else { "Unknown USB Device" }
         
         $timestamp = (Get-Date).ToUniversalTime().ToString("o")
@@ -219,11 +268,16 @@ function Register-UsbEventHandlers {
         try {
             $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
                 -Method POST -Body $body -ContentType "application/json"
-            Write-Host "    [OK] Event sent to backend"
+            Write-Host "    [OK] Event sent to backend" -ForegroundColor Green
             
             if ($usbDetails) {
                 Write-Host "    Device: $($usbDetails.device_name)"
-                Write-Host "    VID: $($usbDetails.vendor_id) | PID: $($usbDetails.product_id)"
+                if ($usbDetails.vendor_id) {
+                    Write-Host "    VID: $($usbDetails.vendor_id) | PID: $($usbDetails.product_id)"
+                }
+                if ($usbDetails.manufacturer) {
+                    Write-Host "    Manufacturer: $($usbDetails.manufacturer)"
+                }
             }
         }
         catch {
@@ -257,7 +311,7 @@ function Register-UsbEventHandlers {
         try {
             $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
                 -Method POST -Body $body -ContentType "application/json"
-            Write-Host "    [OK] Event sent to backend"
+            Write-Host "    [OK] Event sent to backend" -ForegroundColor Green
         }
         catch {
             Write-Host "    [ERROR] Failed to send event: $_" -ForegroundColor Red
@@ -293,7 +347,7 @@ Register-EngineEvent PowerShell.Exiting -Action $OnExit | Out-Null
 # ----------------------------------------------------------
 Clear-Host
 Write-Host "=========================================================="
-Write-Host "  Windows Security Monitoring Agent v3.0"
+Write-Host "  Windows Security Monitoring Agent v3.1"
 Write-Host "=========================================================="
 Write-Host ""
 
