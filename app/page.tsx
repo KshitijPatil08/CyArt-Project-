@@ -1,10 +1,5 @@
-import { DeviceDashboard } from "@/components/device-dashboard"
-import { DashboardLayout } from "@/components/dashboard-layout"
+import SecurityDashboard from '@/components/SecurityDashboard';
 
-export default function Home() {
-  return (
-    <DashboardLayout>
-      <DeviceDashboard />
-    </DashboardLayout>
-  )
+export default function DashboardPage() {
+  return <SecurityDashboard />;
 }
