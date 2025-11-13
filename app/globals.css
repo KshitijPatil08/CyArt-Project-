@@ -123,3 +123,6 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ReactFlow styles */
+@import 'reactflow/dist/style.css';

@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Monitor, Usb, AlertCircle, Activity } from 'lucide-react';
+import { Monitor, Usb, AlertCircle, Activity, Network, List } from 'lucide-react';
+import { NetworkTopology } from './network-topology';
+import { Button } from '@/components/ui/button';
 
 interface Device {
   device_id: string;
@@ -29,6 +31,7 @@ export default function SecurityDashboard() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'list' | 'topology'>('list');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://v0-project1-r9.vercel.app';
 
@@ -72,44 +75,44 @@ export default function SecurityDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h1 className="text-3xl font-bold text-foreground mb-2">
             Security Monitoring Dashboard
           </h1>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             Real-time USB and device monitoring
           </p>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-card border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Total Devices</p>
-                <p className="text-2xl font-bold">{devices.length}</p>
+                <p className="text-sm text-muted-foreground mb-1">Total Devices</p>
+                <p className="text-2xl font-bold text-foreground">{devices.length}</p>
               </div>
-              <Monitor className="w-8 h-8 text-blue-600" />
+              <Monitor className="w-8 h-8 text-primary" />
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-card border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Online</p>
+                <p className="text-sm text-muted-foreground mb-1">Online</p>
                 <p className="text-2xl font-bold text-green-600">
                   {devices.filter(d => d.status === 'online').length}
                 </p>
@@ -118,20 +121,20 @@ export default function SecurityDashboard() {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-card border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">USB Events</p>
+                <p className="text-sm text-muted-foreground mb-1">USB Events</p>
                 <p className="text-2xl font-bold text-purple-600">{logs.length}</p>
               </div>
               <Usb className="w-8 h-8 text-purple-600" />
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-card border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Alerts</p>
+                <p className="text-sm text-muted-foreground mb-1">Alerts</p>
                 <p className="text-2xl font-bold text-red-600">0</p>
               </div>
               <AlertCircle className="w-8 h-8 text-red-600" />
@@ -139,33 +142,73 @@ export default function SecurityDashboard() {
           </div>
         </div>
 
+        {/* View Mode Toggle */}
+        <div className="mb-6 flex justify-end gap-2">
+          <Button
+            variant={viewMode === 'list' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setViewMode('list')}
+            className="gap-2"
+          >
+            <List className="w-4 h-4" />
+            List View
+          </Button>
+          <Button
+            variant={viewMode === 'topology' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setViewMode('topology')}
+            className="gap-2"
+          >
+            <Network className="w-4 h-4" />
+            Network Topology
+          </Button>
+        </div>
+
         {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Devices List */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow">
-              <div className="p-4 border-b">
-                <h2 className="text-lg font-semibold">Connected Devices</h2>
-              </div>
+        {viewMode === 'topology' ? (
+          <div className="mb-6">
+            <div className="bg-card border rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Network Topology</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                Visual representation of connected devices. Green connections indicate online devices, gray indicates offline.
+              </p>
+              <NetworkTopology devices={devices} />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Devices List */}
+            <div className="lg:col-span-1">
+              <div className="bg-card border rounded-lg shadow-sm">
+                <div className="p-4 border-b">
+                  <h2 className="text-lg font-semibold text-foreground">Connected Devices</h2>
+                </div>
               <div className="divide-y max-h-[600px] overflow-y-auto">
-                {devices.map((device) => (
-                  <div
-                    key={device.device_id}
-                    onClick={() => setSelectedDevice(device)}
-                    className={`p-4 cursor-pointer hover:bg-gray-50 ${
-                      selectedDevice?.device_id === device.device_id ? 'bg-blue-50' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`w-2 h-2 rounded-full ${
-                        device.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
-                      }`}></span>
-                      <h3 className="font-medium">{device.device_name}</h3>
-                    </div>
-                    <p className="text-sm text-gray-600">{device.owner}</p>
-                    <p className="text-xs text-gray-500">{device.location}</p>
+                {devices.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground">
+                    <Monitor className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No devices connected</p>
                   </div>
-                ))}
+                ) : (
+                  devices.map((device) => (
+                    <div
+                      key={device.device_id}
+                      onClick={() => setSelectedDevice(device)}
+                      className={`p-4 cursor-pointer hover:bg-accent transition-colors ${
+                        selectedDevice?.device_id === device.device_id ? 'bg-accent border-l-2 border-l-primary' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`w-2 h-2 rounded-full ${
+                          device.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
+                        }`}></span>
+                        <h3 className="font-medium text-foreground">{device.device_name}</h3>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{device.owner}</p>
+                      <p className="text-xs text-muted-foreground">{device.location}</p>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -174,53 +217,69 @@ export default function SecurityDashboard() {
           <div className="lg:col-span-2">
             {selectedDevice ? (
               <div className="space-y-6">
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h2 className="text-lg font-semibold mb-4">Device Information</h2>
+                <div className="bg-card border rounded-lg shadow-sm p-6">
+                  <h2 className="text-lg font-semibold mb-4 text-foreground">Device Information</h2>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm text-gray-600">Hostname</p>
-                      <p className="font-medium">{selectedDevice.hostname}</p>
+                      <p className="text-sm text-muted-foreground mb-1">Hostname</p>
+                      <p className="font-medium text-foreground">{selectedDevice.hostname}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">IP Address</p>
-                      <p className="font-medium">{selectedDevice.ip_address}</p>
+                      <p className="text-sm text-muted-foreground mb-1">IP Address</p>
+                      <p className="font-medium text-foreground">{selectedDevice.ip_address}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Status</p>
+                      <p className="font-medium text-foreground capitalize">{selectedDevice.status}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Location</p>
+                      <p className="font-medium text-foreground">{selectedDevice.location}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white rounded-lg shadow">
+                <div className="bg-card border rounded-lg shadow-sm">
                   <div className="p-4 border-b">
-                    <h2 className="text-lg font-semibold">USB Activity</h2>
+                    <h2 className="text-lg font-semibold text-foreground">USB Activity</h2>
                   </div>
                   <div className="divide-y max-h-96 overflow-y-auto">
-                    {getDeviceLogs(selectedDevice.device_id).map((log) => (
-                      <div key={log.id} className="p-4">
-                        <div className="flex items-start gap-3">
-                          <Usb className={`w-4 h-4 ${
-                            log.event === 'connected' ? 'text-green-600' : 'text-red-600'
-                          }`} />
-                          <div className="flex-1">
-                            <p className="font-medium capitalize">{log.event}</p>
-                            <p className="text-sm text-gray-600">{log.message}</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {new Date(log.timestamp).toLocaleString()}
-                            </p>
+                    {getDeviceLogs(selectedDevice.device_id).length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        <Usb className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>No USB activity recorded</p>
+                      </div>
+                    ) : (
+                      getDeviceLogs(selectedDevice.device_id).map((log) => (
+                        <div key={log.id} className="p-4 hover:bg-accent transition-colors">
+                          <div className="flex items-start gap-3">
+                            <Usb className={`w-4 h-4 mt-0.5 ${
+                              log.event === 'connected' ? 'text-green-600' : 'text-red-600'
+                            }`} />
+                            <div className="flex-1">
+                              <p className="font-medium capitalize text-foreground">{log.event}</p>
+                              <p className="text-sm text-muted-foreground">{log.message}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {new Date(log.timestamp).toLocaleString()}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-lg shadow p-12 text-center">
-                <Monitor className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-lg font-medium mb-2">Select a Device</h3>
-                <p className="text-gray-600">Choose a device to view details</p>
+              <div className="bg-card border rounded-lg shadow-sm p-12 text-center">
+                <Monitor className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-lg font-medium mb-2 text-foreground">Select a Device</h3>
+                <p className="text-muted-foreground">Choose a device to view details</p>
               </div>
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

@@ -75,6 +75,7 @@
     "react-hook-form": "latest",
     "react-resizable-panels": "latest",
     "react-router-dom": "latest",
+    "reactflow": "^11.11.4",
     "recharts": "latest",
     "sass": "latest",
     "sass-embedded": "latest",
