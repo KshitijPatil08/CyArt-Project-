@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Security Operations Center</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+      :root {
+        --font-family: 'Inter', sans-serif;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font-family);
+        transition: background-color 0.3s, color 0.3s;
+      }
+
+      body.light-theme {
+        --bg-color: #f4f7fa;
+        --card-bg-color: #ffffff;
+        --text-color: #1a202c;
+        --text-color-secondary: #4a5568;
+        --border-color: #e2e8f0;
+        --header-bg-color: #ffffff;
+        --input-bg-color: #ffffff;
+        --input-border-color: #cbd5e0;
+        --button-bg-color: #2563eb;
+        --button-text-color: #ffffff;
+        --active-nav-color: #2563eb;
+        --status-online: #28a745;
+        --status-offline: #dc3545;
+        --status-warning: #ffc107;
+        
+        --critical-bg: #fee2e2;
+        --critical-text: #b91c1c;
+        --critical-tag-bg: #ef4444;
+
+        --warning-bg: #fffbeb;
+        --warning-text: #b45309;
+        --warning-tag-bg: #f59e0b;
+
+        --info-bg: #eff6ff;
+        --info-text: #1d4ed8;
+        --info-tag-bg: #3b82f6;
+
+        --success-bg: #f0fdf4;
+        --success-text: #15803d;
+      }
+      
+      body.dark-theme {
+        --bg-color: #111827;
+        --card-bg-color: #1f2937;
+        --text-color: #f9fafb;
+        --text-color-secondary: #9ca3af;
+        --border-color: #374151;
+        --header-bg-color: #1f2937;
+        --input-bg-color: #374151;
+        --input-border-color: #4b5563;
+        --button-bg-color: #3b82f6;
+        --button-text-color: #ffffff;
+        --active-nav-color: #60a5fa;
+        --status-online: #34d399;
+        --status-offline: #f87171;
+        --status-warning: #fbbf24;
+
+        --critical-bg: #3f2222;
+        --critical-text: #fca5a5;
+        --critical-tag-bg: #ef4444;
+
+        --warning-bg: #422c02;
+        --warning-text: #fcd34d;
+        --warning-tag-bg: #f59e0b;
+
+        --info-bg: #1e293b;
+        --info-text: #93c5fd;
+        --info-tag-bg: #3b82f6;
+
+        --success-bg: #162a1c;
+        --success-text: #6ee7b7;
+      }
+
+      /* Simple scrollbar styling */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--bg-color);
+      }
+      ::-webkit-scrollbar-thumb {
+        background-color: #4b5563;
+        border-radius: 4px;
+        border: 2px solid var(--bg-color);
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background-color: #6b7280;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
