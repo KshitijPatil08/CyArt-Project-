@@ -195,7 +195,7 @@ function Send-LogEvent {
     $jsonBody = $body | ConvertTo-Json -Depth 5
 
     try {
-        $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
+        $response = Invoke-RestMethod -Uri "$global:API_BASE/api/log" `
             -Method POST -Body $jsonBody -ContentType "application/json" -ErrorAction Stop
         
         Write-Host "[+] Event logged: $hardware_type $event"
@@ -203,7 +203,7 @@ function Send-LogEvent {
     }
     catch {
         Write-Host "[-] Failed to send event: $_"
-        Write-Host "    Endpoint: $global:API_BASE/api/logs"
+        Write-Host "    Endpoint: $global:API_BASE/api/log"
         return $null
     }
 }
@@ -266,7 +266,7 @@ function Register-UsbEventHandlers {
         } | ConvertTo-Json -Depth 5
 
         try {
-            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
+            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/log" `
                 -Method POST -Body $body -ContentType "application/json"
             Write-Host "    [OK] Event sent to backend" -ForegroundColor Green
             
@@ -309,7 +309,7 @@ function Register-UsbEventHandlers {
         } | ConvertTo-Json -Depth 5
 
         try {
-            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/logs" `
+            $response = Invoke-RestMethod -Uri "$global:API_BASE/api/log" `
                 -Method POST -Body $body -ContentType "application/json"
             Write-Host "    [OK] Event sent to backend" -ForegroundColor Green
         }
