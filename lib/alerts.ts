@@ -12,15 +12,33 @@ export async function checkAndCreateAlerts(
 
     const alertRules = [
       {
-        condition: (msg: string) => msg.includes('unauthorized') || msg.includes('failed'),
+        condition: (msg: string) => msg.includes('unauthorized') || msg.includes('failed') || msg.includes('access denied'),
         title: 'Unauthorized Access Attempt',
+        severity: 'critical',
+        type: 'security'
+      },
+      {
+        condition: (msg: string) => msg.includes('security breach') || msg.includes('intrusion'),
+        title: 'Security Breach Detected',
+        severity: 'critical',
+        type: 'security'
+      },
+      {
+        condition: (msg: string) => msg.includes('malware') || msg.includes('virus') || msg.includes('threat'),
+        title: 'Malware Detection',
+        severity: 'critical',
+        type: 'security'
+      },
+      {
+        condition: (msg: string) => msg.includes('failed login') || msg.includes('authentication failed'),
+        title: 'Failed Authentication',
         severity: 'high',
         type: 'security'
       },
       {
         condition: (msg: string) => msg.includes('unknown') && msg.includes('usb'),
         title: 'Unknown USB Device',
-        severity: 'warning',
+        severity: 'moderate',
         type: 'hardware'
       },
       {
@@ -29,8 +47,20 @@ export async function checkAndCreateAlerts(
           return (hour < 6 || hour > 22) && msg.includes('usb') && msg.includes('connected');
         },
         title: 'Off-Hours USB Activity',
-        severity: 'warning',
+        severity: 'moderate',
         type: 'hardware'
+      },
+      {
+        condition: (msg: string) => msg.includes('error') && (msg.includes('system') || msg.includes('critical')),
+        title: 'System Error',
+        severity: 'high',
+        type: 'system'
+      },
+      {
+        condition: (msg: string) => msg.includes('warning') && msg.includes('security'),
+        title: 'Security Warning',
+        severity: 'moderate',
+        type: 'security'
       }
     ];
 
@@ -55,12 +85,11 @@ export async function checkAndCreateAlerts(
     await supabase.from('alerts').insert([{
       device_id,
       alert_type: matchedRule.type,
-      log_type,
-      message,
       severity: matchedRule.severity,
       title: matchedRule.title,
-      description: `${matchedRule.title}: ${message.substring(0, 100)}`,
-      resolved: false,
+      description: `${matchedRule.title}: ${message.substring(0, 200)}`,
+      is_read: false,
+      is_resolved: false,
       created_at: new Date().toISOString(),
     }]);
 

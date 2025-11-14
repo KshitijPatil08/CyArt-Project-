@@ -18,7 +18,8 @@ import {
   LogOut, 
   User,
   Menu,
-  X
+  X,
+  Shield
 } from "lucide-react"
 import Link from "next/link"
 import { UserMenu } from "./user-menu"
@@ -27,6 +28,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Devices", href: "/devices", icon: Monitor },
   { name: "Logs", href: "/logs", icon: FileText },
+  { name: "USB Whitelist", href: "/usb-whitelist", icon: Shield },
 ]
 
 export function Navigation() {

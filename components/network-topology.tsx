@@ -90,115 +90,139 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
   const initialNodes: Node[] = useMemo(() => {
     if (devices.length === 0) return []
 
-    // Calculate positions in a circular or grid layout
-    const centerX = 400
-    const centerY = 300
-    const radius = Math.min(250, devices.length * 30)
-    const angleStep = (2 * Math.PI) / devices.length
+    // Separate servers and agents
+    const servers = devices.filter(d => (d as any).is_server === true || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
+    const agents = devices.filter(d => !servers.includes(d))
 
-    return devices.map((device, index) => {
-      const angle = index * angleStep
-      const x = centerX + radius * Math.cos(angle)
-      const y = centerY + radius * Math.sin(angle)
+    const centerX = 500
+    const centerY = 400
+    const serverRadius = 100
+    const agentRadius = Math.min(300, Math.max(200, agents.length * 25))
 
-      return {
-        id: device.device_id,
+    const nodes: Node[] = []
+
+    // Place server(s) in center
+    if (servers.length > 0) {
+      servers.forEach((server, index) => {
+        const offsetX = servers.length > 1 ? (index - (servers.length - 1) / 2) * 150 : 0
+        nodes.push({
+          id: server.device_id,
+          type: 'device',
+          position: { x: centerX + offsetX, y: centerY },
+          data: {
+            label: server.device_name || server.hostname || 'Server',
+            ipAddress: server.ip_address || 'N/A',
+            owner: server.owner || 'Server',
+            location: server.location || 'Data Center',
+            status: server.status || 'offline',
+            deviceType: 'server',
+          },
+        })
+      })
+    } else {
+      // If no server, create a virtual server node
+      nodes.push({
+        id: 'virtual-server',
+        type: 'device',
+        position: { x: centerX, y: centerY },
+        data: {
+          label: 'Central Server',
+          ipAddress: 'N/A',
+          owner: 'System',
+          location: 'Data Center',
+          status: 'online',
+          deviceType: 'server',
+        },
+      })
+    }
+
+    // Place agents in star topology around server(s)
+    const mainServerId = servers.length > 0 ? servers[0].device_id : 'virtual-server'
+    const angleStep = agents.length > 0 ? (2 * Math.PI) / agents.length : 0
+
+    agents.forEach((agent, index) => {
+      const angle = index * angleStep - Math.PI / 2 // Start from top
+      const x = centerX + agentRadius * Math.cos(angle)
+      const y = centerY + agentRadius * Math.sin(angle)
+
+      nodes.push({
+        id: agent.device_id,
         type: 'device',
         position: { x, y },
         data: {
-          label: device.device_name || device.hostname,
-          ipAddress: device.ip_address || 'N/A',
-          owner: device.owner || 'Unknown',
-          location: device.location || 'Unknown',
-          status: device.status || 'offline',
-          deviceType: device.device_type,
+          label: agent.device_name || agent.hostname,
+          ipAddress: agent.ip_address || 'N/A',
+          owner: agent.owner || 'Unknown',
+          location: agent.location || 'Unknown',
+          status: agent.status || 'offline',
+          deviceType: agent.device_type || 'windows',
         },
-      }
+      })
     })
+
+    return nodes
   }, [devices])
 
-  // Generate edges based on relationships
+  // Generate edges based on star topology (server to agents)
   const initialEdges: Edge[] = useMemo(() => {
     const edges: Edge[] = []
     
-    // Group devices by location to create connections
-    const devicesByLocation = new Map<string, Device[]>()
-    devices.forEach((device) => {
-      const location = device.location || 'unknown'
-      if (!devicesByLocation.has(location)) {
-        devicesByLocation.set(location, [])
-      }
-      devicesByLocation.get(location)!.push(device)
+    // Separate servers and agents
+    const servers = devices.filter(d => (d as any).is_server === true || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
+    const agents = devices.filter(d => !servers.includes(d))
+    
+    const mainServerId = servers.length > 0 ? servers[0].device_id : 'virtual-server'
+
+    // Create star topology: connect all agents to the main server
+    agents.forEach((agent) => {
+      const isOnline = agent.status === 'online'
+      const serverStatus = servers.length > 0 ? (servers[0].status === 'online') : true
+      const bothOnline = isOnline && serverStatus
+
+      edges.push({
+        id: `edge-${mainServerId}-${agent.device_id}`,
+        source: mainServerId,
+        target: agent.device_id,
+        type: 'smoothstep',
+        animated: bothOnline,
+        style: {
+          stroke: bothOnline ? '#10b981' : '#6b7280',
+          strokeWidth: bothOnline ? 3 : 2,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: bothOnline ? '#10b981' : '#6b7280',
+        },
+        label: bothOnline ? 'Connected' : 'Offline',
+        labelStyle: {
+          fill: bothOnline ? '#10b981' : '#6b7280',
+          fontWeight: 600,
+        },
+      })
     })
 
-    // Create edges between devices in the same location
-    devicesByLocation.forEach((locationDevices) => {
-      if (locationDevices.length > 1) {
-        for (let i = 0; i < locationDevices.length; i++) {
-          for (let j = i + 1; j < locationDevices.length; j++) {
-            edges.push({
-              id: `e${locationDevices[i].device_id}-${locationDevices[j].device_id}`,
-              source: locationDevices[i].device_id,
-              target: locationDevices[j].device_id,
-              type: 'smoothstep',
-              animated: locationDevices[i].status === 'online' && locationDevices[j].status === 'online',
-              style: {
-                stroke: locationDevices[i].status === 'online' && locationDevices[j].status === 'online' 
-                  ? '#10b981' 
-                  : '#6b7280',
-                strokeWidth: 2,
-              },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: locationDevices[i].status === 'online' && locationDevices[j].status === 'online' 
-                  ? '#10b981' 
-                  : '#6b7280',
-              },
-            })
-          }
-        }
+    // Connect additional servers to main server if multiple servers exist
+    if (servers.length > 1) {
+      for (let i = 1; i < servers.length; i++) {
+        const isOnline = servers[i].status === 'online' && servers[0].status === 'online'
+        edges.push({
+          id: `edge-server-${servers[0].device_id}-${servers[i].device_id}`,
+          source: servers[0].device_id,
+          target: servers[i].device_id,
+          type: 'smoothstep',
+          animated: isOnline,
+          style: {
+            stroke: isOnline ? '#3b82f6' : '#6b7280',
+            strokeWidth: 2,
+            strokeDasharray: '5,5',
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: isOnline ? '#3b82f6' : '#6b7280',
+          },
+        })
       }
-    })
-
-    // Also create connections based on owner (optional - can be commented out)
-    const devicesByOwner = new Map<string, Device[]>()
-    devices.forEach((device) => {
-      const owner = device.owner || 'unknown'
-      if (!devicesByOwner.has(owner)) {
-        devicesByOwner.set(owner, [])
-      }
-      devicesByOwner.get(owner)!.push(device)
-    })
-
-    // Add owner-based connections (dashed lines)
-    devicesByOwner.forEach((ownerDevices) => {
-      if (ownerDevices.length > 1) {
-        for (let i = 0; i < ownerDevices.length; i++) {
-          for (let j = i + 1; j < ownerDevices.length; j++) {
-            const edgeId = `e-owner-${ownerDevices[i].device_id}-${ownerDevices[j].device_id}`
-            // Only add if not already connected by location
-            if (!edges.find(e => e.id === edgeId)) {
-              edges.push({
-                id: edgeId,
-                source: ownerDevices[i].device_id,
-                target: ownerDevices[j].device_id,
-                type: 'smoothstep',
-                animated: false,
-                style: {
-                  stroke: '#8b5cf6',
-                  strokeWidth: 1,
-                  strokeDasharray: '5,5',
-                },
-                markerEnd: {
-                  type: MarkerType.ArrowClosed,
-                  color: '#8b5cf6',
-                },
-              })
-            }
-          }
-        }
-      }
-    })
+    }
 
     return edges
   }, [devices])

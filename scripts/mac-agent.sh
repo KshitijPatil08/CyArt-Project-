@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Enhanced Linux Device Tracking Agent
+# Enhanced macOS Device Tracking Agent
 # Runs in background, registers once, collects overall system logs
 
 API_URL="${1:-https://v0-project1-r9.vercel.app}"
@@ -34,20 +34,19 @@ initialize_device() {
         fi
     fi
 
-    local os_version=$(uname -r)
-    local distro=$(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'"' -f2 || echo "Linux")
+    local os_version=$(sw_vers -productVersion)
     local hostname=$(hostname)
-    local ip_address=$(hostname -I | awk '{print $1}')
+    local ip_address=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || echo "127.0.0.1")
 
     local payload=$(cat <<EOF
 {
     "device_name": "$DEVICE_NAME",
-    "device_type": "linux",
+    "device_type": "mac",
     "owner": "$OWNER",
     "location": "$LOCATION",
     "hostname": "$hostname",
     "ip_address": "$ip_address",
-    "os_version": "$distro",
+    "os_version": "macOS $os_version",
     "agent_version": "2.0.0"
 }
 EOF
@@ -74,20 +73,17 @@ get_usb_details() {
     local details="{}"
     
     if [ -n "$device_path" ]; then
-        # Try to get USB details using udevadm
-        local vendor_id=$(udevadm info -q property -p "$device_path" 2>/dev/null | grep ID_VENDOR_ID | cut -d'=' -f2)
-        local product_id=$(udevadm info -q property -p "$device_path" 2>/dev/null | grep ID_SERIAL_SHORT | cut -d'=' -f2)
-        local vendor_name=$(udevadm info -q property -p "$device_path" 2>/dev/null | grep ID_VENDOR | cut -d'=' -f2)
-        local product_name=$(udevadm info -q property -p "$device_path" 2>/dev/null | grep ID_MODEL | cut -d'=' -f2)
+        # Get USB details using system_profiler on macOS
+        local vendor_id=$(system_profiler SPUSBDataType 2>/dev/null | grep -A 10 "$device_path" | grep "Vendor ID" | awk '{print $3}' | head -1)
+        local product_id=$(system_profiler SPUSBDataType 2>/dev/null | grep -A 10 "$device_path" | grep "Product ID" | awk '{print $3}' | head -1)
+        local serial=$(system_profiler SPUSBDataType 2>/dev/null | grep -A 10 "$device_path" | grep "Serial Number" | awk '{print $3}' | head -1)
         
         if [ -n "$vendor_id" ] || [ -n "$product_id" ]; then
             details=$(cat <<EOF
 {
     "vendor_id": "${vendor_id:-}",
     "product_id": "${product_id:-}",
-    "vendor_name": "${vendor_name:-}",
-    "product_name": "${product_name:-}",
-    "serial_number": "${product_id:-UNKNOWN}"
+    "serial_number": "${serial:-UNKNOWN}"
 }
 EOF
 )
@@ -106,14 +102,17 @@ track_usb_devices() {
     local state_file="/tmp/usb_state.json"
     local current_usbs="{}"
     
-    # Get current USB devices
-    while IFS= read -r device; do
-        if [ -n "$device" ]; then
-            local device_name=$(lsblk -dno NAME,MODEL "$device" 2>/dev/null | awk '{print $2}' || echo "USB Device")
-            local serial=$(udevadm info -q property -p "/sys/block/$(basename $device)" 2>/dev/null | grep ID_SERIAL_SHORT | cut -d'=' -f2 || echo "UNKNOWN")
-            current_usbs=$(echo "$current_usbs" | jq -r --arg dev "$device" --arg name "$device_name" --arg ser "$serial" '. + {($dev): {"name": $name, "serial": $ser}}' 2>/dev/null || echo "$current_usbs")
+    # Get current USB devices using system_profiler
+    system_profiler SPUSBDataType 2>/dev/null | grep -E "USB|Product ID|Serial Number" | while IFS= read -r line; do
+        if echo "$line" | grep -q "USB"; then
+            local device_name=$(echo "$line" | sed 's/.*USB //' | sed 's/:$//')
+        elif echo "$line" | grep -q "Serial Number"; then
+            local serial=$(echo "$line" | awk '{print $3}')
+            if [ -n "$device_name" ] && [ -n "$serial" ]; then
+                current_usbs=$(echo "$current_usbs" | jq -r --arg name "$device_name" --arg ser "$serial" '. + {($name): {"serial": $ser}}' 2>/dev/null || echo "$current_usbs")
+            fi
         fi
-    done < <(lsblk -dno NAME,TYPE | grep -E "disk|part" | awk '{print "/dev/"$1}')
+    done
 
     # Get previous state
     local previous_state="{}"
@@ -121,25 +120,21 @@ track_usb_devices() {
         previous_state=$(cat "$state_file" 2>/dev/null || echo "{}")
     fi
 
-    # Check for new USB devices
+    # Check for new/removed USB devices (simplified without jq dependency)
     if command -v jq >/dev/null 2>&1; then
-        echo "$current_usbs" | jq -r 'keys[]' 2>/dev/null | while read -r device; do
-            if ! echo "$previous_state" | jq -e --arg dev "$device" 'has($dev)' >/dev/null 2>&1; then
-                local device_name=$(echo "$current_usbs" | jq -r --arg dev "$device" '.[$dev].name // "USB Device"')
-                local serial=$(echo "$current_usbs" | jq -r --arg dev "$device" '.[$dev].serial // "UNKNOWN"')
-                send_usb_event "connected" "$device_name" "$serial" "$device"
+        echo "$current_usbs" | jq -r 'keys[]' 2>/dev/null | while read -r device_name; do
+            if ! echo "$previous_state" | jq -e --arg dev "$device_name" 'has($dev)' >/dev/null 2>&1; then
+                local serial=$(echo "$current_usbs" | jq -r --arg dev "$device_name" '.[$dev].serial // "UNKNOWN"')
+                send_usb_event "connected" "$device_name" "$serial"
             fi
         done
 
-        # Check for removed USB devices
-        echo "$previous_state" | jq -r 'keys[]' 2>/dev/null | while read -r device; do
-            if ! echo "$current_usbs" | jq -e --arg dev "$device" 'has($dev)' >/dev/null 2>&1; then
-                local device_name=$(echo "$previous_state" | jq -r --arg dev "$device" '.[$dev].name // "USB Device"')
-                send_usb_event "disconnected" "$device_name" "UNKNOWN" "$device"
+        echo "$previous_state" | jq -r 'keys[]' 2>/dev/null | while read -r device_name; do
+            if ! echo "$current_usbs" | jq -e --arg dev "$device_name" 'has($dev)' >/dev/null 2>&1; then
+                send_usb_event "disconnected" "$device_name" "UNKNOWN"
             fi
         done
     else
-        # Fallback without jq
         log_message "Warning: jq not installed, USB tracking limited"
     fi
 
@@ -152,10 +147,8 @@ send_usb_event() {
     local action=$1
     local usb_name=$2
     local serial=$3
-    local device_path=$4
 
     local timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-    local usb_details=$(get_usb_details "$device_path")
 
     local payload=$(cat <<EOF
 {
@@ -165,14 +158,13 @@ send_usb_event() {
     "log_type": "hardware",
     "hardware_type": "usb",
     "event": "$action",
-    "source": "linux-agent",
+    "source": "macos-agent",
     "severity": "info",
     "message": "USB device $action: $usb_name",
     "timestamp": "$timestamp",
     "raw_data": {
         "usb_name": "$usb_name",
-        "serial_number": "$serial",
-        "device_path": "$device_path"
+        "serial_number": "$serial"
     }
 }
 EOF
@@ -194,56 +186,24 @@ send_system_logs() {
     local hostname=$(hostname)
     local timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-    # Get auth logs (security)
-    if [ -f /var/log/auth.log ]; then
-        tail -5 /var/log/auth.log 2>/dev/null | while IFS= read -r log; do
-            [ -z "$log" ] && continue
-            
-            local severity="info"
-            if echo "$log" | grep -qi "failed\|error\|denied"; then
-                severity="high"
-            fi
+    # Get system logs using log command (macOS)
+    log show --predicate 'process == "kernel" OR process == "securityd"' --last 5m --style syslog 2>/dev/null | tail -5 | while IFS= read -r log; do
+        [ -z "$log" ] && continue
+        
+        local severity="info"
+        if echo "$log" | grep -qi "error\|critical\|fail"; then
+            severity="error"
+        elif echo "$log" | grep -qi "warn"; then
+            severity="warning"
+        fi
 
-            local payload=$(cat <<EOF
-{
-    "device_id": "$DEVICE_ID",
-    "device_name": "$DEVICE_NAME",
-    "hostname": "$hostname",
-    "log_type": "security",
-    "source": "syslog - auth.log",
-    "severity": "$severity",
-    "message": "$(echo "$log" | sed 's/"/\\"/g')",
-    "timestamp": "$timestamp",
-    "raw_data": {}
-}
-EOF
-)
-
-            curl -s -X POST "$API_URL/api/log" \
-                -H "Content-Type: application/json" \
-                -d "$payload" > /dev/null
-        done
-    fi
-
-    # Get system logs
-    if [ -f /var/log/syslog ]; then
-        tail -5 /var/log/syslog 2>/dev/null | while IFS= read -r log; do
-            [ -z "$log" ] && continue
-            
-            local severity="info"
-            if echo "$log" | grep -qi "error\|critical\|fail"; then
-                severity="error"
-            elif echo "$log" | grep -qi "warn"; then
-                severity="warning"
-            fi
-
-            local payload=$(cat <<EOF
+        local payload=$(cat <<EOF
 {
     "device_id": "$DEVICE_ID",
     "device_name": "$DEVICE_NAME",
     "hostname": "$hostname",
     "log_type": "system",
-    "source": "syslog",
+    "source": "macOS system log",
     "severity": "$severity",
     "message": "$(echo "$log" | sed 's/"/\\"/g')",
     "timestamp": "$timestamp",
@@ -252,11 +212,10 @@ EOF
 EOF
 )
 
-            curl -s -X POST "$API_URL/api/log" \
-                -H "Content-Type: application/json" \
-                -d "$payload" > /dev/null
-        done
-    fi
+        curl -s -X POST "$API_URL/api/log" \
+            -H "Content-Type: application/json" \
+            -d "$payload" > /dev/null
+    done
 }
 
 # Update device status
@@ -280,7 +239,7 @@ EOF
 }
 
 # Main execution
-log_message "Starting Enhanced Linux Device Tracking Agent..."
+log_message "Starting Enhanced macOS Device Tracking Agent..."
 initialize_device
 
 if [ -z "$DEVICE_ID" ]; then
@@ -295,3 +254,4 @@ while true; do
     update_device_status
     sleep $POLL_INTERVAL
 done
+

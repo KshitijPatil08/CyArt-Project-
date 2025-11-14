@@ -26,9 +26,22 @@ interface Log {
   timestamp: string;
 }
 
+interface Alert {
+  id: string;
+  device_id: string;
+  alert_type: string;
+  severity: string;
+  title: string;
+  description: string;
+  is_read: boolean;
+  is_resolved: boolean;
+  created_at: string;
+}
+
 export default function SecurityDashboard() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'topology'>('list');
@@ -38,10 +51,12 @@ export default function SecurityDashboard() {
   useEffect(() => {
     fetchDevices();
     fetchLogs();
+    fetchAlerts();
     
     const interval = setInterval(() => {
       fetchDevices();
       fetchLogs();
+      fetchAlerts();
     }, 5000);
 
     return () => clearInterval(interval);
@@ -61,7 +76,7 @@ export default function SecurityDashboard() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/devices/logs?limit=50`);
+      const res = await fetch(`${API_URL}/api/logs?limit=100`);
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (error) {
@@ -69,8 +84,30 @@ export default function SecurityDashboard() {
     }
   };
 
+  const fetchAlerts = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/alerts/list?resolved=false`);
+      const data = await res.json();
+      setAlerts(data.alerts || []);
+    } catch (error) {
+      console.error('Error fetching alerts:', error);
+    }
+  };
+
   const getDeviceLogs = (deviceId: string) => {
-    return logs.filter(log => log.device_id === deviceId);
+    // Filter logs for the device, prioritizing USB/hardware events
+    const deviceLogs = logs.filter(log => log.device_id === deviceId);
+    // Sort by timestamp, most recent first
+    return deviceLogs.sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  };
+
+  const getUSBLogs = (deviceId: string) => {
+    return getDeviceLogs(deviceId).filter(log => 
+      log.log_type === 'hardware' && 
+      (log.hardware_type === 'usb' || log.message?.toLowerCase().includes('usb'))
+    );
   };
 
   if (loading) {
@@ -135,7 +172,14 @@ export default function SecurityDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Alerts</p>
-                <p className="text-2xl font-bold text-red-600">0</p>
+                <div className="flex gap-2 items-baseline">
+                  <p className="text-2xl font-bold text-red-600">{alerts.length}</p>
+                  {alerts.filter(a => a.severity === 'critical').length > 0 && (
+                    <span className="text-xs text-red-600">
+                      ({alerts.filter(a => a.severity === 'critical').length} critical)
+                    </span>
+                  )}
+                </div>
               </div>
               <AlertCircle className="w-8 h-8 text-red-600" />
             </div>
@@ -244,28 +288,45 @@ export default function SecurityDashboard() {
                     <h2 className="text-lg font-semibold text-foreground">USB Activity</h2>
                   </div>
                   <div className="divide-y max-h-96 overflow-y-auto">
-                    {getDeviceLogs(selectedDevice.device_id).length === 0 ? (
+                    {getUSBLogs(selectedDevice.device_id).length === 0 ? (
                       <div className="p-8 text-center text-muted-foreground">
                         <Usb className="w-12 h-12 mx-auto mb-2 opacity-50" />
                         <p>No USB activity recorded</p>
                       </div>
                     ) : (
-                      getDeviceLogs(selectedDevice.device_id).map((log) => (
-                        <div key={log.id} className="p-4 hover:bg-accent transition-colors">
-                          <div className="flex items-start gap-3">
-                            <Usb className={`w-4 h-4 mt-0.5 ${
-                              log.event === 'connected' ? 'text-green-600' : 'text-red-600'
-                            }`} />
-                            <div className="flex-1">
-                              <p className="font-medium capitalize text-foreground">{log.event}</p>
-                              <p className="text-sm text-muted-foreground">{log.message}</p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {new Date(log.timestamp).toLocaleString()}
-                              </p>
+                      getUSBLogs(selectedDevice.device_id).map((log) => {
+                        const isConnected = log.event === 'connected' || log.event === 'insert';
+                        const severityColor = log.severity === 'critical' ? 'text-red-600' : 
+                                             log.severity === 'high' ? 'text-orange-600' :
+                                             log.severity === 'moderate' ? 'text-yellow-600' : 'text-green-600';
+                        return (
+                          <div key={log.id} className="p-4 hover:bg-accent transition-colors">
+                            <div className="flex items-start gap-3">
+                              <Usb className={`w-4 h-4 mt-0.5 ${isConnected ? 'text-green-600' : 'text-red-600'}`} />
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium capitalize text-foreground">{log.event || 'USB Event'}</p>
+                                  {log.severity && (
+                                    <span className={`text-xs px-2 py-0.5 rounded ${severityColor} bg-opacity-10`}>
+                                      {log.severity}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground">{log.message}</p>
+                                {log.raw_data && typeof log.raw_data === 'object' && (
+                                  <div className="text-xs text-muted-foreground mt-1">
+                                    {log.raw_data.usb_name && <p>Device: {log.raw_data.usb_name}</p>}
+                                    {log.raw_data.serial_number && <p>Serial: {log.raw_data.serial_number}</p>}
+                                  </div>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {new Date(log.timestamp).toLocaleString()}
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
