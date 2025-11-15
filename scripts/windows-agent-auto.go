@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,8 +15,8 @@ import (
 )
 
 const (
-	API_URL        = "http://192.168.1.100" // Default server IP - update to your server IP
-	POLL_INTERVAL  = 30 * time.Second
+	DEFAULT_API_URL = "http://192.168.1.100" // Default server IP - will auto-detect
+	POLL_INTERVAL   = 30 * time.Second
 	REGISTRATION_FILE = "device_id.txt"
 	LOG_FILE       = "agent.log"
 	CONFIG_FILE    = "agent.config"
@@ -55,6 +56,10 @@ type LogEntry struct {
 	RawData    map[string]interface{} `json:"raw_data,omitempty"`
 }
 
+type Config struct {
+	ServerURL string `json:"server_url"`
+}
+
 func init() {
 	// Get app data directory
 	if runtime.GOOS == "windows" {
@@ -70,10 +75,130 @@ func init() {
 	deviceName = getHostname()
 	owner = getUsername()
 	location = "Office"
-	apiURL = API_URL
+	
+	// Load or detect server URL
+	apiURL = loadOrDetectServerURL()
 	
 	// Load device ID if exists
 	loadDeviceID()
+}
+
+// Auto-detect server on local network
+func detectServer() string {
+	logMessage("Auto-detecting server on local network...")
+	
+	// Try common server IPs
+	commonIPs := []string{
+		"192.168.1.100",
+		"192.168.1.1",
+		"192.168.0.100",
+		"10.0.0.100",
+		"172.16.0.100",
+	}
+	
+	// Get local network range
+	localIP := getLocalIP()
+	if localIP != "" {
+		parts := strings.Split(localIP, ".")
+		if len(parts) == 4 {
+			baseIP := strings.Join(parts[:3], ".")
+			commonIPs = append([]string{baseIP + ".100", baseIP + ".1"}, commonIPs...)
+		}
+	}
+	
+	// Test each IP
+	for _, ip := range commonIPs {
+		url := fmt.Sprintf("http://%s/api/devices/list", ip)
+		if testConnection(url) {
+			logMessage(fmt.Sprintf("Found server at: %s", ip))
+			return fmt.Sprintf("http://%s", ip)
+		}
+	}
+	
+	// Try to discover via network scan (simplified)
+	logMessage("Scanning local network for server...")
+	if serverIP := scanNetwork(); serverIP != "" {
+		return fmt.Sprintf("http://%s", serverIP)
+	}
+	
+	logMessage("Server auto-detection failed, using default")
+	return DEFAULT_API_URL
+}
+
+func scanNetwork() string {
+	localIP := getLocalIP()
+	if localIP == "" {
+		return ""
+	}
+	
+	parts := strings.Split(localIP, ".")
+	if len(parts) != 4 {
+		return ""
+	}
+	
+	baseIP := strings.Join(parts[:3], ".")
+	
+	// Scan common server IPs in subnet
+	for i := 1; i <= 254; i++ {
+		if i == 100 || i == 1 || i%10 == 0 { // Check common server IPs
+			testIP := fmt.Sprintf("%s.%d", baseIP, i)
+			url := fmt.Sprintf("http://%s/api/devices/list", testIP)
+			if testConnection(url) {
+				return testIP
+			}
+		}
+	}
+	
+	return ""
+}
+
+func testConnection(url string) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == 200 || resp.StatusCode == 401 // 401 is OK, means server is there
+}
+
+func getLocalIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
+}
+
+func loadOrDetectServerURL() string {
+	configPath := filepath.Join(agentDir, CONFIG_FILE)
+	
+	// Try to load from config file
+	if data, err := os.ReadFile(configPath); err == nil {
+		var config Config
+		if json.Unmarshal(data, &config) == nil && config.ServerURL != "" {
+			logMessage(fmt.Sprintf("Loaded server URL from config: %s", config.ServerURL))
+			return config.ServerURL
+		}
+	}
+	
+	// Auto-detect server
+	serverURL := detectServer()
+	
+	// Save detected URL to config
+	saveConfig(serverURL)
+	
+	return serverURL
+}
+
+func saveConfig(serverURL string) {
+	configPath := filepath.Join(agentDir, CONFIG_FILE)
+	config := Config{ServerURL: serverURL}
+	data, _ := json.Marshal(config)
+	os.WriteFile(configPath, data, 0644)
 }
 
 func getHostname() string {
@@ -171,7 +296,6 @@ func initializeDevice() error {
 }
 
 func getIPAddress() string {
-	// Try to get IP address using ipconfig (Windows)
 	cmd := exec.Command("ipconfig")
 	output, err := cmd.Output()
 	if err == nil {
@@ -207,7 +331,6 @@ func trackUSBDevices() {
 		return
 	}
 
-	// Get USB devices using PowerShell
 	cmd := exec.Command("powershell", "-Command", 
 		"Get-WmiObject Win32_PnPEntity | Where-Object { $_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*' } | Select-Object Name, PNPDeviceID | ConvertTo-Json -Compress")
 	
@@ -216,10 +339,8 @@ func trackUSBDevices() {
 		return
 	}
 
-	// Parse JSON output
 	var usbDevices []map[string]interface{}
 	if err := json.Unmarshal(output, &usbDevices); err != nil {
-		// Try as single object
 		var singleDevice map[string]interface{}
 		if err2 := json.Unmarshal(output, &singleDevice); err2 == nil {
 			usbDevices = []map[string]interface{}{singleDevice}
@@ -228,7 +349,6 @@ func trackUSBDevices() {
 		}
 	}
 
-	// Send USB events
 	hostname := getHostname()
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 	
@@ -243,7 +363,6 @@ func trackUSBDevices() {
 			pnpID = id
 		}
 		
-		// Extract serial number from PNPDeviceID if available
 		serialNumber := "UNKNOWN"
 		if strings.Contains(pnpID, "\\") {
 			parts := strings.Split(pnpID, "\\")
@@ -252,7 +371,6 @@ func trackUSBDevices() {
 			}
 		}
 		
-		// Extract vendor and product IDs
 		vendorID := ""
 		productID := ""
 		if strings.Contains(pnpID, "VID_") {
@@ -300,7 +418,6 @@ func sendSystemLogs() {
 	hostname := getHostname()
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 
-	// Get Windows Event Logs using PowerShell
 	cmd := exec.Command("powershell", "-Command",
 		"Get-EventLog -LogName Security -Newest 5 | Select-Object Message, EventID, EntryType, TimeGenerated | ConvertTo-Json")
 	
@@ -308,9 +425,7 @@ func sendSystemLogs() {
 	if err == nil && len(output) > 0 {
 		var logs []map[string]interface{}
 		
-		// Try to unmarshal as array
 		if err := json.Unmarshal(output, &logs); err != nil {
-			// Try as single object
 			var singleLog map[string]interface{}
 			if err2 := json.Unmarshal(output, &singleLog); err2 == nil {
 				logs = []map[string]interface{}{singleLog}
@@ -402,8 +517,8 @@ func updateDeviceStatus() {
 }
 
 func main() {
-	logMessage("Starting CyArt Device Tracking Agent...")
-	logMessage(fmt.Sprintf("Connecting to server: %s", apiURL))
+	logMessage("Starting CyArt Device Tracking Agent (Auto-Configured)...")
+	logMessage(fmt.Sprintf("Server URL: %s", apiURL))
 
 	// Initialize device
 	if err := initializeDevice(); err != nil {
@@ -413,7 +528,7 @@ func main() {
 		// Retry once
 		if err := initializeDevice(); err != nil {
 			logMessage(fmt.Sprintf("Failed to initialize device after retry: %v", err))
-			logMessage("Please check server connectivity and update API_URL in the code")
+			logMessage("Please check server connectivity and configuration")
 			os.Exit(1)
 		}
 	}
@@ -433,4 +548,5 @@ func main() {
 		time.Sleep(POLL_INTERVAL)
 	}
 }
+
 

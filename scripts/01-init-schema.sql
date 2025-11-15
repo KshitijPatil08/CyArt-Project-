@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS devices (
   status TEXT DEFAULT 'offline', -- 'online', 'offline', 'error'
   last_seen TIMESTAMP,
   security_status TEXT DEFAULT 'unknown', -- 'secure', 'warning', 'critical'
+  is_quarantined BOOLEAN DEFAULT FALSE,
+  quarantine_reason TEXT,
+  quarantined_at TIMESTAMP,
+  quarantined_by TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

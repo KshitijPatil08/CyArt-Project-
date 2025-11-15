@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff } from "lucide-react"
+import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 
 interface Device {
@@ -31,6 +31,10 @@ interface Device {
   os_version: string
   status: string
   security_status: string
+  is_quarantined: boolean
+  quarantine_reason: string | null
+  quarantined_at: string | null
+  quarantined_by: string | null
   last_seen: string
   created_at: string
 }
@@ -149,6 +153,60 @@ export function DeviceManagement() {
     } catch (error) {
       console.error("[v0] Error deleting device:", error)
       toast({ title: "Error", description: "Failed to delete device", variant: "destructive" })
+    }
+  }
+
+  const handleQuarantine = async (deviceId: string, deviceName: string) => {
+    const reason = prompt(`Enter reason for quarantining "${deviceName}":`)
+    if (!reason) return
+
+    try {
+      const response = await fetch("/api/devices/quarantine", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device_id: deviceId,
+          reason,
+          quarantined_by: "admin@company.com", // Replace with actual user
+        }),
+      })
+
+      if (!response.ok) throw new Error("Quarantine failed")
+
+      toast({
+        title: "Device Quarantined",
+        description: `${deviceName} has been quarantined. Network access will be restricted within 10 seconds.`,
+      })
+      fetchDevices()
+    } catch (error) {
+      console.error("Error quarantining device:", error)
+      toast({ title: "Error", description: "Failed to quarantine device", variant: "destructive" })
+    }
+  }
+
+  const handleReleaseQuarantine = async (deviceId: string, deviceName: string) => {
+    if (!confirm(`Release "${deviceName}" from quarantine?`)) return
+
+    try {
+      const response = await fetch("/api/devices/quarantine", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device_id: deviceId,
+          released_by: "admin@company.com", // Replace with actual user
+        }),
+      })
+
+      if (!response.ok) throw new Error("Release failed")
+
+      toast({
+        title: "Quarantine Released",
+        description: `${deviceName} has been released from quarantine.`,
+      })
+      fetchDevices()
+    } catch (error) {
+      console.error("Error releasing quarantine:", error)
+      toast({ title: "Error", description: "Failed to release quarantine", variant: "destructive" })
     }
   }
 
@@ -299,7 +357,14 @@ export function DeviceManagement() {
                       <TableCell>{device.owner}</TableCell>
                       <TableCell>{device.location}</TableCell>
                       <TableCell>
-                        <Badge className={getStatusColor(device.status)}>{device.status}</Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge className={getStatusColor(device.status)}>{device.status}</Badge>
+                          {device.is_quarantined && (
+                            <Badge className="bg-red-500 text-white">
+                              🔒 QUARANTINED
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm">
                         {device.last_seen ? new Date(device.last_seen).toLocaleString() : "Never"}
@@ -372,14 +437,37 @@ export function DeviceManagement() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteDevice(device.id)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-2">
+                          {device.is_quarantined ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleReleaseQuarantine(device.id, device.device_name)}
+                              className="text-green-600 hover:text-green-700"
+                              title="Release from quarantine"
+                            >
+                              <ShieldOff className="w-4 h-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleQuarantine(device.id, device.device_name)}
+                              className="text-orange-600 hover:text-orange-700"
+                              title="Quarantine device"
+                            >
+                              <Shield className="w-4 h-4" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteDevice(device.id)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

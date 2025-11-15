@@ -13,22 +13,32 @@ This guide will help you set up your Ubuntu 24.04.3 server as a central monitori
 ## Architecture Overview
 
 ```
-┌─────────────────┐
-│  Ubuntu Server  │  ← Central Monitoring Server (NOT an agent)
-│   (24.04.3)     │
-└────────┬────────┘
-         │
-         │ API Endpoints
-         │
-    ┌────┴────┬──────────┬──────────┐
-    │         │          │          │
-┌───▼───┐ ┌──▼───┐  ┌───▼───┐  ┌───▼───┐
-│Agent 1│ │Agent 2│  │Agent 3│  │Agent N│
-│Windows│ │ Linux │  │  Mac  │  │  ...  │
-└───────┘ └───────┘  └───────┘  └───────┘
+┌─────────────────────────────────┐
+│   Ubuntu Server 24.04.3         │
+│   ┌─────────────────────────┐  │
+│   │  Next.js App (Port 3000) │  │
+│   │  └─ API Endpoints        │  │
+│   └─────────────────────────┘  │
+│   ┌─────────────────────────┐  │
+│   │  Nginx (Port 80)         │  │
+│   │  └─ Reverse Proxy       │  │
+│   └─────────────────────────┘  │
+└──────────────┬──────────────────┘
+               │
+               │ HTTP/API Calls
+               │
+    ┌──────────┴──────────┬──────────┐
+    │                     │          │
+┌───▼───┐            ┌───▼───┐  ┌───▼───┐
+│Agent 1│            │Agent 2│  │Agent 3│
+│Windows│            │ Linux │  │  Mac  │
+└───────┘            └───────┘  └───────┘
 ```
 
-**Important:** The server is a central hub that receives data from agents. The server itself does NOT run an agent.
+**Important:** 
+- The server runs the Next.js application and receives data from agents
+- Agents connect directly to the server's API endpoints
+- The server appears in Dashboard and Network Topology as the central hub
 
 ## Step 1: Get Server Information
 
@@ -132,7 +142,45 @@ sudo ufw allow 443/tcp
 sudo ufw status
 ```
 
-## Step 4: Verify Server API is Accessible
+## Step 4: Deploy Next.js Application on Server
+
+The server needs to run the Next.js application to receive agent connections.
+
+### Quick Deploy (Recommended)
+
+Run the deployment script:
+
+```bash
+sudo ./scripts/deploy-server.sh
+```
+
+This will:
+- Install Node.js, PM2, Nginx
+- Deploy the Next.js app
+- Configure reverse proxy
+- Set up auto-start on boot
+
+### Manual Deploy
+
+See `SERVER_DEPLOYMENT_GUIDE.md` for detailed manual deployment instructions.
+
+### Configure Environment
+
+Edit `/opt/cyart-server/.env.local`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+NEXT_PUBLIC_API_URL=http://YOUR_SERVER_IP:3000
+```
+
+Then restart:
+```bash
+pm2 restart cyart-server
+```
+
+## Step 5: Verify Server API is Accessible
 
 Test that agents can reach your server's API:
 
@@ -140,47 +188,66 @@ Test that agents can reach your server's API:
 # From the server itself
 curl -X GET http://localhost:3000/api/devices/list
 
-# Or if using Vercel/deployed API
-curl -X GET https://your-api-url.vercel.app/api/devices/list
+# From agent machine (replace with your server IP)
+curl -X GET http://YOUR_SERVER_IP/api/devices/list
 ```
 
-**Note:** If you're using Vercel or a cloud deployment, the API URL will be something like `https://v0-project1-r9.vercel.app`. Agents should connect to this URL, not the server's IP.
+**Note:** Agents connect to `http://YOUR_SERVER_IP` (your Ubuntu server), not Vercel.
 
-## Step 5: Configure Agents to Connect to Server
+## Step 6: Configure Agents to Connect to Server
 
-Agents need to know the API URL to send data to. This is typically your deployed Next.js API (Vercel), not the server's IP.
+Agents connect directly to your Ubuntu server's IP address.
 
-### For Windows Agents
+### For Windows Agents (Fully Automated - Recommended)
 
-When running the agent, use your API URL:
+**Option 1: Auto-Detection Version (No Configuration Needed)**
 
 ```bash
-# Compile the agent
-go build -o CyArtAgent.exe scripts/windows-agent.go
+# Compile auto-detection version
+go build -o CyArtAgent.exe scripts/windows-agent-auto.go
 
-# Run with API URL (if you modified the code to accept URL as parameter)
-# Or edit the API_URL constant in windows-agent.go before compiling
+# Run once - fully automated:
+# - Auto-detects server on network
+# - Registers device
+# - Starts monitoring
+# - Runs in background
+CyArtAgent.exe
 ```
 
-The default API URL in the agent is: `https://v0-project1-r9.vercel.app`
+**Option 2: Manual Configuration**
+
+1. Edit `scripts/windows-agent.go` line 17:
+   ```go
+   API_URL = "http://YOUR_SERVER_IP"  // Replace with your server IP
+   ```
+
+2. Compile:
+   ```bash
+   go build -o CyArtAgent.exe scripts/windows-agent.go
+   ```
+
+3. Run:
+   ```bash
+   CyArtAgent.exe
+   ```
 
 ### For Linux Agents
 
 ```bash
-# Run agent with API URL
-./linux-agent.sh https://v0-project1-r9.vercel.app "Device Name" "Owner" "Location"
-
-# Or edit the script to change default API_URL
+# Run agent with server IP
+./linux-agent.sh http://YOUR_SERVER_IP "Device Name" "Owner" "Location"
 ```
 
 ### For macOS Agents
 
 ```bash
-# Run agent with API URL
-./mac-agent.sh https://v0-project1-r9.vercel.app "Device Name" "Owner" "Location"
+# Run agent with server IP
+./mac-agent.sh http://YOUR_SERVER_IP "Device Name" "Owner" "Location"
 ```
 
-## Step 6: Link Agents to Server
+**Replace `YOUR_SERVER_IP` with your Ubuntu server's IP address (from `hostname -I` command)**
+
+## Step 7: Link Agents to Server
 
 After agents register themselves, link them to your server in the database:
 
@@ -203,7 +270,7 @@ LEFT JOIN devices s ON d.server_id = s.id
 WHERE d.is_server = false;
 ```
 
-## Step 7: Verify Network Topology
+## Step 8: Verify Network Topology
 
 1. Navigate to your Dashboard
 2. Click "Network Topology" view
@@ -213,19 +280,18 @@ WHERE d.is_server = false;
    - **Green connections** for online devices
    - **Gray connections** for offline devices
 
-## Step 8: Server Status Monitoring (Optional)
+## Step 9: Server Status Monitoring
 
-Since the server is NOT an agent, it doesn't send its own logs. However, you can manually update its status:
+The server automatically updates its status when the Next.js app is running. You can also manually update:
 
 ```sql
--- Update server status to online
 UPDATE devices 
 SET status = 'online', 
     last_seen = NOW() 
 WHERE is_server = true;
 ```
 
-Or create a simple cron job on the server to update status:
+Or create a simple cron job on the server to update status (see SERVER_DEPLOYMENT_GUIDE.md for details):
 
 ```bash
 # Create a status update script
