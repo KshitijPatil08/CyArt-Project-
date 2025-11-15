@@ -1,8 +1,29 @@
 # CyArt Agent - Mass Deployment Script for Windows
 # This script compiles the agent and creates deployment packages
 
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  CyArt Agent Builder" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Prompt for server URL
+Write-Host "Enter your Ubuntu server URL:" -ForegroundColor Yellow
+Write-Host "  Examples:" -ForegroundColor Gray
+Write-Host "    - Public IP: http://203.0.113.45:3000" -ForegroundColor Gray
+Write-Host "    - Domain: https://server.yourcompany.com" -ForegroundColor Gray
+Write-Host "    - ngrok: https://abc123.ngrok.io" -ForegroundColor Gray
+Write-Host ""
+$SERVER_URL = Read-Host "Server URL"
+
+if ([string]::IsNullOrWhiteSpace($SERVER_URL)) {
+    Write-Host "Error: Server URL is required!" -ForegroundColor Red
+    exit 1
+}
+
 # Build the agent as Windows executable
+Write-Host ""
 Write-Host "Building CyArt Security Agent..." -ForegroundColor Cyan
+Write-Host "Target Server: $SERVER_URL" -ForegroundColor Green
 
 # Set variables
 $AGENT_VERSION = "3.0.0"
@@ -17,6 +38,13 @@ New-Item -ItemType Directory -Force -Path $OUTPUT_DIR | Out-Null
 # Build the Go executable
 Write-Host "Compiling Windows agent..." -ForegroundColor Yellow
 Set-Location $SCRIPTS_DIR
+
+# Update the DEFAULT_API_URL in the source code with user's server URL
+$agentCode = Get-Content "windows-agent-production.go" -Raw
+$agentCode = $agentCode -replace 'DEFAULT_API_URL = ".*?"', "DEFAULT_API_URL = `"$SERVER_URL`""
+Set-Content "windows-agent-production.go" -Value $agentCode
+
+Write-Host "  ✓ Configured server URL: $SERVER_URL" -ForegroundColor Green
 
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"

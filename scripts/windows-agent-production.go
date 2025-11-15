@@ -16,7 +16,10 @@ import (
 )
 
 const (
-	DEFAULT_API_URL = "http://192.168.1.100"
+	// Server URL - Set this to your Ubuntu server's public IP or domain
+	// For distributed teams: Use public IP (e.g., "http://1.2.3.4:3000")
+	// Or domain (e.g., "https://server.company.com")
+	DEFAULT_API_URL = "http://YOUR_PUBLIC_IP:3000" // CHANGE THIS
 	POLL_INTERVAL   = 30 * time.Second
 	CHECK_QUARANTINE_INTERVAL = 10 * time.Second
 	REGISTRATION_FILE = "device_id.txt"
@@ -176,6 +179,7 @@ func getLocalIP() string {
 func loadOrDetectServerURL() string {
 	configPath := filepath.Join(agentDir, CONFIG_FILE)
 	
+	// Try to load from config file first
 	if data, err := os.ReadFile(configPath); err == nil {
 		var config Config
 		if json.Unmarshal(data, &config) == nil && config.ServerURL != "" {
@@ -184,6 +188,7 @@ func loadOrDetectServerURL() string {
 		}
 	}
 	
+	// Auto-detect local server
 	serverURL := detectServer()
 	saveConfig(serverURL)
 	

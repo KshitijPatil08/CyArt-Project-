@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS devices (
   quarantine_reason TEXT,
   quarantined_at TIMESTAMP,
   quarantined_by TEXT,
+  is_server BOOLEAN DEFAULT FALSE, -- Mark if device is the monitoring server
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
