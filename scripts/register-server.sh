@@ -28,7 +28,7 @@ echo ""
 echo "Registering server in database..."
 
 # Register the server
-RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/rest/v1/devices" \
+RESPONSE=$(curl -v -X POST "${SUPABASE_URL}/rest/v1/devices" \
   -H "apikey: ${SUPABASE_KEY}" \
   -H "Authorization: Bearer ${SUPABASE_KEY}" \
   -H "Content-Type: application/json" \
@@ -49,6 +49,11 @@ RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/rest/v1/devices" \
 }
 EOF
 )
+
+# Check curl exit code
+CURL_EXIT_CODE=$?
+echo "Curl exit code: $CURL_EXIT_CODE"
+echo "Response: $RESPONSE"
 
 if [ $? -eq 0 ]; then
   DEVICE_ID=$(echo $RESPONSE | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)

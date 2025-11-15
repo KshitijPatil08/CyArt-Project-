@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -19,7 +18,7 @@ const (
 	// Server URL - Set this to your Ubuntu server's public IP or domain
 	// For distributed teams: Use public IP (e.g., "http://1.2.3.4:3000")
 	// Or domain (e.g., "https://server.company.com")
-	DEFAULT_API_URL = "http://YOUR_PUBLIC_IP:3000" // CHANGE THIS
+	DEFAULT_API_URL = " https://ariel-pseudoanthropoid-harvey.ngrok-free.dev" // CHANGE THIS
 	POLL_INTERVAL   = 30 * time.Second
 	CHECK_QUARANTINE_INTERVAL = 10 * time.Second
 	REGISTRATION_FILE = "device_id.txt"
@@ -662,3 +661,12 @@ func isAdmin() bool {
 	_, err := os.Open("\\\\.\\PHYSICALDRIVE0")
 	return err == nil
 }
+
+
+
+
+
+
+
+
+

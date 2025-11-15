@@ -1,4 +1,4 @@
-# CyArt Agent - Mass Deployment Script for Windows
+﻿# CyArt Agent - Mass Deployment Script for Windows
 # This script compiles the agent and creates deployment packages
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -27,8 +27,8 @@ Write-Host "Target Server: $SERVER_URL" -ForegroundColor Green
 
 # Set variables
 $AGENT_VERSION = "3.0.0"
-$BUILD_DIR = ".\build"
-$SCRIPTS_DIR = ".\scripts"
+$SCRIPT_DIR = $PSScriptRoot
+$BUILD_DIR = "$SCRIPT_DIR\build"
 $OUTPUT_DIR = "$BUILD_DIR\deployment"
 
 # Create build directory
@@ -37,12 +37,11 @@ New-Item -ItemType Directory -Force -Path $OUTPUT_DIR | Out-Null
 
 # Build the Go executable
 Write-Host "Compiling Windows agent..." -ForegroundColor Yellow
-Set-Location $SCRIPTS_DIR
 
 # Update the DEFAULT_API_URL in the source code with user's server URL
-$agentCode = Get-Content "windows-agent-production.go" -Raw
+$agentCode = Get-Content "$SCRIPT_DIR\windows-agent-production.go" -Raw
 $agentCode = $agentCode -replace 'DEFAULT_API_URL = ".*?"', "DEFAULT_API_URL = `"$SERVER_URL`""
-Set-Content "windows-agent-production.go" -Value $agentCode
+Set-Content "$SCRIPT_DIR\windows-agent-production.go" -Value $agentCode
 
 Write-Host "  ✓ Configured server URL: $SERVER_URL" -ForegroundColor Green
 
@@ -50,7 +49,10 @@ $env:GOOS = "windows"
 $env:GOARCH = "amd64"
 $env:CGO_ENABLED = "0"
 
-go build -ldflags="-s -w -H windowsgui" -o "$BUILD_DIR\CyArtAgent.exe" windows-agent-production.go
+Set-Location $SCRIPT_DIR
+
+# Build using cmd to avoid PowerShell parameter parsing issues
+cmd /c "go build -ldflags=`"-s -w -H windowsgui`" -o `"$BUILD_DIR\CyArtAgent.exe`" windows-agent-production.go"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed!" -ForegroundColor Red
@@ -258,130 +260,61 @@ Exit 0
 $sccmScript | Out-File -FilePath "$OUTPUT_DIR\sccm-install.ps1" -Encoding UTF8
 
 # Create README
-$readme = @"
-# CyArt Security Agent - Deployment Package v$AGENT_VERSION
+$readme = @'
+CyArt Security Agent - Deployment Package v{0}
 
-## Files Included
+Files Included:
+1. CyArtAgent.exe - The agent executable
+2. install.bat - Simple installer for single machines
+3. uninstall.bat - Uninstaller
+4. gpo-deploy.ps1 - Group Policy deployment script
+5. sccm-install.ps1 - SCCM deployment script
 
-1. **CyArtAgent.exe** - The agent executable
-2. **install.bat** - Simple installer for single machines
-3. **uninstall.bat** - Uninstaller
-4. **gpo-deploy.ps1** - Group Policy deployment script
-5. **sccm-install.ps1** - SCCM deployment script
+Deployment Methods:
 
-## Deployment Methods
-
-### Method 1: Manual Installation (Single PC)
-
-1. Run **install.bat** as Administrator
+Method 1: Manual Installation (Single PC)
+1. Run install.bat as Administrator
 2. The agent will be installed as a Windows Service
 3. Check logs at: %APPDATA%\CyArtAgent\agent.log
 
-### Method 2: Group Policy Deployment (Domain Environment)
+Method 2: Group Policy Deployment
+1. Copy CyArtAgent.exe to network share
+2. Edit gpo-deploy.ps1 and update NETWORK_SHARE variable
+3. Create GPO startup script
+4. Link to target OU
 
-1. Copy CyArtAgent.exe to a network share (e.g., \\server\share\CyArtAgent)
-2. Edit gpo-deploy.ps1 and update the `NETWORK_SHARE` variable
-3. In Group Policy Management:
-   - Computer Configuration → Policies → Windows Settings → Scripts
-   - Startup Scripts → Add → gpo-deploy.ps1
-4. Force GP update: gpupdate /force
-5. Restart target machines
+Method 3: SCCM Deployment
+1. Create Application in SCCM
+2. Use sccm-install.ps1 as install script
+3. Deploy to target collection
 
-### Method 3: SCCM Deployment (Enterprise)
+Server URL: {1}
 
-1. Create a new Application in SCCM
-2. Add CyArtAgent.exe as source files
-3. Use sccm-install.ps1 as the installation script
-4. Detection method: Check for service "CyArtAgent"
-5. Deploy to target collection
-
-### Method 4: Remote Installation via PowerShell
-
-```powershell
-# Run on target machines remotely
-Invoke-Command -ComputerName PC1,PC2,PC3 -FilePath .\gpo-deploy.ps1
-```
-
-## Configuration
-
-The agent will automatically:
-- Detect the server on the local network
-- Register the device
-- Start monitoring USB devices and security logs
-- Report status every 30 seconds
-- Check quarantine status every 10 seconds
-
-## Server Setup
-
-Ensure your server is accessible on the local network:
-- Default detection IPs: 192.168.1.100, 192.168.1.1, etc.
-- The agent will scan the local subnet for the server
-- Or manually configure via %APPDATA%\CyArtAgent\agent.config
-
-## Troubleshooting
-
-### Check Service Status
-```cmd
-sc query CyArtAgent
-```
-
-### View Logs
-```cmd
-notepad %APPDATA%\CyArtAgent\agent.log
-```
-
-### Restart Service
-```cmd
-net stop CyArtAgent
-net start CyArtAgent
-```
-
-### Verify Network Connectivity
-```powershell
-Test-NetConnection -ComputerName <server-ip> -Port 80
-```
-
-## System Requirements
-
+System Requirements:
 - Windows 7/Server 2008 R2 or later
-- Administrator privileges for installation
-- Network access to CyArt server
-- Approximately 10MB disk space
+- Administrator privileges
+- Network access to server
+- 10MB disk space
 
-## Security Features
-
-✓ Automatic server detection
-✓ USB device tracking
-✓ Security event logging
-✓ Remote quarantine capability
-✓ Network isolation when quarantined
-✓ Automatic status reporting
-
-## Support
-
-For issues or questions, contact your IT administrator.
-
----
-CyArt Security Agent v$AGENT_VERSION
-Built on $(Get-Date -Format "yyyy-MM-dd")
-"@
+Built on: {2}
+'@ -f $AGENT_VERSION, $SERVER_URL, (Get-Date -Format "yyyy-MM-dd")
 
 $readme | Out-File -FilePath "$OUTPUT_DIR\README.txt" -Encoding UTF8
 
 Write-Host ""
 Write-Host "======================================" -ForegroundColor Green
-Write-Host "Build completed successfully!" -ForegroundColor Green
+Write-Host "Build completed successfully!" -ForegroundColor Green  
 Write-Host "======================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Deployment package created at: $OUTPUT_DIR" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Package includes:" -ForegroundColor Yellow
-Write-Host "  ✓ CyArtAgent.exe - Agent executable"
-Write-Host "  ✓ install.bat - Manual installer"
-Write-Host "  ✓ uninstall.bat - Uninstaller"
-Write-Host "  ✓ gpo-deploy.ps1 - Group Policy deployment"
-Write-Host "  ✓ sccm-install.ps1 - SCCM deployment"
-Write-Host "  ✓ README.txt - Deployment instructions"
+Write-Host "  - CyArtAgent.exe (Agent executable)"
+Write-Host "  - install.bat (Manual installer)"
+Write-Host "  - uninstall.bat (Uninstaller)"
+Write-Host "  - gpo-deploy.ps1 (Group Policy deployment)"
+Write-Host "  - sccm-install.ps1 (SCCM deployment)"
+Write-Host "  - README.txt (Deployment instructions)"
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Green
 Write-Host "1. Test the installer on a single machine first"
