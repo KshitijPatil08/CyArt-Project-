@@ -28,40 +28,67 @@ Write-Host "Target Server: $SERVER_URL" -ForegroundColor Green
 # Set variables
 $AGENT_VERSION = "3.0.0"
 $SCRIPT_DIR = $PSScriptRoot
-$BUILD_DIR = "$SCRIPT_DIR\build"
-$OUTPUT_DIR = "$BUILD_DIR\deployment"
+$BUILD_DIR = Join-Path $SCRIPT_DIR "build"
+$OUTPUT_DIR = Join-Path $BUILD_DIR "deployment"
 
 # Create build directory
 New-Item -ItemType Directory -Force -Path $BUILD_DIR | Out-Null
 New-Item -ItemType Directory -Force -Path $OUTPUT_DIR | Out-Null
 
-# Build the Go executable
-Write-Host "Compiling Windows agent..." -ForegroundColor Yellow
+# Ensure go module dependencies for windows service wrapper
+Write-Host "Ensuring Go windows/svc dependency..." -ForegroundColor Yellow
+Push-Location $SCRIPT_DIR
+try {
+    # Initialize temporary module (if go.mod doesn't exist) to allow 'go get' to work cleanly
+    if (-not (Test-Path (Join-Path $SCRIPT_DIR "go.mod"))) {
+        & go mod init cyart-agent 2>$null
+    }
+
+    # Get needed package
+    & go get golang.org/x/sys/windows/svc@latest
+} catch {
+    Write-Host "Warning: go get failed or not available in PATH. Make sure 'go' is installed." -ForegroundColor Yellow
+}
 
 # Update the DEFAULT_API_URL in the source code with user's server URL
-$agentCode = Get-Content "$SCRIPT_DIR\windows-agent-production.go" -Raw
-$agentCode = $agentCode -replace 'DEFAULT_API_URL = ".*?"', "DEFAULT_API_URL = `"$SERVER_URL`""
-Set-Content "$SCRIPT_DIR\windows-agent-production.go" -Value $agentCode
+$srcFile = Join-Path $SCRIPT_DIR "windows-agent-production.go"
+if (-not (Test-Path $srcFile)) {
+    Write-Host "Error: $srcFile not found. Make sure this script and windows-agent-production.go are in the same folder." -ForegroundColor Red
+    Pop-Location
+    exit 1
+}
+
+Write-Host "Configuring server URL in source..." -ForegroundColor Yellow
+$agentCode = Get-Content $srcFile -Raw
+# Use regex replace that is robust to whitespace
+$pattern = 'DEFAULT_API_URL\s*=\s*".*?"'
+$replacement = "DEFAULT_API_URL = `"$SERVER_URL`""
+$newCode = [regex]::Replace($agentCode, $pattern, $replacement)
+Set-Content -Path $srcFile -Value $newCode -Encoding UTF8
 
 Write-Host "  ✓ Configured server URL: $SERVER_URL" -ForegroundColor Green
 
+# Set environment for Windows build
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"
 $env:CGO_ENABLED = "0"
 
-Set-Location $SCRIPT_DIR
+Write-Host "Compiling Windows agent..." -ForegroundColor Yellow
 
-# Build using cmd to avoid PowerShell parameter parsing issues
-cmd /c "go build -ldflags=`"-s -w -H windowsgui`" -o `"$BUILD_DIR\CyArtAgent.exe`" windows-agent-production.go"
-
+# Build the binary. Use windows GUI subsystem so no console pops when running as service.
+$exePath = Join-Path $BUILD_DIR "CyArtAgent.exe"
+# Use cmd /c so quoting works consistently
+$buildCmd = "go build -ldflags=`"-s -w -H=windowsgui`" -o `"$exePath`" windows-agent-production.go"
+cmd /c $buildCmd
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed!" -ForegroundColor Red
+    Pop-Location
     exit 1
 }
 
-Write-Host "✓ Agent compiled successfully" -ForegroundColor Green
+Write-Host "✓ Agent compiled successfully: $exePath" -ForegroundColor Green
 
-# Create installer script
+# Create installer script (install.bat)
 $installerScript = @'
 @echo off
 REM CyArt Security Agent Installer
@@ -84,20 +111,34 @@ if %errorLevel% neq 0 (
 echo Installing CyArt Security Agent...
 
 REM Create installation directory
-set INSTALL_DIR=%ProgramFiles%\CyArtAgent
+set "INSTALL_DIR=%ProgramFiles%\CyArtAgent"
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
-REM Copy agent executable
-copy /Y CyArtAgent.exe "%INSTALL_DIR%\CyArtAgent.exe"
+REM Copy agent executable (assumes install.bat runs from same folder as exe)
+copy /Y "CyArtAgent.exe" "%INSTALL_DIR%\CyArtAgent.exe"
 if %errorLevel% neq 0 (
     echo ERROR: Failed to copy agent files
     pause
     exit /b 1
 )
 
-REM Create Windows Service
+REM Create Windows Service (will overwrite if exists)
 echo Creating Windows Service...
+sc query "CyArtAgent" >nul 2>&1
+if %errorLevel% equ 0 (
+    echo Service exists. Attempting to remove old service...
+    sc stop "CyArtAgent" >nul 2>&1
+    sc delete "CyArtAgent" >nul 2>&1
+    timeout /t 2 >nul
+)
+
 sc create "CyArtAgent" binPath= "\"%INSTALL_DIR%\CyArtAgent.exe\"" start= auto DisplayName= "CyArt Security Agent"
+if %errorLevel% neq 0 (
+    echo [SC] CreateService FAILED.
+    echo Please check Event Viewer for details.
+    pause
+    exit /b 1
+)
 sc description "CyArtAgent" "CyArt Device Tracking and Security Monitoring Agent"
 
 REM Configure firewall
@@ -107,13 +148,19 @@ netsh advfirewall firewall add rule name="CyArt Agent" dir=out action=allow prog
 REM Start the service
 echo Starting CyArt Agent service...
 sc start "CyArtAgent"
+if %errorLevel% neq 0 (
+    echo [SC] StartService FAILED.
+    echo The service may take a moment to initialize. Check the Windows Event Log if it fails to start.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ======================================
 echo Installation completed successfully!
 echo ======================================
 echo.
-echo The CyArt Agent is now running as a Windows Service.
+echo The CyArt Agent is now installed as a Windows Service.
 echo Service Name: CyArtAgent
 echo Installation Path: %INSTALL_DIR%
 echo.
@@ -122,7 +169,7 @@ echo.
 pause
 '@
 
-$installerScript | Out-File -FilePath "$OUTPUT_DIR\install.bat" -Encoding ASCII
+$installerScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "install.bat") -Encoding ASCII
 
 # Create uninstaller script
 $uninstallerScript = @'
@@ -143,17 +190,17 @@ if %errorLevel% neq 0 (
 )
 
 echo Stopping CyArt Agent service...
-sc stop "CyArtAgent"
+sc stop "CyArtAgent" >nul 2>&1
 timeout /t 3 /nobreak >nul
 
 echo Removing service...
-sc delete "CyArtAgent"
+sc delete "CyArtAgent" >nul 2>&1
 
 echo Removing firewall rule...
-netsh advfirewall firewall delete rule name="CyArt Agent"
+netsh advfirewall firewall delete rule name="CyArt Agent" >nul 2>&1
 
 echo Removing installation files...
-set INSTALL_DIR=%ProgramFiles%\CyArtAgent
+set "INSTALL_DIR=%ProgramFiles%\CyArtAgent"
 if exist "%INSTALL_DIR%" (
     rd /s /q "%INSTALL_DIR%"
 )
@@ -164,10 +211,10 @@ echo.
 pause
 '@
 
-$uninstallerScript | Out-File -FilePath "$OUTPUT_DIR\uninstall.bat" -Encoding ASCII
+$uninstallerScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "uninstall.bat") -Encoding ASCII
 
 # Copy executable to deployment folder
-Copy-Item "$BUILD_DIR\CyArtAgent.exe" -Destination "$OUTPUT_DIR\CyArtAgent.exe"
+Copy-Item -Path $exePath -Destination (Join-Path $OUTPUT_DIR "CyArtAgent.exe") -Force
 
 # Create Group Policy deployment script
 $gpoScript = @'
@@ -213,7 +260,7 @@ Start-Service -Name "CyArtAgent"
 Write-Host "CyArt Agent installed successfully"
 '@
 
-$gpoScript | Out-File -FilePath "$OUTPUT_DIR\gpo-deploy.ps1" -Encoding UTF8
+$gpoScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "gpo-deploy.ps1") -Encoding UTF8
 
 # Create SCCM deployment package
 $sccmScript = @'
@@ -257,11 +304,11 @@ Write-Host "Installation completed successfully"
 Exit 0
 '@
 
-$sccmScript | Out-File -FilePath "$OUTPUT_DIR\sccm-install.ps1" -Encoding UTF8
+$sccmScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "sccm-install.ps1") -Encoding UTF8
 
 # Create README
-$readme = @'
-CyArt Security Agent - Deployment Package v{0}
+$readme = @"
+CyArt Security Agent - Deployment Package v$AGENT_VERSION
 
 Files Included:
 1. CyArtAgent.exe - The agent executable
@@ -273,8 +320,8 @@ Files Included:
 Deployment Methods:
 
 Method 1: Manual Installation (Single PC)
-1. Run install.bat as Administrator
-2. The agent will be installed as a Windows Service
+1. Copy the contents of the deployment folder to the target machine.
+2. Run install.bat as Administrator (it will copy files and create a Windows service).
 3. Check logs at: %APPDATA%\CyArtAgent\agent.log
 
 Method 2: Group Policy Deployment
@@ -288,18 +335,44 @@ Method 3: SCCM Deployment
 2. Use sccm-install.ps1 as install script
 3. Deploy to target collection
 
-Server URL: {1}
+Server URL: $SERVER_URL
 
 System Requirements:
 - Windows 7/Server 2008 R2 or later
-- Administrator privileges
+- Administrator privileges (installer)
 - Network access to server
-- 10MB disk space
+- ~10MB disk space
 
-Built on: {2}
-'@ -f $AGENT_VERSION, $SERVER_URL, (Get-Date -Format "yyyy-MM-dd")
+Built on: $(Get-Date -Format "yyyy-MM-dd")
+"@
 
-$readme | Out-File -FilePath "$OUTPUT_DIR\README.txt" -Encoding UTF8
+$readme | Out-File -FilePath (Join-Path $OUTPUT_DIR "README.txt") -Encoding UTF8
+
+# Create 'development' folder inside deployment and copy only relevant files (do NOT copy folder into itself)
+$devFolder = Join-Path $OUTPUT_DIR "development"
+New-Item -ItemType Directory -Force -Path $devFolder | Out-Null
+
+# Copy the final exe from the build directory into development
+Copy-Item -Path $exePath -Destination (Join-Path $devFolder "CyArtAgent.exe") -Force
+
+# Copy the generated scripts and README into development folder
+$filesToCopy = @(
+    "install.bat",
+    "uninstall.bat",
+    "gpo-deploy.ps1",
+    "sccm-install.ps1",
+    "README.txt"
+)
+
+foreach ($f in $filesToCopy) {
+    $src = Join-Path $OUTPUT_DIR $f
+    if (Test-Path $src) {
+        Copy-Item -Path $src -Destination (Join-Path $devFolder $f) -Force
+    }
+}
+
+# Return to original directory
+Pop-Location
 
 Write-Host ""
 Write-Host "======================================" -ForegroundColor Green

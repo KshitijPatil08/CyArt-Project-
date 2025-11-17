@@ -2,8 +2,6 @@
 # Register Ubuntu Server in Database
 # This makes the server appear in the network topology
 
-set -e
-
 echo "=========================================="
 echo "CyArt Server Registration"
 echo "=========================================="
@@ -22,18 +20,24 @@ echo ""
 
 # Prompt for Supabase credentials
 read -p "Enter Supabase URL (https://xxx.supabase.co): " SUPABASE_URL
-read -p "Enter Supabase Service Role Key: " SUPABASE_KEY
-
+read -sp "Enter Supabase Service Role Key: " SUPABASE_KEY
 echo ""
-echo "Registering server in database..."
+echo ""
 
-# Register the server
-RESPONSE=$(curl -v -X POST "${SUPABASE_URL}/rest/v1/devices" \
-  -H "apikey: ${SUPABASE_KEY}" \
-  -H "Authorization: Bearer ${SUPABASE_KEY}" \
-  -H "Content-Type: application/json" \
-  -H "Prefer: return=representation" \
-  -d @- <<EOF
+# Validate inputs
+if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+    echo "Error: Supabase URL and Key are required!"
+    exit 1
+fi
+
+# Remove trailing slash from URL if present
+SUPABASE_URL=${SUPABASE_URL%/}
+
+echo "Registering server in database..."
+echo ""
+
+# Create JSON payload
+JSON_PAYLOAD=$(cat <<EOF
 {
   "device_name": "Ubuntu Server - ${HOSTNAME}",
   "device_type": "linux",
@@ -50,13 +54,37 @@ RESPONSE=$(curl -v -X POST "${SUPABASE_URL}/rest/v1/devices" \
 EOF
 )
 
-# Check curl exit code
-CURL_EXIT_CODE=$?
-echo "Curl exit code: $CURL_EXIT_CODE"
-echo "Response: $RESPONSE"
+# Debug: Show what we're sending
+echo "Debug Information:"
+echo "URL: ${SUPABASE_URL}/rest/v1/devices"
+echo "Payload: $JSON_PAYLOAD"
+echo ""
 
-if [ $? -eq 0 ]; then
-  DEVICE_ID=$(echo $RESPONSE | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+# Make the request with better error handling
+RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/devices" \
+  -H "apikey: ${SUPABASE_KEY}" \
+  -H "Authorization: Bearer ${SUPABASE_KEY}" \
+  -H "Content-Type: application/json" \
+  -H "Prefer: return=representation" \
+  -d "$JSON_PAYLOAD" 2>&1)
+
+# Extract HTTP status code
+HTTP_CODE=$(echo "$RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d':' -f2)
+RESPONSE_BODY=$(echo "$RESPONSE" | sed 's/HTTP_CODE:[0-9]*//g')
+
+echo "HTTP Status Code: $HTTP_CODE"
+echo "Response Body: $RESPONSE_BODY"
+echo ""
+
+# Check if successful (2xx status codes)
+if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+  # Try to extract device ID
+  DEVICE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*' | sed 's/"id"[[:space:]]*:[[:space:]]*"//g' | head -1)
+  
+  if [ -z "$DEVICE_ID" ]; then
+    # Try alternative JSON parsing
+    DEVICE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":"[^"]*' | cut -d'"' -f4 | head -1)
+  fi
   
   if [ -n "$DEVICE_ID" ]; then
     echo "✓ Server registered successfully!"
@@ -66,20 +94,28 @@ if [ $? -eq 0 ]; then
     echo "Agents will connect to: http://${IP_ADDRESS}:3000"
     
     # Save device ID for status updates
-    echo "$DEVICE_ID" > /tmp/server_device_id.txt
+    mkdir -p /tmp/cyart
+    echo "$DEVICE_ID" > /tmp/cyart/server_device_id.txt
+    echo "Device ID saved to /tmp/cyart/server_device_id.txt"
   else
-    echo "✗ Registration failed: Could not extract device ID"
-    echo "Response: $RESPONSE"
-    exit 1
+    echo "✓ Request successful but could not extract device ID"
+    echo "Full response: $RESPONSE_BODY"
   fi
 else
-  echo "✗ Registration failed"
+  echo "✗ Registration failed with HTTP code: $HTTP_CODE"
+  echo "Response: $RESPONSE_BODY"
+  echo ""
+  echo "Common issues:"
+  echo "  - Check if Supabase URL is correct"
+  echo "  - Verify Service Role Key (not Anon key)"
+  echo "  - Ensure 'devices' table exists in Supabase"
+  echo "  - Check RLS policies on devices table"
   exit 1
 fi
 
 echo ""
 echo "Next steps:"
-echo "1. Start the Next.js server on this machine"
+echo "1. Start the Next.js server: cd ~/CyArt-Project- && npm run dev"
 echo "2. Deploy agents to client devices"
 echo "3. Agents will auto-discover this server at ${IP_ADDRESS}"
 echo ""

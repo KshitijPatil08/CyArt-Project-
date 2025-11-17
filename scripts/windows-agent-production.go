@@ -1,9 +1,10 @@
-package main
+﻿package main
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -12,54 +13,55 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/windows/svc"
+	
 )
 
 const (
-	// Server URL - Set this to your Ubuntu server's public IP or domain
-	// For distributed teams: Use public IP (e.g., "http://1.2.3.4:3000")
-	// Or domain (e.g., "https://server.company.com")
-	DEFAULT_API_URL = " https://ariel-pseudoanthropoid-harvey.ngrok-free.dev" // CHANGE THIS
-	POLL_INTERVAL   = 30 * time.Second
+	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
+	POLL_INTERVAL             = 30 * time.Second
 	CHECK_QUARANTINE_INTERVAL = 10 * time.Second
-	REGISTRATION_FILE = "device_id.txt"
-	LOG_FILE       = "agent.log"
-	CONFIG_FILE    = "agent.config"
-	VERSION        = "3.0.0-production"
+	REGISTRATION_FILE         = "device_id.txt"
+	LOG_FILE                  = "agent.log"
+	CONFIG_FILE               = "agent.config"
+	VERSION                   = "3.0.0-production"
+	SERVICE_NAME              = "CyArtAgent"
 )
 
 var (
-	deviceID   string
-	deviceName string
-	owner      string
-	location   string
-	apiURL     string
-	agentDir   string
-	isQuarantined bool = false
+	deviceID      string
+	deviceName    string
+	owner         string
+	location      string
+	apiURL        string
+	agentDir      string
+	isQuarantined = false
 )
 
 type DeviceRegistration struct {
-	DeviceName string `json:"device_name"`
-	DeviceType string `json:"device_type"`
-	Owner      string `json:"owner"`
-	Location   string `json:"location"`
-	Hostname   string `json:"hostname"`
-	IPAddress  string `json:"ip_address"`
-	OSVersion  string `json:"os_version"`
+	DeviceName   string `json:"device_name"`
+	DeviceType   string `json:"device_type"`
+	Owner        string `json:"owner"`
+	Location     string `json:"location"`
+	Hostname     string `json:"hostname"`
+	IPAddress    string `json:"ip_address"`
+	OSVersion    string `json:"os_version"`
 	AgentVersion string `json:"agent_version"`
 }
 
 type LogEntry struct {
-	DeviceID   string                 `json:"device_id"`
-	DeviceName string                 `json:"device_name"`
-	Hostname   string                 `json:"hostname"`
-	LogType    string                 `json:"log_type"`
-	HardwareType string               `json:"hardware_type,omitempty"`
-	Event      string                 `json:"event,omitempty"`
-	Source     string                 `json:"source"`
-	Severity   string                 `json:"severity"`
-	Message    string                 `json:"message"`
-	Timestamp  string                 `json:"timestamp"`
-	RawData    map[string]interface{} `json:"raw_data,omitempty"`
+	DeviceID     string                 `json:"device_id"`
+	DeviceName   string                 `json:"device_name"`
+	Hostname     string                 `json:"hostname"`
+	LogType      string                 `json:"log_type"`
+	HardwareType string                 `json:"hardware_type,omitempty"`
+	Event        string                 `json:"event,omitempty"`
+	Source       string                 `json:"source"`
+	Severity     string                 `json:"severity"`
+	Message      string                 `json:"message"`
+	Timestamp    string                 `json:"timestamp"`
+	RawData      map[string]interface{} `json:"raw_data,omitempty"`
 }
 
 type Config struct {
@@ -67,33 +69,31 @@ type Config struct {
 }
 
 type QuarantineStatus struct {
-	IsQuarantined   bool   `json:"is_quarantined"`
+	IsQuarantined    bool   `json:"is_quarantined"`
 	QuarantineReason string `json:"quarantine_reason"`
-	QuarantinedAt   string `json:"quarantined_at"`
-	QuarantinedBy   string `json:"quarantined_by"`
+	QuarantinedAt    string `json:"quarantined_at"`
+	QuarantinedBy    string `json:"quarantined_by"`
 }
 
 func init() {
-	// Get app data directory
 	if runtime.GOOS == "windows" {
 		agentDir = filepath.Join(os.Getenv("APPDATA"), "CyArtAgent")
 	} else {
 		agentDir = filepath.Join(os.Getenv("HOME"), ".cyart-agent")
 	}
-	
 	os.MkdirAll(agentDir, 0755)
-	
+
 	deviceName = getHostname()
 	owner = getUsername()
 	location = "Office"
-	
+
 	apiURL = loadOrDetectServerURL()
 	loadDeviceID()
 }
 
 func detectServer() string {
-	logMessage("Auto-detecting server on local network...")
-	
+	logMessage("Auto-detecting server...")
+
 	commonIPs := []string{
 		"192.168.1.100",
 		"192.168.1.1",
@@ -101,57 +101,23 @@ func detectServer() string {
 		"10.0.0.100",
 		"172.16.0.100",
 	}
-	
-	localIP := getLocalIP()
-	if localIP != "" {
-		parts := strings.Split(localIP, ".")
-		if len(parts) == 4 {
-			baseIP := strings.Join(parts[:3], ".")
-			commonIPs = append([]string{baseIP + ".100", baseIP + ".1"}, commonIPs...)
-		}
+
+	local := getLocalIP()
+	if local != "" {
+		parts := strings.Split(local, ".")
+		base := strings.Join(parts[:3], ".")
+		commonIPs = append([]string{base + ".1", base + ".100"}, commonIPs...)
 	}
-	
+
 	for _, ip := range commonIPs {
 		url := fmt.Sprintf("http://%s/api/devices/list", ip)
 		if testConnection(url) {
-			logMessage(fmt.Sprintf("Found server at: %s", ip))
-			return fmt.Sprintf("http://%s", ip)
+			logMessage("Server detected: " + ip)
+			return "http://" + ip
 		}
 	}
-	
-	logMessage("Scanning local network for server...")
-	if serverIP := scanNetwork(); serverIP != "" {
-		return fmt.Sprintf("http://%s", serverIP)
-	}
-	
-	logMessage("Server auto-detection failed, using default")
-	return DEFAULT_API_URL
-}
 
-func scanNetwork() string {
-	localIP := getLocalIP()
-	if localIP == "" {
-		return ""
-	}
-	
-	parts := strings.Split(localIP, ".")
-	if len(parts) != 4 {
-		return ""
-	}
-	
-	baseIP := strings.Join(parts[:3], ".")
-	
-	for i := 1; i <= 254; i++ {
-		if i == 100 || i == 1 || i%10 == 0 {
-			testIP := fmt.Sprintf("%s.%d", baseIP, i)
-			url := fmt.Sprintf("http://%s/api/devices/list", testIP)
-			if testConnection(url) {
-				return testIP
-			}
-		}
-	}
-	
-	return ""
+	return DEFAULT_API_URL
 }
 
 func testConnection(url string) bool {
@@ -160,7 +126,7 @@ func testConnection(url string) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
 	return resp.StatusCode == 200 || resp.StatusCode == 401
 }
 
@@ -170,43 +136,38 @@ func getLocalIP() string {
 		return ""
 	}
 	defer conn.Close()
-	
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
+	ip := conn.LocalAddr().(*net.UDPAddr)
+	return ip.IP.String()
 }
 
 func loadOrDetectServerURL() string {
-	configPath := filepath.Join(agentDir, CONFIG_FILE)
-	
-	// Try to load from config file first
-	if data, err := os.ReadFile(configPath); err == nil {
-		var config Config
-		if json.Unmarshal(data, &config) == nil && config.ServerURL != "" {
-			logMessage(fmt.Sprintf("Loaded server URL from config: %s", config.ServerURL))
-			return config.ServerURL
+	path := filepath.Join(agentDir, CONFIG_FILE)
+	if data, err := os.ReadFile(path); err == nil {
+		var cfg Config
+		if json.Unmarshal(data, &cfg) == nil {
+			if cfg.ServerURL != "" {
+				logMessage("Loaded server URL from config")
+				return cfg.ServerURL
+			}
 		}
 	}
-	
-	// Auto-detect local server
-	serverURL := detectServer()
-	saveConfig(serverURL)
-	
-	return serverURL
+	url := detectServer()
+	saveConfig(url)
+	return url
 }
 
-func saveConfig(serverURL string) {
-	configPath := filepath.Join(agentDir, CONFIG_FILE)
-	config := Config{ServerURL: serverURL}
-	data, _ := json.Marshal(config)
-	os.WriteFile(configPath, data, 0644)
+func saveConfig(url string) {
+	cfg := Config{ServerURL: url}
+	data, _ := json.Marshal(cfg)
+	os.WriteFile(filepath.Join(agentDir, CONFIG_FILE), data, 0644)
 }
 
 func getHostname() string {
-	hostname, err := os.Hostname()
+	host, err := os.Hostname()
 	if err != nil {
 		return "Unknown"
 	}
-	return hostname
+	return host
 }
 
 func getUsername() string {
@@ -214,97 +175,82 @@ func getUsername() string {
 }
 
 func loadDeviceID() {
-	filePath := filepath.Join(agentDir, REGISTRATION_FILE)
-	data, err := os.ReadFile(filePath)
-	if err == nil {
+	path := filepath.Join(agentDir, REGISTRATION_FILE)
+	if data, err := os.ReadFile(path); err == nil {
 		deviceID = strings.TrimSpace(string(data))
-		if deviceID != "" {
-			logMessage(fmt.Sprintf("Using existing device ID: %s", deviceID))
-		}
 	}
 }
 
 func saveDeviceID(id string) {
-	filePath := filepath.Join(agentDir, REGISTRATION_FILE)
-	os.WriteFile(filePath, []byte(id), 0644)
 	deviceID = id
+	os.WriteFile(filepath.Join(agentDir, REGISTRATION_FILE), []byte(id), 0644)
 }
 
-func logMessage(message string) {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	logEntry := fmt.Sprintf("[%s] %s\n", timestamp, message)
-	
-	fmt.Print(logEntry)
-	
-	logPath := filepath.Join(agentDir, LOG_FILE)
-	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+func logMessage(msg string) {
+	t := time.Now().Format("2006-01-02 15:04:05")
+	line := "[" + t + "] " + msg + "\n"
+	fmt.Print(line)
+
+	path := filepath.Join(agentDir, LOG_FILE)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
-		defer file.Close()
-		file.WriteString(logEntry)
+		f.WriteString(line)
+		f.Close()
 	}
 }
-
 func initializeDevice() error {
 	if deviceID != "" {
 		return nil
 	}
 
 	hostname := getHostname()
-	ipAddress := getIPAddress()
-	osVersion := getOSVersion()
+	ip := getIPAddress()
+	osv := getOSVersion()
 
 	reg := DeviceRegistration{
-		DeviceName:  deviceName,
-		DeviceType:  "windows",
-		Owner:       owner,
-		Location:    location,
-		Hostname:    hostname,
-		IPAddress:   ipAddress,
-		OSVersion:   osVersion,
+		DeviceName:   deviceName,
+		DeviceType:   "windows",
+		Owner:        owner,
+		Location:     location,
+		Hostname:     hostname,
+		IPAddress:    ip,
+		OSVersion:    osv,
 		AgentVersion: VERSION,
 	}
 
-	jsonData, err := json.Marshal(reg)
-	if err != nil {
-		return err
-	}
-
+	data, _ := json.Marshal(reg)
 	url := fmt.Sprintf("%s/api/devices/register", apiURL)
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(jsonData)))
+
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(data)))
 	if err != nil {
-		return fmt.Errorf("failed to connect to server at %s: %v", apiURL, err)
+		return fmt.Errorf("connect error: %v", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
+	body, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}
 	json.Unmarshal(body, &result)
 
 	if id, ok := result["device_id"].(string); ok {
 		saveDeviceID(id)
-		logMessage(fmt.Sprintf("Device registered: %s", id))
+		logMessage("Device registered ID: " + id)
 		return nil
 	}
 
-	return fmt.Errorf("failed to register device: %s", string(body))
+	return fmt.Errorf("register failed: %s", string(body))
 }
 
 func getIPAddress() string {
 	cmd := exec.Command("ipconfig")
-	output, err := cmd.Output()
-	if err == nil {
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "IPv4") {
-				parts := strings.Fields(line)
-				if len(parts) > 0 {
-					return parts[len(parts)-1]
-				}
-			}
+	out, err := cmd.Output()
+	if err != nil {
+		return "127.0.0.1"
+	}
+
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "IPv4") {
+			parts := strings.Fields(line)
+			return parts[len(parts)-1]
 		}
 	}
 	return "127.0.0.1"
@@ -312,108 +258,90 @@ func getIPAddress() string {
 
 func getOSVersion() string {
 	cmd := exec.Command("systeminfo")
-	output, err := cmd.Output()
-	if err == nil {
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "OS Name") {
-				return strings.TrimSpace(strings.Split(line, ":")[1])
+	out, err := cmd.Output()
+	if err != nil {
+		return "Windows"
+	}
+
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "OS Name") {
+			part := strings.SplitN(line, ":", 2)
+			if len(part) > 1 {
+				return strings.TrimSpace(part[1])
 			}
 		}
 	}
 	return "Windows"
 }
 
-// Check quarantine status from server
 func checkQuarantineStatus() {
 	if deviceID == "" {
 		return
 	}
 
 	url := fmt.Sprintf("%s/api/devices/quarantine/status?device_id=%s", apiURL, deviceID)
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		logMessage(fmt.Sprintf("Error checking quarantine status: %v", err))
+		logMessage("Quarantine check error: " + err.Error())
 		return
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	var status QuarantineStatus
-	if err := json.Unmarshal(body, &status); err != nil {
+	var q QuarantineStatus
+	if json.Unmarshal(body, &q) != nil {
 		return
 	}
 
-	if status.IsQuarantined && !isQuarantined {
+	if q.IsQuarantined && !isQuarantined {
 		isQuarantined = true
-		logMessage(fmt.Sprintf("⚠️  DEVICE QUARANTINED: %s", status.QuarantineReason))
-		enforceQuarantine(status.QuarantineReason)
-	} else if !status.IsQuarantined && isQuarantined {
+		logMessage("⚠️ QUARANTINE: " + q.QuarantineReason)
+		enforceQuarantine(q.QuarantineReason)
+	} else if !q.IsQuarantined && isQuarantined {
 		isQuarantined = false
-		logMessage("✅ Device quarantine lifted")
+		logMessage("Quarantine removed")
 		releaseQuarantine()
 	}
 }
 
-// Enforce quarantine measures
 func enforceQuarantine(reason string) {
-	logMessage("Enforcing quarantine measures...")
-	
-	// Disable network adapters (except loopback)
-	cmd := exec.Command("powershell", "-Command", 
-		"Get-NetAdapter | Where-Object {$_.InterfaceDescription -notlike '*Loopback*'} | Disable-NetAdapter -Confirm:$false")
-	if err := cmd.Run(); err != nil {
-		logMessage(fmt.Sprintf("Warning: Could not disable network adapters: %v", err))
-	}
-	
-	// Block USB storage devices
+	logMessage("Enforcing quarantine...")
+
+	exec.Command("powershell", "-Command",
+		"Get-NetAdapter | Where-Object {$_.InterfaceDescription -notlike '*Loopback*'} | Disable-NetAdapter -Confirm:$false").Run()
+
 	blockUSBStorage()
-	
-	// Display warning to user
 	showQuarantineWarning(reason)
-	
-	logMessage("Quarantine measures enforced")
+
+	logMessage("Quarantine enforced")
 }
 
-// Release quarantine
 func releaseQuarantine() {
-	logMessage("Releasing quarantine measures...")
-	
-	// Re-enable network adapters
-	cmd := exec.Command("powershell", "-Command", 
-		"Get-NetAdapter | Enable-NetAdapter -Confirm:$false")
-	if err := cmd.Run(); err != nil {
-		logMessage(fmt.Sprintf("Warning: Could not re-enable network adapters: %v", err))
-	}
-	
-	// Unblock USB storage devices
+	logMessage("Releasing quarantine...")
+
+	exec.Command("powershell", "-Command",
+		"Get-NetAdapter | Enable-NetAdapter -Confirm:$false").Run()
+
 	unblockUSBStorage()
-	
-	logMessage("Quarantine measures released")
+	logMessage("Quarantine released")
 }
 
 func blockUSBStorage() {
-	// Set registry to block USB storage
-	cmd := exec.Command("reg", "add", 
-		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", 
-		"/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f")
-	cmd.Run()
+	exec.Command("reg", "add",
+		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR",
+		"/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
 }
 
 func unblockUSBStorage() {
-	// Set registry to allow USB storage
-	cmd := exec.Command("reg", "add", 
-		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", 
-		"/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f")
-	cmd.Run()
+	exec.Command("reg", "add",
+		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR",
+		"/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
 }
 
 func showQuarantineWarning(reason string) {
-	message := fmt.Sprintf("⚠️ SECURITY ALERT ⚠️\n\nThis device has been quarantined by IT Security.\n\nReason: %s\n\nNetwork access has been restricted.\nPlease contact your IT administrator immediately.", reason)
-	
-	cmd := exec.Command("msg", "*", message)
-	cmd.Run()
+	msg := fmt.Sprintf("⚠ SECURITY ALERT ⚠\nThis device has been quarantined.\nReason: %s", reason)
+	exec.Command("msg", "*", msg).Run()
 }
 
 func trackUSBDevices() {
@@ -421,81 +349,67 @@ func trackUSBDevices() {
 		return
 	}
 
-	cmd := exec.Command("powershell", "-Command", 
-		"Get-WmiObject Win32_PnPEntity | Where-Object { $_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*' } | Select-Object Name, PNPDeviceID | ConvertTo-Json -Compress")
-	
-	output, err := cmd.Output()
+	cmd := exec.Command("powershell", "-Command",
+		"Get-WmiObject Win32_PnPEntity | "+
+			"Where-Object { $_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*' } | "+
+			"Select-Object Name, PNPDeviceID | ConvertTo-Json -Compress")
+
+	out, err := cmd.Output()
 	if err != nil {
 		return
 	}
 
-	var usbDevices []map[string]interface{}
-	if err := json.Unmarshal(output, &usbDevices); err != nil {
-		var singleDevice map[string]interface{}
-		if err2 := json.Unmarshal(output, &singleDevice); err2 == nil {
-			usbDevices = []map[string]interface{}{singleDevice}
-		} else {
-			return
+	var list []map[string]interface{}
+	if json.Unmarshal(out, &list) != nil {
+		var single map[string]interface{}
+		if json.Unmarshal(out, &single) == nil {
+			list = []map[string]interface{}{single}
 		}
 	}
 
 	hostname := getHostname()
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-	
-	for _, device := range usbDevices {
-		deviceName := "Unknown USB Device"
-		if name, ok := device["Name"].(string); ok {
-			deviceName = name
+	ts := time.Now().UTC().Format(time.RFC3339)
+
+	for _, d := range list {
+		name, _ := d["Name"].(string)
+		pnp, _ := d["PNPDeviceID"].(string)
+
+		serial := "UNKNOWN"
+		if strings.Contains(pnp, "\\") {
+			parts := strings.Split(pnp, "\\")
+			serial = parts[len(parts)-1]
 		}
-		
-		pnpID := ""
-		if id, ok := device["PNPDeviceID"].(string); ok {
-			pnpID = id
+
+		vendor := ""
+		if i := strings.Index(pnp, "VID_"); i >= 0 && i+8 <= len(pnp) {
+			vendor = pnp[i+4 : i+8]
 		}
-		
-		serialNumber := "UNKNOWN"
-		if strings.Contains(pnpID, "\\") {
-			parts := strings.Split(pnpID, "\\")
-			if len(parts) > 0 {
-				serialNumber = parts[len(parts)-1]
-			}
+
+		product := ""
+		if i := strings.Index(pnp, "PID_"); i >= 0 && i+8 <= len(pnp) {
+			product = pnp[i+4 : i+8]
 		}
-		
-		vendorID := ""
-		productID := ""
-		if strings.Contains(pnpID, "VID_") {
-			vidIndex := strings.Index(pnpID, "VID_")
-			if vidIndex >= 0 && vidIndex+7 < len(pnpID) {
-				vendorID = pnpID[vidIndex+4 : vidIndex+8]
-			}
+
+		raw := map[string]interface{}{
+			"usb_name":      name,
+			"serial_number": serial,
+			"vendor_id":     vendor,
+			"product_id":    product,
+			"pnp_device_id": pnp,
 		}
-		if strings.Contains(pnpID, "PID_") {
-			pidIndex := strings.Index(pnpID, "PID_")
-			if pidIndex >= 0 && pidIndex+7 < len(pnpID) {
-				productID = pnpID[pidIndex+4 : pidIndex+8]
-			}
-		}
-		
-		rawData := map[string]interface{}{
-			"usb_name":      deviceName,
-			"serial_number": serialNumber,
-			"vendor_id":     vendorID,
-			"product_id":    productID,
-			"pnp_device_id": pnpID,
-		}
-		
+
 		sendLog(LogEntry{
 			DeviceID:     deviceID,
-			DeviceName:   deviceName,
+			DeviceName:   name,
 			Hostname:     hostname,
 			LogType:      "hardware",
 			HardwareType: "usb",
 			Event:        "connected",
 			Source:       "windows-agent",
 			Severity:     "info",
-			Message:      fmt.Sprintf("USB device connected: %s", deviceName),
-			Timestamp:    timestamp,
-			RawData:      rawData,
+			Message:      "USB connected: " + name,
+			Timestamp:    ts,
+			RawData:      raw,
 		})
 	}
 }
@@ -505,78 +419,66 @@ func sendSystemLogs() {
 		return
 	}
 
-	hostname := getHostname()
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-
 	cmd := exec.Command("powershell", "-Command",
-		"Get-EventLog -LogName Security -Newest 5 | Select-Object Message, EventID, EntryType, TimeGenerated | ConvertTo-Json")
-	
-	output, err := cmd.Output()
-	if err == nil && len(output) > 0 {
-		var logs []map[string]interface{}
-		
-		if err := json.Unmarshal(output, &logs); err != nil {
-			var singleLog map[string]interface{}
-			if err2 := json.Unmarshal(output, &singleLog); err2 == nil {
-				logs = []map[string]interface{}{singleLog}
-			} else {
-				return
-			}
+		"Get-EventLog -LogName Security -Newest 5 | "+
+			"Select-Object Message, EventID, EntryType, TimeGenerated | ConvertTo-Json")
+
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+
+	var logs []map[string]interface{}
+	if json.Unmarshal(out, &logs) != nil {
+		var single map[string]interface{}
+		if json.Unmarshal(out, &single) == nil {
+			logs = []map[string]interface{}{single}
+		}
+	}
+
+	host := getHostname()
+	ts := time.Now().UTC().Format(time.RFC3339)
+
+	for _, logItem := range logs {
+		msg, _ := logItem["Message"].(string)
+		etype, _ := logItem["EntryType"].(string)
+
+		severity := "info"
+		switch etype {
+		case "Error":
+			severity = "error"
+		case "Warning":
+			severity = "warning"
+		case "FailureAudit":
+			severity = "high"
 		}
 
-		for _, logEntry := range logs {
-			severity := "info"
-			if entryType, ok := logEntry["EntryType"].(string); ok {
-				if entryType == "Error" {
-					severity = "error"
-				} else if entryType == "Warning" {
-					severity = "warning"
-				} else if entryType == "FailureAudit" {
-					severity = "high"
-				}
-			}
-
-			message := ""
-			if msg, ok := logEntry["Message"].(string); ok {
-				message = msg
-			} else if msg, ok := logEntry["message"].(string); ok {
-				message = msg
-			}
-
-			if message != "" {
-				sendLog(LogEntry{
-					DeviceID:   deviceID,
-					DeviceName: deviceName,
-					Hostname:   hostname,
-					LogType:    "security",
-					Source:     "Windows Event Log - Security",
-					Severity:   severity,
-					Message:    message,
-					Timestamp:  timestamp,
-				})
-			}
-		}
+		sendLog(LogEntry{
+			DeviceID:   deviceID,
+			DeviceName: deviceName,
+			Hostname:   host,
+			LogType:    "security",
+			Source:     "WinEventLog",
+			Severity:   severity,
+			Message:    msg,
+			Timestamp:  ts,
+		})
 	}
 }
 
-func sendLog(logEntry LogEntry) {
-	jsonData, err := json.Marshal(logEntry)
-	if err != nil {
-		logMessage(fmt.Sprintf("Error marshaling log: %v", err))
-		return
-	}
-
+func sendLog(entry LogEntry) {
+	data, _ := json.Marshal(entry)
 	url := fmt.Sprintf("%s/api/log", apiURL)
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(jsonData)))
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(data)))
 	if err != nil {
-		logMessage(fmt.Sprintf("Error sending log: %v", err))
+		logMessage("Log send error: " + err.Error())
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		logMessage(fmt.Sprintf("Error response from API: %s", string(body)))
+		logMessage("API error: " + string(body))
 	}
 }
 
@@ -585,62 +487,86 @@ func updateDeviceStatus() {
 		return
 	}
 
-	status := map[string]interface{}{
+	s := map[string]interface{}{
 		"device_id":       deviceID,
 		"status":          "online",
 		"security_status": "secure",
 	}
-	
 	if isQuarantined {
-		status["status"] = "quarantined"
-		status["security_status"] = "critical"
+		s["status"] = "quarantined"
+		s["security_status"] = "critical"
 	}
 
-	jsonData, err := json.Marshal(status)
-	if err != nil {
-		logMessage(fmt.Sprintf("Error marshaling status: %v", err))
-		return
-	}
-	
+	data, _ := json.Marshal(s)
 	url := fmt.Sprintf("%s/api/devices/status", apiURL)
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(jsonData)))
-	if err != nil {
-		logMessage(fmt.Sprintf("Error updating status: %v", err))
-		return
-	}
-	defer resp.Body.Close()
+	http.Post(url, "application/json", strings.NewReader(string(data)))
 }
+// ----------------- main service wrapper -----------------
 
-func main() {
-	// Check if running as administrator
-	if !isAdmin() {
-		logMessage("ERROR: Agent must run with administrator privileges")
-		fmt.Println("Please run this agent as Administrator")
-		os.Exit(1)
-	}
+type cyartService struct{}
 
-	logMessage(fmt.Sprintf("Starting CyArt Security Agent v%s...", VERSION))
-	logMessage(fmt.Sprintf("Server URL: %s", apiURL))
+// Execute implements svc.Handler
+func (m *cyartService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
+	const accepts = svc.AcceptStop | svc.AcceptShutdown
 
-	if err := initializeDevice(); err != nil {
-		logMessage(fmt.Sprintf("Error initializing device: %v", err))
-		logMessage("Will retry in 30 seconds...")
-		time.Sleep(30 * time.Second)
-		if err := initializeDevice(); err != nil {
-			logMessage(fmt.Sprintf("Failed to initialize device after retry: %v", err))
-			logMessage("Please check server connectivity and configuration")
-			os.Exit(1)
+	// Notify Start Pending
+	changes <- svc.Status{State: svc.StartPending}
+
+	// Start initialization in background quickly so SCM doesn't time out
+	go func() {
+		initializeAgent()
+	}()
+
+	// Notify Running
+	changes <- svc.Status{State: svc.Running, Accepts: accepts}
+
+loop:
+	for {
+		select {
+		case c := <-r:
+			switch c.Cmd {
+			case svc.Interrogate:
+				changes <- c.CurrentStatus
+			case svc.Stop, svc.Shutdown:
+				// break the loop to stop service
+				break loop
+			default:
+				// ignore other requests
+			}
 		}
 	}
 
-	if deviceID == "" {
-		logMessage("Failed to initialize device. Exiting.")
-		os.Exit(1)
+	// Notify Stop Pending
+	changes <- svc.Status{State: svc.StopPending}
+	// Cleanup if needed (none)
+	return false, 0
+}
+
+// initializeAgent runs the agent main loop (background)
+func initializeAgent() {
+	logMessage(fmt.Sprintf("Starting CyArt Security Agent v%s...", VERSION))
+	logMessage(fmt.Sprintf("Server URL: %s", apiURL))
+
+	// Admin check - log but continue (services run as SYSTEM)
+	if !isAdmin() {
+		logMessage("WARNING: Agent not running with admin privileges. Some features may fail.")
+	} else {
+		logMessage("Admin privileges confirmed.")
 	}
 
-	logMessage("Agent started successfully. Monitoring in background...")
+	// Try to register device (with one retry)
+	if err := initializeDevice(); err != nil {
+		logMessage("Device initialization error: " + err.Error())
+		time.Sleep(30 * time.Second)
+		if err := initializeDevice(); err != nil {
+			logMessage("Device initialization failed after retry: " + err.Error())
+			// continue running; agent will keep trying in loops
+		}
+	}
 
-	// Goroutine for quarantine checking
+	logMessage("Agent entering background monitoring loop")
+
+	// Quarantine monitor
 	go func() {
 		for {
 			checkQuarantineStatus()
@@ -648,7 +574,7 @@ func main() {
 		}
 	}()
 
-	// Main monitoring loop
+	// Main loop
 	for {
 		trackUSBDevices()
 		sendSystemLogs()
@@ -657,9 +583,44 @@ func main() {
 	}
 }
 
+func main() {
+	isInt, err := svc.IsAnInteractiveSession()
+	if err != nil {
+		log.Fatalf("Failed to detect session type: %v", err)
+	}
+
+	if isInt {
+		// Interactive / console mode
+		log.Printf("CyArtAgent: Running in interactive mode")
+		initializeAgent() // blocks
+		return
+	}
+
+	// Run as a windows service
+	err = svc.Run(SERVICE_NAME, &cyartService{})
+	if err != nil {
+		log.Printf("CyArtAgent service failed: %v", err)
+	}
+}
+
+// isAdmin checks for administrative privileges without exiting the process.
 func isAdmin() bool {
-	_, err := os.Open("\\\\.\\PHYSICALDRIVE0")
-	return err == nil
+	// Attempt a privileged operation. Opening physical drive is a quick check.
+	f, err := os.Open("\\\\.\\PHYSICALDRIVE0")
+	if err == nil {
+		_ = f.Close()
+		return true
+	}
+	// Fall back: check membership of Administrators group via environment (best-effort)
+	if runtime.GOOS == "windows" {
+		// If USERDOMAIN and USERNAME exist, it's best-effort only.
+		// Real admin-check would require syscall or windows API; keep it simple here.
+		if os.Getenv("USERNAME") != "" && os.Getenv("USERDOMAIN") != "" {
+			// not a reliable admin check, but previous attempt failed so assume false
+			return false
+		}
+	}
+	return false
 }
 
 

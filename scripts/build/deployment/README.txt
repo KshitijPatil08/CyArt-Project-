@@ -10,8 +10,8 @@ Files Included:
 Deployment Methods:
 
 Method 1: Manual Installation (Single PC)
-1. Run install.bat as Administrator
-2. The agent will be installed as a Windows Service
+1. Copy the contents of the deployment folder to the target machine.
+2. Run install.bat as Administrator (it will copy files and create a Windows service).
 3. Check logs at: %APPDATA%\CyArtAgent\agent.log
 
 Method 2: Group Policy Deployment
@@ -25,12 +25,12 @@ Method 3: SCCM Deployment
 2. Use sccm-install.ps1 as install script
 3. Deploy to target collection
 
-Server URL:  https://ariel-pseudoanthropoid-harvey.ngrok-free.dev
+Server URL: https://lily-recrudescent-scantly.ngrok-free.dev
 
 System Requirements:
 - Windows 7/Server 2008 R2 or later
-- Administrator privileges
+- Administrator privileges (installer)
 - Network access to server
-- 10MB disk space
+- ~10MB disk space
 
-Built on: 2025-11-15
+Built on: 2025-11-17

@@ -15,17 +15,17 @@ if %errorLevel% neq 0 (
 )
 
 echo Stopping CyArt Agent service...
-sc stop "CyArtAgent"
+sc stop "CyArtAgent" >nul 2>&1
 timeout /t 3 /nobreak >nul
 
 echo Removing service...
-sc delete "CyArtAgent"
+sc delete "CyArtAgent" >nul 2>&1
 
 echo Removing firewall rule...
-netsh advfirewall firewall delete rule name="CyArt Agent"
+netsh advfirewall firewall delete rule name="CyArt Agent" >nul 2>&1
 
 echo Removing installation files...
-set INSTALL_DIR=%ProgramFiles%\CyArtAgent
+set "INSTALL_DIR=%ProgramFiles%\CyArtAgent"
 if exist "%INSTALL_DIR%" (
     rd /s /q "%INSTALL_DIR%"
 )
