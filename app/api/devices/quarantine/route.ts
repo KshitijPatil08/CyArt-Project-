@@ -20,7 +20,7 @@ export async function PUT(request: NextRequest) {
         is_quarantined: true,
         quarantine_reason: reason,
         quarantined_at: new Date().toISOString(),
-        quarantined_by: quarantined_by || "system",
+        quarantined_by: quarantined_by ?? null,
         security_status: "critical",
         updated_at: new Date().toISOString(),
       })

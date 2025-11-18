@@ -1,3 +1,6 @@
+// app/api/devices/register/route.ts
+// FIXED: Handles re-registration after device deletion
+
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { type NextRequest, NextResponse } from "next/server"
@@ -97,17 +100,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log("Registering device:", { device_name, hostname })
+    console.log("[REGISTRATION] Registering device:", { device_name, hostname })
 
-    // Check if device already exists by hostname
+    // CRITICAL FIX: Check if device exists by hostname
+    // Use maybeSingle() instead of single() to avoid errors when device doesn't exist
     const { data: existingDevice, error: fetchError } = await supabase
       .from("devices")
-      .select("id, readable_id")
+      .select("id, readable_id, device_name, status")
       .eq("hostname", hostname)
       .maybeSingle()
 
     if (fetchError) {
-      console.error("Error checking existing device:", fetchError)
+      console.error("[REGISTRATION] Error checking existing device:", fetchError)
       return NextResponse.json(
         { error: "Database query failed", details: fetchError.message },
         { status: 500, headers: corsHeaders }
@@ -116,13 +120,20 @@ export async function POST(request: NextRequest) {
 
     let deviceId
     let readableId
+    let isNewDevice = false
 
     if (existingDevice) {
-      // Reuse existing readable ID
+      // Device exists - UPDATE it
       readableId = existingDevice.readable_id
+      deviceId = existingDevice.id
 
-      console.log("Updating existing device:", existingDevice.id)
-      const { error } = await supabase
+      console.log("[REGISTRATION] Device found. Updating:", {
+        id: deviceId,
+        readable_id: readableId,
+        hostname
+      })
+
+      const { error: updateError } = await supabase
         .from("devices")
         .update({
           device_name,
@@ -134,31 +145,56 @@ export async function POST(request: NextRequest) {
           os_version,
           agent_version,
           status: "online",
+          security_status: "secure", // Reset security status on re-registration
+          is_quarantined: false,     // Release from quarantine if it was quarantined
           last_seen: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingDevice.id)
 
-      if (error) {
-        console.error("Error updating device:", error)
+      if (updateError) {
+        console.error("[REGISTRATION] Error updating device:", updateError)
         return NextResponse.json(
-          { error: "Failed to update device", details: error.message },
+          { error: "Failed to update device", details: updateError.message },
           { status: 500, headers: corsHeaders }
         )
       }
-      deviceId = existingDevice.id
+
+      console.log("[REGISTRATION] Device updated successfully")
+
+      // Log the re-registration event
+      await supabase.from("logs").insert([{
+        device_id: deviceId,
+        log_type: "system",
+        source: "registration-system",
+        severity: "info",
+        message: `Device re-registered: ${device_name} (${hostname})`,
+        timestamp: new Date().toISOString(),
+        raw_data: { 
+          action: "re-registration",
+          ip_address,
+          agent_version 
+        }
+      }])
+
     } else {
-      // Generate next readable ID
+      // Device doesn't exist - CREATE new device
+      isNewDevice = true
+
+      // Generate readable ID
       const { count } = await supabase
         .from("devices")
         .select("id", { count: "exact", head: true })
 
-      const nextNumber = (count || 0) + 1
       readableId = `Device-${crypto.randomUUID().slice(0, 8)}`
 
-      console.log("Creating new device with readable ID:", readableId)
+      console.log("[REGISTRATION] Creating new device:", {
+        readable_id: readableId,
+        hostname,
+        device_name
+      })
 
-      const { data, error } = await supabase
+      const { data: newDevice, error: insertError } = await supabase
         .from("devices")
         .insert([
           {
@@ -172,28 +208,60 @@ export async function POST(request: NextRequest) {
             agent_version,
             readable_id: readableId,
             status: "online",
+            security_status: "secure",
+            is_quarantined: false,
             last_seen: new Date().toISOString(),
           },
         ])
         .select()
         .single()
 
-      if (error) {
-        console.error("Error creating device:", error)
+      if (insertError) {
+        console.error("[REGISTRATION] Error creating device:", insertError)
         return NextResponse.json(
-          { error: "Failed to create device", details: error.message },
+          { error: "Failed to create device", details: insertError.message },
           { status: 500, headers: corsHeaders }
         )
       }
-      deviceId = data.id
+
+      deviceId = newDevice.id
+      console.log("[REGISTRATION] Device created successfully:", deviceId)
+
+      // Log the initial registration
+      await supabase.from("logs").insert([{
+        device_id: deviceId,
+        log_type: "system",
+        source: "registration-system",
+        severity: "info",
+        message: `Device registered for the first time: ${device_name} (${hostname})`,
+        timestamp: new Date().toISOString(),
+        raw_data: { 
+          action: "initial-registration",
+          ip_address,
+          agent_version 
+        }
+      }])
     }
 
+    console.log("[REGISTRATION] Registration successful:", {
+      device_id: deviceId,
+      readable_id: readableId,
+      is_new: isNewDevice
+    })
+
     return NextResponse.json(
-      { success: true, device_id: deviceId, readable_id: readableId },
-      { status: 201, headers: corsHeaders }
+      { 
+        success: true, 
+        device_id: deviceId, 
+        readable_id: readableId,
+        is_new_device: isNewDevice,
+        message: isNewDevice ? "Device registered successfully" : "Device re-registered successfully"
+      },
+      { status: isNewDevice ? 201 : 200, headers: corsHeaders }
     )
+
   } catch (error: any) {
-    console.error("Unexpected error in device registration:", error)
+    console.error("[REGISTRATION] Unexpected error:", error)
     return NextResponse.json(
       { 
         error: "Internal server error", 
