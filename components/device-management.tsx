@@ -144,10 +144,21 @@ export function DeviceManagement() {
     }
   }
 
-  const handleDeleteDevice = async (deviceId: string) => {
+  const handleDeleteDevice = async (deviceId: string, deviceName: string) => {
+    if (!confirm(`Delete "${deviceName}" and all related records?`)) return
+
     try {
-      const { error } = await supabase.from("devices").delete().eq("id", deviceId)
-      if (error) throw error
+      const response = await fetch("/api/devices/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId, purge_logs: true }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error?.error || "Delete failed")
+      }
+
       toast({ title: "Success", description: "Device deleted successfully" })
       fetchDevices()
     } catch (error) {
@@ -449,7 +460,7 @@ export function DeviceManagement() {
                               <ShieldOff className="w-4 h-4" />
                             </Button>
                           ) : (
-                            <Button
+                          <Button
                               variant="outline"
                               size="sm"
                               onClick={() => handleQuarantine(device.id, device.device_name)}
@@ -462,7 +473,7 @@ export function DeviceManagement() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDeleteDevice(device.id)}
+                            onClick={() => handleDeleteDevice(device.id, device.device_name)}
                             className="text-red-600 hover:text-red-700"
                           >
                             <Trash2 className="w-4 h-4" />

@@ -1,5 +1,6 @@
 "use client"
 
+import 'reactflow/dist/style.css'
 import React, { useCallback, useMemo } from 'react'
 import ReactFlow, {
   Node,

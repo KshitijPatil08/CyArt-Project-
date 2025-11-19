@@ -16,6 +16,9 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
+REM Ensure script runs from its own directory even when launched elevated
+pushd "%~dp0" >nul
+
 echo Installing CyArt Security Agent...
 
 REM Installation directory
@@ -74,4 +77,5 @@ echo ======================================
 echo Installation completed successfully!
 echo ======================================
 echo.
+popd >nul
 pause

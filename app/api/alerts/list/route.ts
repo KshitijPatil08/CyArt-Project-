@@ -15,7 +15,9 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (device_id) query = query.eq('device_id', device_id);
-    if (resolved) query = query.eq('resolved', resolved === 'true');
+    if (resolved !== null) {
+      query = query.eq('is_resolved', resolved === 'true');
+    }
 
     const { data, error } = await query;
     if (error) throw error;

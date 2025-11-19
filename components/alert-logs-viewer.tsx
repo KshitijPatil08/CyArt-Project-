@@ -137,32 +137,32 @@ export function AlertLogsViewer() {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case "critical":
-        return "bg-red-100 text-red-800"
+        return "bg-red-500/20 text-red-300"
       case "error":
-        return "bg-orange-100 text-orange-800"
+        return "bg-orange-500/20 text-orange-200"
       case "warning":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-yellow-500/20 text-yellow-200"
       case "info":
-        return "bg-blue-100 text-blue-800"
+        return "bg-blue-500/20 text-blue-200"
       case "debug":
-        return "bg-gray-100 text-gray-800"
+        return "bg-gray-500/20 text-gray-200"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
   const getLogTypeColor = (logType: string) => {
     switch (logType) {
       case "security":
-        return "bg-red-50 border-red-200"
+        return "bg-red-500/10 border-red-500/40"
       case "usb":
-        return "bg-purple-50 border-purple-200"
+        return "bg-purple-500/10 border-purple-500/40"
       case "system":
-        return "bg-blue-50 border-blue-200"
+        return "bg-blue-500/10 border-blue-500/40"
       case "application":
-        return "bg-green-50 border-green-200"
+        return "bg-green-500/10 border-green-500/40"
       default:
-        return "bg-gray-50 border-gray-200"
+        return "bg-muted/30 border-border"
     }
   }
 

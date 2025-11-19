@@ -42,6 +42,7 @@ export default function SecurityDashboard() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [usbEventCount, setUsbEventCount] = useState(0);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'topology'>('list');
@@ -52,11 +53,13 @@ export default function SecurityDashboard() {
     fetchDevices();
     fetchLogs();
     fetchAlerts();
+    fetchUsbEventsCount();
     
     const interval = setInterval(() => {
       fetchDevices();
       fetchLogs();
       fetchAlerts();
+      fetchUsbEventsCount();
     }, 5000);
 
     return () => clearInterval(interval);
@@ -66,7 +69,11 @@ export default function SecurityDashboard() {
     try {
       const res = await fetch(`${API_URL}/api/devices/list`);
       const data = await res.json();
-      setDevices(data.devices || []);
+      const normalizedDevices = (data.devices || []).map((device: any) => ({
+        ...device,
+        device_id: device.device_id || device.id,
+      }));
+      setDevices(normalizedDevices);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching devices:', error);
@@ -76,11 +83,21 @@ export default function SecurityDashboard() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/logs?limit=100`);
+      const res = await fetch(`${API_URL}/api/logs?limit=500`);
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (error) {
       console.error('Error fetching logs:', error);
+    }
+  };
+
+  const fetchUsbEventsCount = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/logs?usb_only=true&limit=1`);
+      const data = await res.json();
+      setUsbEventCount(data.total || data.count || 0);
+    } catch (error) {
+      console.error('Error fetching USB stats:', error);
     }
   };
 
@@ -162,7 +179,7 @@ export default function SecurityDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">USB Events</p>
-                <p className="text-2xl font-bold text-purple-600">{logs.length}</p>
+                <p className="text-2xl font-bold text-purple-600">{usbEventCount}</p>
               </div>
               <Usb className="w-8 h-8 text-purple-600" />
             </div>
