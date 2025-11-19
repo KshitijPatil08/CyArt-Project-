@@ -20,7 +20,7 @@ echo ""
 
 # Prompt for Supabase credentials
 read -p "Enter Supabase URL (https://xxx.supabase.co): " SUPABASE_URL
-read -sp "Enter Supabase Service Role Key: " SUPABASE_KEY
+read -p "Enter Supabase Service Role Key: " SUPABASE_KEY
 echo ""
 echo ""
 
