@@ -46,6 +46,7 @@ type DeviceRegistration struct {
 	Location     string `json:"location"`
 	Hostname     string `json:"hostname"`
 	IPAddress    string `json:"ip_address"`
+	MACAddress   string `json:"mac_address"`
 	OSVersion    string `json:"os_version"`
 	AgentVersion string `json:"agent_version"`
 }
@@ -199,13 +200,15 @@ func logMessage(msg string) {
 	}
 }
 func initializeDevice() error {
-	if deviceID != "" {
-		return nil
-	}
-
 	hostname := getHostname()
 	ip := getIPAddress()
+	mac := getMACAddress()
 	osv := getOSVersion()
+
+	// Ensure device_name is always the hostname, not a USB device name
+	if deviceName == "" || deviceName == "Unknown" {
+		deviceName = hostname
+	}
 
 	reg := DeviceRegistration{
 		DeviceName:   deviceName,
@@ -214,6 +217,7 @@ func initializeDevice() error {
 		Location:     location,
 		Hostname:     hostname,
 		IPAddress:    ip,
+		MACAddress:   mac,
 		OSVersion:    osv,
 		AgentVersion: VERSION,
 	}
@@ -232,6 +236,8 @@ func initializeDevice() error {
 	json.Unmarshal(body, &result)
 
 	if id, ok := result["device_id"].(string); ok {
+		// Always save the device ID, even if we had one before
+		// This handles the case where device was deleted and re-registered
 		saveDeviceID(id)
 		logMessage("Device registered ID: " + id)
 		return nil
@@ -241,19 +247,66 @@ func initializeDevice() error {
 }
 
 func getIPAddress() string {
-	cmd := exec.Command("ipconfig")
+	// Use PowerShell to get the primary network adapter IP address
+	cmd := exec.Command("powershell", "-Command",
+		"Get-NetIPAddress -AddressFamily IPv4 | "+
+			"Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | "+
+			"Sort-Object InterfaceIndex | "+
+			"Select-Object -First 1 -ExpandProperty IPAddress")
+	
 	out, err := cmd.Output()
 	if err != nil {
+		// Fallback to old method
+		cmd2 := exec.Command("ipconfig")
+		out2, err2 := cmd2.Output()
+		if err2 != nil {
+			return "127.0.0.1"
+		}
+		
+		for _, line := range strings.Split(string(out2), "\n") {
+			if strings.Contains(line, "IPv4") {
+				parts := strings.Fields(line)
+				if len(parts) > 0 {
+					ip := parts[len(parts)-1]
+					if !strings.HasPrefix(ip, "127.") && !strings.HasPrefix(ip, "169.254.") {
+						return ip
+					}
+				}
+			}
+		}
 		return "127.0.0.1"
 	}
-
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.Contains(line, "IPv4") {
-			parts := strings.Fields(line)
-			return parts[len(parts)-1]
-		}
+	
+	ip := strings.TrimSpace(string(out))
+	if ip != "" && !strings.HasPrefix(ip, "127.") && !strings.HasPrefix(ip, "169.254.") {
+		return ip
 	}
 	return "127.0.0.1"
+}
+
+func getMACAddress() string {
+	// Use PowerShell to get the primary network adapter MAC address
+	cmd := exec.Command("powershell", "-Command",
+		"Get-NetAdapter | "+
+			"Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notlike '*Loopback*' } | "+
+			"Sort-Object InterfaceIndex | "+
+			"Select-Object -First 1 -ExpandProperty MacAddress")
+	
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	
+	mac := strings.TrimSpace(string(out))
+	// Remove dashes and colons, return in standard format
+	mac = strings.ReplaceAll(mac, "-", "")
+	mac = strings.ReplaceAll(mac, ":", "")
+	if len(mac) == 12 {
+		// Format as XX:XX:XX:XX:XX:XX
+		return fmt.Sprintf("%s:%s:%s:%s:%s:%s",
+			mac[0:2], mac[2:4], mac[4:6], mac[6:8], mac[8:10], mac[10:12])
+	}
+	return mac
 }
 
 func getOSVersion() string {
@@ -400,7 +453,7 @@ func trackUSBDevices() {
 
 		sendLog(LogEntry{
 			DeviceID:     deviceID,
-			DeviceName:   name,
+			DeviceName:   deviceName, // Use actual device name, not USB device name
 			Hostname:     hostname,
 			LogType:      "hardware",
 			HardwareType: "usb",
@@ -419,50 +472,87 @@ func sendSystemLogs() {
 		return
 	}
 
-	cmd := exec.Command("powershell", "-Command",
-		"Get-EventLog -LogName Security -Newest 5 | "+
-			"Select-Object Message, EventID, EntryType, TimeGenerated | ConvertTo-Json")
-
-	out, err := cmd.Output()
-	if err != nil || len(out) == 0 {
-		return
-	}
-
-	var logs []map[string]interface{}
-	if json.Unmarshal(out, &logs) != nil {
-		var single map[string]interface{}
-		if json.Unmarshal(out, &single) == nil {
-			logs = []map[string]interface{}{single}
-		}
-	}
-
 	host := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
-	for _, logItem := range logs {
-		msg, _ := logItem["Message"].(string)
-		etype, _ := logItem["EntryType"].(string)
+	// Collect logs from multiple sources: Application, System, and Security
+	logSources := []struct {
+		logName string
+		logType string
+	}{
+		{"Application", "application"},
+		{"System", "system"},
+		{"Security", "security"},
+	}
 
-		severity := "info"
-		switch etype {
-		case "Error":
-			severity = "error"
-		case "Warning":
-			severity = "warning"
-		case "FailureAudit":
-			severity = "high"
+	for _, source := range logSources {
+		cmd := exec.Command("powershell", "-Command",
+			fmt.Sprintf("Get-EventLog -LogName %s -Newest 10 -ErrorAction SilentlyContinue | "+
+				"Select-Object Message, EventID, EntryType, TimeGenerated, Source | "+
+				"ConvertTo-Json", source.logName))
+
+		out, err := cmd.Output()
+		if err != nil || len(out) == 0 {
+			continue
 		}
 
-		sendLog(LogEntry{
-			DeviceID:   deviceID,
-			DeviceName: deviceName,
-			Hostname:   host,
-			LogType:    "security",
-			Source:     "WinEventLog",
-			Severity:   severity,
-			Message:    msg,
-			Timestamp:  ts,
-		})
+		var logs []map[string]interface{}
+		if json.Unmarshal(out, &logs) != nil {
+			var single map[string]interface{}
+			if json.Unmarshal(out, &single) == nil {
+				logs = []map[string]interface{}{single}
+			} else {
+				continue
+			}
+		}
+
+		for _, logItem := range logs {
+			msg, _ := logItem["Message"].(string)
+			if msg == "" {
+				continue
+			}
+			
+			etype, _ := logItem["EntryType"].(string)
+			eventID, _ := logItem["EventID"].(float64)
+			logSource, _ := logItem["Source"].(string)
+			
+			// Parse timestamp if available
+			timeGen, _ := logItem["TimeGenerated"].(string)
+			if timeGen == "" {
+				timeGen = ts
+			}
+
+			severity := "info"
+			switch etype {
+			case "Error":
+				severity = "error"
+			case "Warning":
+				severity = "warning"
+			case "FailureAudit":
+				severity = "high"
+			case "SuccessAudit":
+				severity = "info"
+			}
+
+			// Create raw data with event details
+			rawData := map[string]interface{}{
+				"event_id":   int(eventID),
+				"entry_type": etype,
+				"source":     logSource,
+			}
+
+			sendLog(LogEntry{
+				DeviceID:   deviceID,
+				DeviceName: deviceName,
+				Hostname:   host,
+				LogType:    source.logType,
+				Source:     fmt.Sprintf("WinEventLog-%s", source.logName),
+				Severity:   severity,
+				Message:    msg,
+				Timestamp:  timeGen,
+				RawData:    rawData,
+			})
+		}
 	}
 }
 

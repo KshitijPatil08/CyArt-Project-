@@ -54,14 +54,32 @@ export async function POST(request: NextRequest) {
     if (!deviceExists) {
       console.log("[LOG] Device not found. Auto-registering device:", device_id);
 
+      // Use hostname as device_name if available, otherwise use device_name but ensure it's not a USB device name
+      // USB device names often contain keywords like "USB", "Camera", "DFU", etc.
+      let finalDeviceName = device_name || "Unknown Device"
+      if (hostname && hostname !== "unknown-host" && hostname !== "") {
+        // Prefer hostname over device_name to avoid USB device names
+        finalDeviceName = hostname
+      } else if (device_name && (
+        device_name.toLowerCase().includes("usb") ||
+        device_name.toLowerCase().includes("camera") ||
+        device_name.toLowerCase().includes("dfu") ||
+        device_name.toLowerCase().includes("printer") ||
+        device_name.toLowerCase().includes("mouse") ||
+        device_name.toLowerCase().includes("keyboard")
+      )) {
+        // If device_name looks like a USB/peripheral name, use a generic name
+        finalDeviceName = "Unknown Device"
+      }
+
       // Auto-register the device with minimal info
       const { error: autoRegisterError } = await supabase
         .from("devices")
         .insert([{
           id: device_id, // Use the provided device_id
-          device_name: device_name || "Unknown Device",
+          device_name: finalDeviceName,
           device_type: "windows",
-          hostname: hostname || "unknown-host",
+          hostname: hostname || finalDeviceName || "unknown-host",
           readable_id: `Device-${crypto.randomUUID().slice(0, 8)}`,
           status: "online",
           security_status: "secure",

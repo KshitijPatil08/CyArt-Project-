@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
       owner, 
       location, 
       ip_address, 
+      mac_address,
       hostname, 
       os_version, 
       agent_version 
@@ -100,14 +101,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log("[REGISTRATION] Registering device:", { device_name, hostname })
+    // Ensure hostname is provided, use device_name as fallback
+    const finalHostname = hostname || device_name
+
+    console.log("[REGISTRATION] Registering device:", { device_name, hostname: finalHostname, ip_address, mac_address })
 
     // CRITICAL FIX: Check if device exists by hostname
     // Use maybeSingle() instead of single() to avoid errors when device doesn't exist
     const { data: existingDevice, error: fetchError } = await supabase
       .from("devices")
       .select("id, readable_id, device_name, status")
-      .eq("hostname", hostname)
+      .eq("hostname", finalHostname)
       .maybeSingle()
 
     if (fetchError) {
@@ -130,26 +134,40 @@ export async function POST(request: NextRequest) {
       console.log("[REGISTRATION] Device found. Updating:", {
         id: deviceId,
         readable_id: readableId,
-        hostname
+        hostname: finalHostname,
+        ip_address,
+        mac_address
       })
+
+      // Build update object with all fields
+      const updateData: any = {
+        device_name,
+        device_type,
+        owner,
+        location,
+        hostname: finalHostname,
+        os_version,
+        agent_version,
+        status: "online",
+        security_status: "secure", // Reset security status on re-registration
+        is_quarantined: false,     // Release from quarantine if it was quarantined
+        last_seen: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      // Always update IP address if provided
+      if (ip_address) {
+        updateData.ip_address = ip_address
+      }
+
+      // Always update MAC address if provided
+      if (mac_address) {
+        updateData.mac_address = mac_address
+      }
 
       const { error: updateError } = await supabase
         .from("devices")
-        .update({
-          device_name,
-          device_type,
-          owner,
-          location,
-          ip_address,
-          hostname,
-          os_version,
-          agent_version,
-          status: "online",
-          security_status: "secure", // Reset security status on re-registration
-          is_quarantined: false,     // Release from quarantine if it was quarantined
-          last_seen: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq("id", existingDevice.id)
 
       if (updateError) {
@@ -168,11 +186,12 @@ export async function POST(request: NextRequest) {
         log_type: "system",
         source: "registration-system",
         severity: "info",
-        message: `Device re-registered: ${device_name} (${hostname})`,
+        message: `Device re-registered: ${device_name} (${finalHostname})`,
         timestamp: new Date().toISOString(),
         raw_data: { 
           action: "re-registration",
           ip_address,
+          mac_address,
           agent_version 
         }
       }])
@@ -190,29 +209,41 @@ export async function POST(request: NextRequest) {
 
       console.log("[REGISTRATION] Creating new device:", {
         readable_id: readableId,
-        hostname,
-        device_name
+        hostname: finalHostname,
+        device_name,
+        ip_address,
+        mac_address
       })
+
+      // Build insert object
+      const insertData: any = {
+        device_name,
+        device_type,
+        owner,
+        location,
+        hostname: finalHostname,
+        os_version,
+        agent_version,
+        readable_id: readableId,
+        status: "online",
+        security_status: "secure",
+        is_quarantined: false,
+        last_seen: new Date().toISOString(),
+      }
+
+      // Add IP address if provided
+      if (ip_address) {
+        insertData.ip_address = ip_address
+      }
+
+      // Add MAC address if provided
+      if (mac_address) {
+        insertData.mac_address = mac_address
+      }
 
       const { data: newDevice, error: insertError } = await supabase
         .from("devices")
-        .insert([
-          {
-            device_name,
-            device_type,
-            owner,
-            location,
-            ip_address,
-            hostname,
-            os_version,
-            agent_version,
-            readable_id: readableId,
-            status: "online",
-            security_status: "secure",
-            is_quarantined: false,
-            last_seen: new Date().toISOString(),
-          },
-        ])
+        .insert([insertData])
         .select()
         .single()
 
@@ -233,11 +264,12 @@ export async function POST(request: NextRequest) {
         log_type: "system",
         source: "registration-system",
         severity: "info",
-        message: `Device registered for the first time: ${device_name} (${hostname})`,
+        message: `Device registered for the first time: ${device_name} (${finalHostname})`,
         timestamp: new Date().toISOString(),
         raw_data: { 
           action: "initial-registration",
           ip_address,
+          mac_address,
           agent_version 
         }
       }])
