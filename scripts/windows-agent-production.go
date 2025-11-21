@@ -15,11 +15,10 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows/svc"
-	
 )
 
 const (
-	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
+	DEFAULT_API_URL           = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
 	POLL_INTERVAL             = 30 * time.Second
 	CHECK_QUARANTINE_INTERVAL = 10 * time.Second
 	REGISTRATION_FILE         = "device_id.txt"
@@ -253,7 +252,7 @@ func getIPAddress() string {
 			"Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | "+
 			"Sort-Object InterfaceIndex | "+
 			"Select-Object -First 1 -ExpandProperty IPAddress")
-	
+
 	out, err := cmd.Output()
 	if err != nil {
 		// Fallback to old method
@@ -262,7 +261,7 @@ func getIPAddress() string {
 		if err2 != nil {
 			return "127.0.0.1"
 		}
-		
+
 		for _, line := range strings.Split(string(out2), "\n") {
 			if strings.Contains(line, "IPv4") {
 				parts := strings.Fields(line)
@@ -276,7 +275,7 @@ func getIPAddress() string {
 		}
 		return "127.0.0.1"
 	}
-	
+
 	ip := strings.TrimSpace(string(out))
 	if ip != "" && !strings.HasPrefix(ip, "127.") && !strings.HasPrefix(ip, "169.254.") {
 		return ip
@@ -291,12 +290,12 @@ func getMACAddress() string {
 			"Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notlike '*Loopback*' } | "+
 			"Sort-Object InterfaceIndex | "+
 			"Select-Object -First 1 -ExpandProperty MacAddress")
-	
+
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
-	
+
 	mac := strings.TrimSpace(string(out))
 	// Remove dashes and colons, return in standard format
 	mac = strings.ReplaceAll(mac, "-", "")
@@ -404,7 +403,7 @@ func trackUSBDevices() {
 
 	cmd := exec.Command("powershell", "-Command",
 		"Get-WmiObject Win32_PnPEntity | "+
-			"Where-Object { $_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*' } | "+
+			"Where-Object { ($_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*') -and $_.PNPDeviceID -notlike '*ROOT_HUB*' } | "+
 			"Select-Object Name, PNPDeviceID | ConvertTo-Json -Compress")
 
 	out, err := cmd.Output()
@@ -488,7 +487,7 @@ func sendSystemLogs() {
 	for _, source := range logSources {
 		cmd := exec.Command("powershell", "-Command",
 			fmt.Sprintf("Get-EventLog -LogName %s -Newest 10 -ErrorAction SilentlyContinue | "+
-				"Select-Object Message, EventID, EntryType, TimeGenerated, Source | "+
+				"Select-Object Message, EventID, EntryType, @{Name='TimeGenerated'; Expression={$_.TimeGenerated.ToString('yyyy-MM-ddTHH:mm:ssZ')}}, Source | "+
 				"ConvertTo-Json", source.logName))
 
 		out, err := cmd.Output()
@@ -511,11 +510,11 @@ func sendSystemLogs() {
 			if msg == "" {
 				continue
 			}
-			
+
 			etype, _ := logItem["EntryType"].(string)
 			eventID, _ := logItem["EventID"].(float64)
 			logSource, _ := logItem["Source"].(string)
-			
+
 			// Parse timestamp if available
 			timeGen, _ := logItem["TimeGenerated"].(string)
 			if timeGen == "" {
@@ -591,6 +590,7 @@ func updateDeviceStatus() {
 	url := fmt.Sprintf("%s/api/devices/status", apiURL)
 	http.Post(url, "application/json", strings.NewReader(string(data)))
 }
+
 // ----------------- main service wrapper -----------------
 
 type cyartService struct{}

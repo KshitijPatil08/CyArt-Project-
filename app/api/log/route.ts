@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
         severity: severity || "info",
         message,
         event_code,
-        timestamp: new Date(timestamp).toISOString(),
+        timestamp: (timestamp && !isNaN(Date.parse(timestamp))) ? new Date(timestamp).toISOString() : new Date().toISOString(),
         raw_data,
         hardware_type,
         event,
