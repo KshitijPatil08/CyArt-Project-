@@ -9,8 +9,16 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Download, Filter } from "lucide-react"
+import { AlertCircle, Download, Filter, Trash2, Clock, Activity, Shield } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 interface Log {
   id: string
@@ -46,6 +54,18 @@ export function AlertLogsViewer() {
   })
   const { toast } = useToast()
   const supabase = createClient()
+  const [clearDialogOpen, setClearDialogOpen] = useState(false)
+  const [clearRange, setClearRange] = useState("24h")
+  const [customRange, setCustomRange] = useState({ before: "", after: "" })
+  const [clearing, setClearing] = useState(false)
+
+  const severitySnapshot = logs.reduce(
+    (acc, log) => {
+      acc[log.severity as keyof typeof acc] = (acc[log.severity as keyof typeof acc] || 0) + 1
+      return acc
+    },
+    { critical: 0, error: 0, warning: 0, info: 0, debug: 0 } as Record<string, number>,
+  )
 
   useEffect(() => {
     fetchDevices()
@@ -100,6 +120,72 @@ export function AlertLogsViewer() {
       console.error("[v0] Error fetching logs:", error)
       toast({ title: "Error", description: "Failed to fetch logs", variant: "destructive" })
       setLoading(false)
+    }
+  }
+
+  const resetFilters = () => {
+    setFilters({
+      device_id: "all",
+      log_type: "all",
+      severity: "all",
+      search: "",
+    })
+    setPagination((prev) => ({ ...prev, offset: 0 }))
+  }
+
+  const buildRangePayload = () => {
+    const now = new Date()
+    switch (clearRange) {
+      case "24h":
+        return { after: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "7d":
+        return { after: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "30d":
+        return { after: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "custom":
+        return {
+          before: customRange.before ? new Date(customRange.before).toISOString() : undefined,
+          after: customRange.after ? new Date(customRange.after).toISOString() : undefined,
+        }
+      default:
+        return {}
+    }
+  }
+
+  const handleClearLogs = async () => {
+    try {
+      const payload = buildRangePayload()
+      if (!payload.before && !payload.after) {
+        toast({ title: "Range required", description: "Select or set at least one time bound.", variant: "destructive" })
+        return
+      }
+
+      setClearing(true)
+      const response = await fetch("/api/logs", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to clear logs")
+      }
+
+      toast({
+        title: "Logs cleared",
+        description: `Removed ${result.deleted || 0} log${(result.deleted || 0) === 1 ? "" : "s"}.`,
+      })
+      setClearDialogOpen(false)
+      setCustomRange({ before: "", after: "" })
+      setPagination((prev) => ({ ...prev, offset: 0 }))
+      fetchLogs()
+    } catch (error: any) {
+      console.error("Error clearing logs:", error)
+      toast({ title: "Error", description: error.message || "Unable to clear logs", variant: "destructive" })
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -168,18 +254,82 @@ export function AlertLogsViewer() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-3xl font-bold">Alert Logs</h1>
-        <p className="text-muted-foreground mt-1">Monitor and analyze system logs and security events</p>
+      <Card className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-background border-primary/10">
+        <CardHeader className="space-y-1">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-wide text-muted-foreground">Operations Center</p>
+              <h1 className="text-3xl font-bold">Alert Logs</h1>
+              <p className="text-muted-foreground mt-1">
+                Monitor live telemetry, investigate spikes, and prune noisy signals.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => fetchLogs()} disabled={loading} className="gap-2">
+              <Activity className="w-4 h-4" />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {[
+          {
+            label: "Total Logs",
+            value: pagination.total,
+            icon: Activity,
+            accent: "from-primary/15 to-primary/5 text-primary",
+          },
+          {
+            label: "Critical Alerts",
+            value: severitySnapshot.critical,
+            icon: AlertCircle,
+            accent: "from-red-500/20 to-red-500/5 text-red-600 dark:text-red-300",
+          },
+          {
+            label: "Warnings",
+            value: severitySnapshot.warning,
+            icon: Shield,
+            accent: "from-amber-500/20 to-amber-500/5 text-amber-600 dark:text-amber-200",
+          },
+          {
+            label: "Informational",
+            value: severitySnapshot.info,
+            icon: Clock,
+            accent: "from-blue-500/20 to-blue-500/5 text-blue-600 dark:text-blue-200",
+          },
+        ].map((card) => (
+          <Card key={card.label} className={`bg-gradient-to-br ${card.accent} border-border/40`}>
+            <CardContent className="py-6 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">{card.label}</p>
+                <p className="text-2xl font-bold">{card.value}</p>
+              </div>
+              <card.icon className="w-8 h-8 opacity-70" />
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="w-4 h-4" />
-            Filters
-          </CardTitle>
+        <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-4 h-4" />
+              Filters
+            </CardTitle>
+            <CardDescription>Slice data by device, severity, or keywords.</CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
+              Reset
+            </Button>
+            <Button variant="secondary" size="sm" className="gap-2" onClick={() => setClearDialogOpen(true)}>
+              <Trash2 className="w-4 h-4" />
+              Clear Logs
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -344,6 +494,75 @@ export function AlertLogsViewer() {
           )}
         </CardContent>
       </Card>
+      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="w-4 h-4" />
+              Clear Logs by Time
+            </DialogTitle>
+            <DialogDescription>
+              Permanently delete logs within the selected time window. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Time Range</Label>
+              <Select value={clearRange} onValueChange={setClearRange}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Choose range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="24h">Last 24 hours</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="custom">Custom range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {clearRange === "custom" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="clear-after">Start (after)</Label>
+                  <Input
+                    id="clear-after"
+                    type="datetime-local"
+                    value={customRange.after}
+                    onChange={(e) => setCustomRange((prev) => ({ ...prev, after: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="clear-before">End (before)</Label>
+                  <Input
+                    id="clear-before"
+                    type="datetime-local"
+                    value={customRange.before}
+                    onChange={(e) => setCustomRange((prev) => ({ ...prev, before: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row sm:justify-between gap-2">
+            <Button variant="ghost" onClick={() => setClearDialogOpen(false)} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="w-full sm:w-auto gap-2"
+              onClick={handleClearLogs}
+              disabled={clearing}
+            >
+              {clearing ? "Clearing..." : "Clear logs"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

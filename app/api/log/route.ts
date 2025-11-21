@@ -1,5 +1,7 @@
 // app/api/log/route.ts
 // FIXED: Auto-registers device if missing before creating logs
+// FIXED: Only creates alerts for unauthorized USB devices
+// FIXED: Implemented log and alert deduplication
 
 import { createClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
@@ -55,10 +57,8 @@ export async function POST(request: NextRequest) {
       console.log("[LOG] Device not found. Auto-registering device:", device_id);
 
       // Use hostname as device_name if available, otherwise use device_name but ensure it's not a USB device name
-      // USB device names often contain keywords like "USB", "Camera", "DFU", etc.
       let finalDeviceName = device_name || "Unknown Device"
       if (hostname && hostname !== "unknown-host" && hostname !== "") {
-        // Prefer hostname over device_name to avoid USB device names
         finalDeviceName = hostname
       } else if (device_name && (
         device_name.toLowerCase().includes("usb") ||
@@ -68,7 +68,6 @@ export async function POST(request: NextRequest) {
         device_name.toLowerCase().includes("mouse") ||
         device_name.toLowerCase().includes("keyboard")
       )) {
-        // If device_name looks like a USB/peripheral name, use a generic name
         finalDeviceName = "Unknown Device"
       }
 
@@ -91,8 +90,8 @@ export async function POST(request: NextRequest) {
       if (autoRegisterError) {
         console.error("[LOG] Auto-registration failed:", autoRegisterError);
         return NextResponse.json(
-          { 
-            error: "Device not found and auto-registration failed", 
+          {
+            error: "Device not found and auto-registration failed",
             details: autoRegisterError.message,
             hint: "Please register the device using /api/devices/register endpoint"
           },
@@ -105,11 +104,36 @@ export async function POST(request: NextRequest) {
       // Device exists - update last_seen
       await supabase
         .from("devices")
-        .update({ 
+        .update({
           last_seen: new Date().toISOString(),
-          status: "online" 
+          status: "online"
         })
         .eq("id", device_id);
+    }
+
+    // Check for duplicate logs (deduplication)
+    const { data: recentLogs } = await supabase
+      .from("logs")
+      .select("message, timestamp, created_at")
+      .eq("device_id", device_id)
+      .eq("log_type", log_type)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (recentLogs && recentLogs.length > 0) {
+      const lastLog = recentLogs[0];
+      const lastLogTime = new Date(lastLog.created_at).getTime();
+      const currentTime = new Date().getTime();
+      const timeDiff = (currentTime - lastLogTime) / 1000; // seconds
+
+      // If identical message and less than 60 seconds, skip
+      if (lastLog.message === message && timeDiff < 60) {
+        console.log("[LOG] Duplicate log detected, skipping:", message);
+        return NextResponse.json({
+          success: true,
+          message: "Duplicate log skipped"
+        }, { status: 200 });
+      }
     }
 
     // Now safe to insert log
@@ -132,9 +156,9 @@ export async function POST(request: NextRequest) {
 
     if (logError) {
       console.error("[LOG] Error inserting log:", logError);
-      return NextResponse.json({ 
-        error: "Failed to create log", 
-        details: logError.message 
+      return NextResponse.json({
+        error: "Failed to create log",
+        details: logError.message
       }, { status: 500 });
     }
 
@@ -165,58 +189,68 @@ export async function POST(request: NextRequest) {
             .maybeSingle();
 
           if (!authorizedUSB) {
-            // Unauthorized USB detected - create critical alert
-            const usbName = raw_data.usb_name || "Unknown USB Device";
-            await supabase.from("alerts").insert([{
-              device_id,
-              alert_type: "unauthorized_usb",
-              severity: "critical",
-              title: "Unauthorized USB Device Detected",
-              description: `Unauthorized USB device "${usbName}" (Serial: ${serialNumber}) was connected to ${hostname || "device"}`,
-              is_read: false,
-              is_resolved: false,
-            }]);
+            // Unauthorized USB detected
 
-            // Update log severity to critical
-            await supabase
-              .from("logs")
-              .update({ severity: "critical" })
-              .eq("id", logData.id);
+            // Check for existing unresolved alert for this specific USB
+            const { data: existingAlert } = await supabase
+              .from("alerts")
+              .select("id")
+              .eq("device_id", device_id)
+              .eq("alert_type", "unauthorized_usb")
+              .eq("is_resolved", false)
+              .ilike("description", `%${serialNumber}%`)
+              .maybeSingle();
+
+            if (!existingAlert) {
+              // Create critical alert only if no unresolved alert exists
+              const usbName = raw_data.usb_name || "Unknown USB Device";
+              await supabase.from("alerts").insert([{
+                device_id,
+                alert_type: "unauthorized_usb",
+                severity: "critical",
+                title: "Unauthorized USB Device Detected",
+                description: `Unauthorized USB device "${usbName}" (Serial: ${serialNumber}) was connected to ${hostname || "device"}`,
+                is_read: false,
+                is_resolved: false,
+              }]);
+
+              // Update log severity to critical
+              await supabase
+                .from("logs")
+                .update({ severity: "critical" })
+                .eq("id", logData.id);
+            } else {
+              console.log(`[LOG] Skipping duplicate unauthorized USB alert for ${serialNumber}`);
+            }
+
           } else {
-            // Authorized USB - create info alert
+            // Authorized USB - NO ALERT, just normal log
+            console.log(`[LOG] Authorized USB connected: ${serialNumber}`);
+          }
+        } else {
+          // USB without serial number - moderate alert
+          // Check for existing unresolved alert for unknown USB
+          const { data: existingUnknownAlert } = await supabase
+            .from("alerts")
+            .select("id")
+            .eq("device_id", device_id)
+            .eq("alert_type", "hardware_event")
+            .eq("is_resolved", false)
+            .ilike("title", "%No Serial%")
+            .maybeSingle();
+
+          if (!existingUnknownAlert) {
             await supabase.from("alerts").insert([{
               device_id,
               alert_type: "hardware_event",
-              severity: "low",
-              title: "Authorized USB Device Connected",
-              description: `Authorized USB device "${raw_data.usb_name || 'USB Device'}" connected to ${hostname || "device"}`,
+              severity: "moderate",
+              title: "USB Device Connected (No Serial)",
+              description: `USB device "${raw_data.usb_name || 'Unknown'}" connected to ${hostname || "device"} but serial number could not be determined`,
               is_read: false,
               is_resolved: false,
             }]);
           }
-        } else {
-          // USB without serial number - moderate alert
-          await supabase.from("alerts").insert([{
-            device_id,
-            alert_type: "hardware_event",
-            severity: "moderate",
-            title: "USB Device Connected (No Serial)",
-            description: `USB device "${raw_data.usb_name || 'Unknown'}" connected to ${hostname || "device"} but serial number could not be determined`,
-            is_read: false,
-            is_resolved: false,
-          }]);
         }
-      } else {
-        // Other hardware events
-        await supabase.from("alerts").insert([{
-          device_id,
-          alert_type: "hardware_event",
-          severity: "low",
-          title: "Device Event",
-          description: `${hardware_type.toUpperCase()} ${event} on ${hostname || "device"}`,
-          is_read: false,
-          is_resolved: false,
-        }]);
       }
     }
 
@@ -228,8 +262,8 @@ export async function POST(request: NextRequest) {
       await trackDataTransfer(supabase, device_id, message, raw_data);
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       log_id: logData?.id,
       message: "Log created successfully"
     }, { status: 201 });
@@ -237,7 +271,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("[LOG] API error:", error);
     return NextResponse.json(
-      { 
+      {
         error: "Internal server error",
         details: error?.message || "Unknown error"
       },

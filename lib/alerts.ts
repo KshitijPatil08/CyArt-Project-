@@ -35,6 +35,21 @@ export async function checkAndCreateAlerts(
         severity: 'high',
         type: 'security'
       },
+      // Driver Alerts
+      {
+        condition: (msg: string) => msg.includes('driver') && (msg.includes('failed') || msg.includes('error') || msg.includes('incompatible')),
+        title: 'Driver Issue Detected',
+        severity: 'high',
+        type: 'driver'
+      },
+      // Server Alerts
+      {
+        condition: (msg: string) => msg.includes('server') && (msg.includes('stopped') || msg.includes('shutdown') || msg.includes('offline') || msg.includes('error')),
+        title: 'Server Critical Event',
+        severity: 'critical',
+        type: 'server'
+      },
+      // USB Alerts (General/Unknown)
       {
         condition: (msg: string) => msg.includes('unknown') && msg.includes('usb'),
         title: 'Unknown USB Device',
@@ -49,6 +64,13 @@ export async function checkAndCreateAlerts(
         title: 'Off-Hours USB Activity',
         severity: 'moderate',
         type: 'hardware'
+      },
+      // Other Device Alerts
+      {
+        condition: (msg: string) => !msg.includes('usb') && (msg.includes('connected') || msg.includes('disconnected')) && (msg.includes('device') || msg.includes('hardware')),
+        title: 'Peripheral Device Event',
+        severity: 'info',
+        type: 'other_device'
       },
       {
         condition: (msg: string) => msg.includes('error') && (msg.includes('system') || msg.includes('critical')),

@@ -712,12 +712,3 @@ func isAdmin() bool {
 	}
 	return false
 }
-
-
-
-
-
-
-
-
-
