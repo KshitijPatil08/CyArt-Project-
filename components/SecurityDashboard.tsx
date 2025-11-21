@@ -5,6 +5,7 @@ import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, Shi
 import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
 import { QuarantineManagement } from './quarantine-management';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -255,8 +256,8 @@ export default function SecurityDashboard() {
                       variant="outline"
                       size="icon"
                       className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
-                          ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
-                          : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
+                        ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
+                        : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
                         }`}
                     >
                       <div className="relative">
@@ -393,7 +394,7 @@ export default function SecurityDashboard() {
             <USBWhitelistManagement />
           </div>
         ) : viewMode === 'quarantine' ? (
-          <div className="bg-card border rounded-lg shadow-sm p-6">
+          <div className="bg-card border rounded-lg shadow-sm">
             <QuarantineManagement />
           </div>
         ) : viewMode === 'topology' ? (

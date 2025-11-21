@@ -4,22 +4,23 @@ import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger 
+  DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
-import { 
-  LayoutDashboard, 
-  Monitor, 
-  FileText, 
-  LogOut, 
+import {
+  LayoutDashboard,
+  Monitor,
+  FileText,
+  LogOut,
   User,
   Menu,
   X,
-  Shield
+  Shield,
+  ShieldAlert
 } from "lucide-react"
 import Link from "next/link"
 import { UserMenu } from "./user-menu"
@@ -29,6 +30,7 @@ const navigation = [
   { name: "Devices", href: "/devices", icon: Monitor },
   { name: "Logs", href: "/logs", icon: FileText },
   { name: "USB Whitelist", href: "/usb-whitelist", icon: Shield },
+  { name: "Quarantine", href: "/quarantine", icon: ShieldAlert },
 ]
 
 export function Navigation() {
@@ -63,9 +65,9 @@ export function Navigation() {
     return null
   }
 
-  if (!user) {
-    return null
-  }
+  // if (!user) {
+  //   return null
+  // }
 
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -79,7 +81,7 @@ export function Navigation() {
               </div>
               <span className="text-xl font-bold">CyArt Security</span>
             </Link>
-            
+
             <div className="hidden md:flex md:gap-1">
               {navigation.map((item) => {
                 const isActive = pathname === item.href
@@ -101,7 +103,7 @@ export function Navigation() {
           {/* User Menu */}
           <div className="flex items-center gap-4">
             <UserMenu />
-            
+
             {/* Mobile menu button */}
             <Button
               variant="ghost"
