@@ -454,7 +454,7 @@ func trackUSBDevices() {
 			DeviceID:     deviceID,
 			DeviceName:   deviceName, // Use actual device name, not USB device name
 			Hostname:     hostname,
-			LogType:      "hardware",
+			LogType:      "usb",
 			HardwareType: "usb",
 			Event:        "connected",
 			Source:       "windows-agent",
@@ -487,7 +487,7 @@ func sendSystemLogs() {
 	for _, source := range logSources {
 		cmd := exec.Command("powershell", "-Command",
 			fmt.Sprintf("Get-EventLog -LogName %s -Newest 10 -ErrorAction SilentlyContinue | "+
-				"Select-Object Message, EventID, EntryType, @{Name='TimeGenerated'; Expression={$_.TimeGenerated.ToString('yyyy-MM-ddTHH:mm:ssZ')}}, Source | "+
+				"Select-Object Message, EventID, EntryType, @{Name='TimeGenerated'; Expression={$_.TimeGenerated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')}}, Source | "+
 				"ConvertTo-Json", source.logName))
 
 		out, err := cmd.Output()

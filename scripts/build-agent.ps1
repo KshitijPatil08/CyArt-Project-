@@ -115,7 +115,7 @@ set "INSTALL_DIR=%ProgramFiles%\CyArtAgent"
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
 REM Copy agent executable (assumes install.bat runs from same folder as exe)
-copy /Y "CyArtAgent.exe" "%INSTALL_DIR%\CyArtAgent.exe"
+copy /Y "%~dp0CyArtAgent.exe" "%INSTALL_DIR%\CyArtAgent.exe"
 if %errorLevel% neq 0 (
     echo ERROR: Failed to copy agent files
     pause

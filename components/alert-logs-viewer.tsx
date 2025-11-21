@@ -96,7 +96,11 @@ export function AlertLogsViewer() {
       }
 
       if (filters.log_type !== "all") {
-        query = query.eq("log_type", filters.log_type)
+        if (filters.log_type === "usb") {
+          query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)")
+        } else {
+          query = query.eq("log_type", filters.log_type)
+        }
       }
 
       if (filters.severity !== "all") {

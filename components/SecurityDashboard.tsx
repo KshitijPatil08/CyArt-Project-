@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap } from 'lucide-react';
+import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap, ShieldAlert, Lock } from 'lucide-react';
 import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
+import { QuarantineManagement } from './quarantine-management';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,6 +23,7 @@ interface Device {
   hostname: string;
   ip_address: string;
   is_server?: boolean;
+  is_quarantined?: boolean;
 }
 
 interface Log {
@@ -57,7 +59,7 @@ export default function SecurityDashboard() {
   const [usbEventCount, setUsbEventCount] = useState(0);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
@@ -80,7 +82,7 @@ export default function SecurityDashboard() {
       fetchLogs();
       fetchAlerts();
       fetchUsbEventsCount();
-    }, 5000);
+    }, 10000); // Increased to 10s to prevent UI hangs
 
     return () => clearInterval(interval);
   }, []);
@@ -103,7 +105,7 @@ export default function SecurityDashboard() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/logs?limit=500`);
+      const res = await fetch(`${API_URL}/api/logs?limit=100`); // Reduced limit for dashboard performance
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (error) {
@@ -252,18 +254,16 @@ export default function SecurityDashboard() {
                     <Button
                       variant="outline"
                       size="icon"
-                      className={`h-10 w-10 rounded-full border ${
-                        serverStatus === 'online'
+                      className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
                           ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
                           : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
-                      }`}
+                        }`}
                     >
                       <div className="relative">
                         <Zap className="w-4 h-4" />
                         <span
-                          className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${
-                            serverStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
-                          }`}
+                          className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
+                            }`}
                         ></span>
                       </div>
                     </Button>
@@ -375,6 +375,15 @@ export default function SecurityDashboard() {
               <ShieldCheck className="w-4 h-4" />
               USB Whitelist
             </Button>
+            <Button
+              variant={viewMode === 'quarantine' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('quarantine')}
+              className="gap-2 whitespace-nowrap"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              Quarantine
+            </Button>
           </div>
         </div>
 
@@ -382,6 +391,10 @@ export default function SecurityDashboard() {
         {viewMode === 'whitelist' ? (
           <div className="bg-card border rounded-lg shadow-sm">
             <USBWhitelistManagement />
+          </div>
+        ) : viewMode === 'quarantine' ? (
+          <div className="bg-card border rounded-lg shadow-sm p-6">
+            <QuarantineManagement />
           </div>
         ) : viewMode === 'topology' ? (
           <div className="mb-6">
@@ -421,11 +434,17 @@ export default function SecurityDashboard() {
                             }`}></span>
                           <h3 className="font-medium text-foreground flex items-center gap-2">
                             {device.is_server && <Server className="w-4 h-4 text-blue-500" />}
+                            {device.is_quarantined && <Lock className="w-3 h-3 text-red-500" />}
                             {device.device_name}
                           </h3>
                         </div>
                         <p className="text-sm text-muted-foreground">{device.owner}</p>
                         <p className="text-xs text-muted-foreground">{device.location}</p>
+                        {device.is_quarantined && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mt-1">
+                            Quarantined
+                          </span>
+                        )}
                       </div>
                     ))
                   )}
@@ -438,7 +457,15 @@ export default function SecurityDashboard() {
               {selectedDevice ? (
                 <div className="space-y-6">
                   <div className="bg-card border rounded-lg shadow-sm p-6">
-                    <h2 className="text-lg font-semibold mb-4 text-foreground">Device Information</h2>
+                    <div className="flex justify-between items-start mb-4">
+                      <h2 className="text-lg font-semibold text-foreground">Device Information</h2>
+                      {selectedDevice.is_quarantined && (
+                        <div className="flex items-center gap-2 bg-red-100 text-red-800 px-3 py-1 rounded-full">
+                          <Lock className="w-4 h-4" />
+                          <span className="text-sm font-medium">Quarantined</span>
+                        </div>
+                      )}
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <p className="text-sm text-muted-foreground mb-1">Hostname</p>

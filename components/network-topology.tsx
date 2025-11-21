@@ -15,7 +15,7 @@ import ReactFlow, {
   MarkerType,
   NodeTypes,
 } from 'reactflow'
-import { Monitor, Server, Laptop, Smartphone, AlertCircle } from 'lucide-react'
+import { Monitor, Server, Laptop, Smartphone, AlertCircle, Lock } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 
 interface Device {
@@ -27,6 +27,7 @@ interface Device {
   hostname: string
   ip_address: string
   device_type?: string
+  is_quarantined?: boolean
 }
 
 interface NetworkTopologyProps {
@@ -50,13 +51,15 @@ const DeviceNode = ({ data }: { data: any }) => {
   }
 
   const statusColor = data.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
-  const borderColor = data.status === 'online' ? 'border-green-500' : 'border-gray-500'
+  const borderColor = data.isQuarantined ? 'border-red-500' : (data.status === 'online' ? 'border-green-500' : 'border-gray-500')
+  const bgColor = data.isQuarantined ? 'bg-red-50' : 'bg-card'
 
   return (
-    <div className={`px-4 py-3 bg-card border-2 ${borderColor} rounded-lg shadow-lg min-w-[200px]`}>
+    <div className={`px-4 py-3 ${bgColor} border-2 ${borderColor} rounded-lg shadow-lg min-w-[200px]`}>
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-3 h-3 rounded-full ${statusColor}`} />
         {getDeviceIcon(data.deviceType)}
+        {data.isQuarantined && <Lock className="w-4 h-4 text-red-500" />}
         <div className="flex-1">
           <h3 className="font-semibold text-sm text-foreground">{data.label}</h3>
         </div>
@@ -117,6 +120,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
             location: server.location || 'Data Center',
             status: server.status || 'offline',
             deviceType: 'server',
+            isQuarantined: (server as any).is_quarantined,
           },
         })
       })
@@ -133,6 +137,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           location: 'Data Center',
           status: 'online',
           deviceType: 'server',
+          isQuarantined: false,
         },
       })
     }
@@ -157,6 +162,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           location: agent.location || 'Unknown',
           status: agent.status || 'offline',
           deviceType: agent.device_type || 'windows',
+          isQuarantined: agent.is_quarantined,
         },
       })
     })
@@ -167,11 +173,11 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
   // Generate edges based on star topology (server to agents)
   const initialEdges: Edge[] = useMemo(() => {
     const edges: Edge[] = []
-    
+
     // Separate servers and agents
     const servers = devices.filter(d => (d as any).is_server === true || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
     const agents = devices.filter(d => !servers.includes(d))
-    
+
     const mainServerId = servers.length > 0 ? servers[0].device_id : 'virtual-server'
 
     // Create star topology: connect all agents to the main server
@@ -268,6 +274,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         <Controls />
         <MiniMap
           nodeColor={(node) => {
+            if (node.data.isQuarantined) return '#ef4444'
             return node.data.status === 'online' ? '#10b981' : '#6b7280'
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
