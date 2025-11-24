@@ -1,9 +1,8 @@
 #!/bin/bash
-# Register Ubuntu Server in Database
-# This makes the server appear in the network topology
+# Register Ubuntu Server in Database & Install as Service
 
 echo "=========================================="
-echo "CyArt Server Registration"
+echo "CyArt Server Registration & Monitor"
 echo "=========================================="
 echo ""
 
@@ -18,23 +17,44 @@ echo "  IP Address: $IP_ADDRESS"
 echo "  OS: $OS_VERSION"
 echo ""
 
+# Check if we are already running as a service
+if [ "$1" == "--monitor" ]; then
+    # We are in monitor mode (running as service)
+    # Load ID
+    if [ -f "/etc/cyart/server_device_id.txt" ]; then
+        DEVICE_ID=$(cat "/etc/cyart/server_device_id.txt")
+    else
+        echo "Error: Device ID not found. Run without --monitor first."
+        exit 1
+    fi
+    
+    API_URL="https://v0-project1-r9.vercel.app"
+    INTERVAL=30
+    
+    echo "Starting Heartbeat Loop for ID: $DEVICE_ID"
+    while true; do
+        PAYLOAD="{\"device_id\": \"$DEVICE_ID\", \"status\": \"online\", \"security_status\": \"secure\"}"
+        curl -s -o /dev/null -X POST "$API_URL/api/devices/status" -H "Content-Type: application/json" -d "$PAYLOAD"
+        sleep $INTERVAL
+    done
+    exit 0
+fi
+
+# --- Interactive Mode ---
+
 # Prompt for Supabase credentials
 read -p "Enter Supabase URL (https://xxx.supabase.co): " SUPABASE_URL
 read -p "Enter Supabase Service Role Key: " SUPABASE_KEY
 echo ""
-echo ""
 
-# Validate inputs
 if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
     echo "Error: Supabase URL and Key are required!"
     exit 1
 fi
 
-# Remove trailing slash from URL if present
 SUPABASE_URL=${SUPABASE_URL%/}
 
-echo "Registering server in database..."
-echo ""
+echo "Registering server..."
 
 # Create JSON payload
 JSON_PAYLOAD=$(cat <<EOF
@@ -54,13 +74,7 @@ JSON_PAYLOAD=$(cat <<EOF
 EOF
 )
 
-# Debug: Show what we're sending
-echo "Debug Information:"
-echo "URL: ${SUPABASE_URL}/rest/v1/devices"
-echo "Payload: $JSON_PAYLOAD"
-echo ""
-
-# Make the request with better error handling
+# Register
 RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/devices" \
   -H "apikey: ${SUPABASE_KEY}" \
   -H "Authorization: Bearer ${SUPABASE_KEY}" \
@@ -68,81 +82,69 @@ RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "${SUPABASE_URL}/rest/v
   -H "Prefer: return=representation" \
   -d "$JSON_PAYLOAD" 2>&1)
 
-# Extract HTTP status code
 HTTP_CODE=$(echo "$RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d':' -f2)
 RESPONSE_BODY=$(echo "$RESPONSE" | sed 's/HTTP_CODE:[0-9]*//g')
 
-echo "HTTP Status Code: $HTTP_CODE"
-echo "Response Body: $RESPONSE_BODY"
-echo ""
-
-# Check if successful (2xx status codes)
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-  # Try to extract device ID
-  DEVICE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*' | sed 's/"id"[[:space:]]*:[[:space:]]*"//g' | head -1)
-  
-  if [ -z "$DEVICE_ID" ]; then
-    # Try alternative JSON parsing
-    DEVICE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":"[^"]*' | cut -d'"' -f4 | head -1)
-  fi
+  DEVICE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":"[^"]*' | cut -d'"' -f4 | head -1)
   
   if [ -n "$DEVICE_ID" ]; then
-    echo "✓ Server registered successfully!"
-    echo "  Device ID: $DEVICE_ID"
-    echo ""
-    echo "Server will now appear in the network topology as the central hub."
+    echo "✓ Registration successful! Device ID: $DEVICE_ID"
     
-    # Save device ID for status updates
-    mkdir -p /tmp/cyart
-    echo "$DEVICE_ID" > /tmp/cyart/server_device_id.txt
-    echo "Device ID saved to /tmp/cyart/server_device_id.txt"
+    # Save ID to a permanent location for the service
+    sudo mkdir -p /etc/cyart
+    echo "$DEVICE_ID" | sudo tee /etc/cyart/server_device_id.txt > /dev/null
+    echo "ID saved to /etc/cyart/server_device_id.txt"
   else
-    echo "✓ Request successful but could not extract device ID"
-    echo "Full response: $RESPONSE_BODY"
+    echo "Could not extract Device ID."
     exit 1
   fi
 else
-  echo "✗ Registration failed with HTTP code: $HTTP_CODE"
-  echo "Response: $RESPONSE_BODY"
+  echo "Registration failed ($HTTP_CODE)."
   exit 1
 fi
 
 echo ""
 echo "=========================================="
-echo "Starting Server Heartbeat Monitor"
+echo "       Auto-Start Configuration"
 echo "=========================================="
+echo "Do you want to install this as a system service?"
+echo "This will make it run automatically on boot."
+read -p "Install Service? (y/n): " INSTALL_SERVICE
 
-# Configuration for Monitor
-API_URL="https://v0-project1-r9.vercel.app" # Default API URL
-INTERVAL=30
+if [[ "$INSTALL_SERVICE" =~ ^[Yy]$ ]]; then
+    SCRIPT_PATH=$(realpath "$0")
+    SERVICE_FILE="/etc/systemd/system/cyart-server.service"
+    
+    echo "Creating service file at $SERVICE_FILE..."
+    
+    sudo bash -c "cat > $SERVICE_FILE" <<EOF
+[Unit]
+Description=CyArt Server Monitor
+After=network.target
 
-echo "Target API: $API_URL"
-echo "Device ID: $DEVICE_ID"
-echo "Press Ctrl+C to stop."
+[Service]
+Type=simple
+ExecStart=$SCRIPT_PATH --monitor
+Restart=always
+User=root
 
-while true; do
-    # Construct Heartbeat Payload
-    PAYLOAD=$(cat <<EOF
-{
-    "device_id": "$DEVICE_ID",
-    "status": "online",
-    "security_status": "secure"
-}
+[Install]
+WantedBy=multi-user.target
 EOF
-)
 
-    # Send heartbeat
-    # Using the Next.js API for heartbeats as it handles last_seen logic best
-    MONITOR_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_URL/api/devices/status" \
-        -H "Content-Type: application/json" \
-        -d "$PAYLOAD")
-
-    if [ "$MONITOR_RESPONSE" -eq 200 ]; then
-        echo -e "[$(date +%T)] \033[0;32mHeartbeat sent successfully.\033[0m"
-    else
-        echo -e "[$(date +%T)] \033[0;31mFailed to send heartbeat. HTTP Code: $MONITOR_RESPONSE\033[0m"
-    fi
-
-    # Wait for next heartbeat
-    sleep $INTERVAL
-done
+    echo "Reloading systemd..."
+    sudo systemctl daemon-reload
+    echo "Enabling service..."
+    sudo systemctl enable cyart-server
+    echo "Starting service..."
+    sudo systemctl start cyart-server
+    
+    echo ""
+    echo "✓ Service installed and started!"
+    echo "Check status with: sudo systemctl status cyart-server"
+else
+    echo ""
+    echo "Skipping service installation."
+    echo "You can run the monitor manually with: $0 --monitor"
+fi
