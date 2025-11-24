@@ -13,9 +13,9 @@ export async function GET() {
 
     if (error) throw error;
 
-    // 2. Check for offline devices (threshold: 2 minutes)
+    // 2. Check for offline devices (threshold: 1 minute)
     const now = new Date();
-    const offlineThreshold = 2 * 60 * 1000; // 2 minutes in milliseconds
+    const offlineThreshold = 1 * 60 * 1000; // 1 minute in milliseconds
 
     const updatedDevices = devices?.map(device => {
       const lastSeen = new Date(device.last_seen).getTime();

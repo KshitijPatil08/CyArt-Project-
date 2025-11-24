@@ -63,17 +63,7 @@ export default function SecurityDashboard() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine'>('list');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Derived server status - no manual override
-  const serverStatus: ServerStatus = useMemo(() => {
-    // Check if any device marked as server is online
-    // If no device is explicitly marked as server, we might default to offline or check if *any* device is online?
-    // For now, let's assume there is at least one device that should be a server.
-    // If no devices are marked is_server, maybe we check if the current machine (localhost) is online?
-    // But let's stick to the plan: check for is_server && status === 'online'
-    const activeServer = devices.find(d => d.is_server && d.status === 'online');
-    return activeServer ? 'online' : 'offline';
-  }, [devices]);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://v0-project1-r9.vercel.app';
 
@@ -96,15 +86,19 @@ export default function SecurityDashboard() {
   const fetchDevices = async () => {
     try {
       const res = await fetch(`${API_URL}/api/devices/list`);
+      if (!res.ok) throw new Error('Failed to fetch');
+
       const data = await res.json();
       const normalizedDevices = (data.devices || []).map((device: any) => ({
         ...device,
         device_id: device.device_id || device.id,
       }));
       setDevices(normalizedDevices);
+      setServerStatus('online'); // API is reachable -> Server is Online
       setLoading(false);
     } catch (error) {
       console.error('Error fetching devices:', error);
+      setServerStatus('offline'); // API unreachable -> Server is Offline
       setLoading(false);
     }
   };
