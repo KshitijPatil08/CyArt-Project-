@@ -10,7 +10,7 @@ echo ""
 # Get server information
 HOSTNAME=$(hostname)
 IP_ADDRESS=$(hostname -I | awk '{print $1}')
-OS_VERSION=$(lsb_release -d | cut -f2)
+OS_VERSION=$(lsb_release -d 2>/dev/null | cut -f2 || echo "Linux")
 
 echo "Server Information:"
 echo "  Hostname: $HOSTNAME"
@@ -91,7 +91,6 @@ if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
     echo "  Device ID: $DEVICE_ID"
     echo ""
     echo "Server will now appear in the network topology as the central hub."
-    echo "Agents will connect to: http://${IP_ADDRESS}:3000"
     
     # Save device ID for status updates
     mkdir -p /tmp/cyart
@@ -100,22 +99,50 @@ if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
   else
     echo "✓ Request successful but could not extract device ID"
     echo "Full response: $RESPONSE_BODY"
+    exit 1
   fi
 else
   echo "✗ Registration failed with HTTP code: $HTTP_CODE"
   echo "Response: $RESPONSE_BODY"
-  echo ""
-  echo "Common issues:"
-  echo "  - Check if Supabase URL is correct"
-  echo "  - Verify Service Role Key (not Anon key)"
-  echo "  - Ensure 'devices' table exists in Supabase"
-  echo "  - Check RLS policies on devices table"
   exit 1
 fi
 
 echo ""
-echo "Next steps:"
-echo "1. Start the Next.js server: cd ~/CyArt-Project- && npm run dev"
-echo "2. Deploy agents to client devices"
-echo "3. Agents will auto-discover this server at ${IP_ADDRESS}"
-echo ""
+echo "=========================================="
+echo "Starting Server Heartbeat Monitor"
+echo "=========================================="
+
+# Configuration for Monitor
+API_URL="https://v0-project1-r9.vercel.app" # Default API URL
+INTERVAL=30
+
+echo "Target API: $API_URL"
+echo "Device ID: $DEVICE_ID"
+echo "Press Ctrl+C to stop."
+
+while true; do
+    # Construct Heartbeat Payload
+    PAYLOAD=$(cat <<EOF
+{
+    "device_id": "$DEVICE_ID",
+    "status": "online",
+    "security_status": "secure"
+}
+EOF
+)
+
+    # Send heartbeat
+    # Using the Next.js API for heartbeats as it handles last_seen logic best
+    MONITOR_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_URL/api/devices/status" \
+        -H "Content-Type: application/json" \
+        -d "$PAYLOAD")
+
+    if [ "$MONITOR_RESPONSE" -eq 200 ]; then
+        echo -e "[$(date +%T)] \033[0;32mHeartbeat sent successfully.\033[0m"
+    else
+        echo -e "[$(date +%T)] \033[0;31mFailed to send heartbeat. HTTP Code: $MONITOR_RESPONSE\033[0m"
+    fi
+
+    # Wait for next heartbeat
+    sleep $INTERVAL
+done
