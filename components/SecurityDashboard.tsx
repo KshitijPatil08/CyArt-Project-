@@ -25,6 +25,7 @@ interface Device {
   ip_address: string;
   is_server?: boolean;
   is_quarantined?: boolean;
+  last_seen?: string;
 }
 
 interface Log {
@@ -62,13 +63,17 @@ export default function SecurityDashboard() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine'>('list');
   const [searchQuery, setSearchQuery] = useState('');
-  const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
-  const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
-  const updateServerStatus = (status: ServerStatus) => {
-    setServerStatus(status);
-    setServerUpdatedAt(new Date().toISOString());
-  };
 
+  // Derived server status - no manual override
+  const serverStatus: ServerStatus = useMemo(() => {
+    // Check if any device marked as server is online
+    // If no device is explicitly marked as server, we might default to offline or check if *any* device is online?
+    // For now, let's assume there is at least one device that should be a server.
+    // If no devices are marked is_server, maybe we check if the current machine (localhost) is online?
+    // But let's stick to the plan: check for is_server && status === 'online'
+    const activeServer = devices.find(d => d.is_server && d.status === 'online');
+    return activeServer ? 'online' : 'offline';
+  }, [devices]);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://v0-project1-r9.vercel.app';
 
@@ -149,9 +154,6 @@ export default function SecurityDashboard() {
       (log.hardware_type === 'usb' || log.message?.toLowerCase().includes('usb'))
     );
   };
-
-  const servers = devices.filter(d => d.is_server);
-  const serverOnline = servers.some(s => s.status === 'online');
 
   const statCards = [
     {
@@ -237,7 +239,7 @@ export default function SecurityDashboard() {
             <div className="relative z-10 space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm uppercase tracking-widest text-muted-foreground">Server Control</p>
+                  <p className="text-sm uppercase tracking-widest text-muted-foreground">Server Status</p>
                   <div className="flex items-center gap-3 mt-2">
                     <div className={`h-10 w-10 rounded-full flex items-center justify-center border ${serverStatus === 'online' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600' : 'bg-rose-500/10 border-rose-500 text-rose-500'}`}>
                       <Wifi className="w-5 h-5" />
@@ -250,67 +252,28 @@ export default function SecurityDashboard() {
                     </div>
                   </div>
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
-                        ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
-                        : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
-                        }`}
-                    >
-                      <div className="relative">
-                        <Zap className="w-4 h-4" />
-                        <span
-                          className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
-                            }`}
-                        ></span>
-                      </div>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem
-                      onClick={() => updateServerStatus('online')}
-                      className="gap-3"
-                    >
-                      <div className="h-6 w-6 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center">
-                        <Power className="w-3 h-3 text-emerald-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Online</p>
-                        <p className="text-xs text-muted-foreground">Mark agent as healthy</p>
-                      </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => updateServerStatus('offline')}
-                      className="gap-3"
-                    >
-                      <div className="h-6 w-6 rounded-full bg-rose-500/15 border border-rose-500/40 flex items-center justify-center">
-                        <Power className="w-3 h-3 text-rose-500" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Offline</p>
-                        <p className="text-xs text-muted-foreground">Temporarily suppress activity</p>
-                      </div>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* Auto-detected status indicator */}
+                <div className={`h-10 w-10 rounded-full flex items-center justify-center border ${serverStatus === 'online'
+                  ? 'border-emerald-500/60 text-emerald-600 bg-emerald-500/10'
+                  : 'border-rose-500/60 text-rose-500 bg-rose-500/10'
+                  }`}>
+                  <Zap className="w-4 h-4" />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="rounded-lg bg-background/60 border border-muted/60 p-3">
-                  <p className="text-xs text-muted-foreground">Last Change</p>
+                  <p className="text-xs text-muted-foreground">Last Check</p>
                   <div className="flex items-center gap-2 mt-1 text-sm font-medium">
                     <Clock className="w-4 h-4 text-muted-foreground" />
-                    {new Date(serverUpdatedAt).toLocaleTimeString()}
+                    {new Date().toLocaleTimeString()}
                   </div>
                 </div>
                 <div className="rounded-lg bg-background/60 border border-muted/60 p-3">
                   <p className="text-xs text-muted-foreground">Server Health</p>
                   <div className="flex items-center gap-2 mt-1 text-sm font-medium">
                     <AlertTriangle className={`w-4 h-4 ${serverStatus === 'online' ? 'text-emerald-500' : 'text-rose-500'}`} />
-                    {serverStatus === 'online' ? 'Stable' : 'Degraded'}
+                    {serverStatus === 'online' ? 'Stable' : 'Critical'}
                   </div>
                 </div>
               </div>

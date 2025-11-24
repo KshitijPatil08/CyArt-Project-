@@ -3,7 +3,7 @@
 # Enhanced macOS Device Tracking Agent
 # Runs in background, registers once, collects overall system logs
 
-API_URL="${1:-https://v0-project1-r9.vercel.app}"
+API_URL="${1:-https://lily-recrudescent-scantly.ngrok-free.dev}"
 DEVICE_NAME="${2:-$(hostname)}"
 OWNER="${3:-$(whoami)}"
 LOCATION="${4:-Office}"
