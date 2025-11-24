@@ -67,22 +67,6 @@ export default function SecurityDashboard() {
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://v0-project1-r9.vercel.app';
 
-  useEffect(() => {
-    fetchDevices();
-    fetchLogs();
-    fetchAlerts();
-    fetchUsbEventsCount();
-
-    const interval = setInterval(() => {
-      fetchDevices();
-      fetchLogs();
-      fetchAlerts();
-      fetchUsbEventsCount();
-    }, 10000); // Increased to 10s to prevent UI hangs
-
-    return () => clearInterval(interval);
-  }, []);
-
   const fetchDevices = async () => {
     try {
       const res = await fetch(`${API_URL}/api/devices/list`);
@@ -94,7 +78,19 @@ export default function SecurityDashboard() {
         device_id: device.device_id || device.id,
       }));
       setDevices(normalizedDevices);
-      setServerStatus('online'); // API is reachable -> Server is Online
+
+      // Refined Server Status Logic:
+      // 1. If there are devices marked as 'is_server', use their status.
+      // 2. If no devices are marked as 'is_server', assume Server is Online (since API is working).
+      const serverDevices = normalizedDevices.filter((d: Device) => d.is_server);
+
+      if (serverDevices.length > 0) {
+        const isAnyServerOnline = serverDevices.some((d: Device) => d.status === 'online');
+        setServerStatus(isAnyServerOnline ? 'online' : 'offline');
+      } else {
+        setServerStatus('online');
+      }
+
       setLoading(false);
     } catch (error) {
       console.error('Error fetching devices:', error);
@@ -105,7 +101,7 @@ export default function SecurityDashboard() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/logs?limit=100`); // Reduced limit for dashboard performance
+      const res = await fetch(`${API_URL}/api/logs?limit=100`);
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (error) {
@@ -132,6 +128,22 @@ export default function SecurityDashboard() {
       console.error('Error fetching alerts:', error);
     }
   };
+
+  useEffect(() => {
+    fetchDevices();
+    fetchLogs();
+    fetchAlerts();
+    fetchUsbEventsCount();
+
+    const interval = setInterval(() => {
+      fetchDevices();
+      fetchLogs();
+      fetchAlerts();
+      fetchUsbEventsCount();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const getDeviceLogs = (deviceId: string) => {
     // Filter logs for the device, prioritizing USB/hardware events
