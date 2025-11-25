@@ -35,11 +35,11 @@ interface NetworkTopologyProps {
   devices: Device[]
 }
 
-// Subnet Group Node (The "Box")
+// Subnet Group Node (The "Box") - Visual Background Only
 const SubnetNode = ({ data }: { data: any }) => {
   return (
-    <div className="w-full h-full bg-transparent border-2 border-dashed border-slate-500/50 dark:border-slate-400/50 rounded-xl relative">
-      <div className="absolute -top-3 left-4 bg-background px-2 text-sm font-bold text-muted-foreground flex items-center gap-2 border border-slate-200 dark:border-slate-800 rounded-md shadow-sm">
+    <div className="w-full h-full bg-slate-900/20 border-2 border-dashed border-slate-600 rounded-xl relative">
+      <div className="absolute -top-3 left-4 bg-slate-950 px-2 text-sm font-bold text-slate-400 flex items-center gap-2 border border-slate-800 rounded-md shadow-sm">
         <Network className="w-4 h-4" />
         {data.label}
       </div>
@@ -69,31 +69,31 @@ const DeviceNode = ({ data }: { data: any }) => {
   const isOnline = data.status === 'online'
   const statusColor = isOnline ? 'bg-green-500' : 'bg-gray-500'
 
-  // Switch styling (Small header node inside the group)
+  // Switch styling
   if (isSwitch) {
     return (
-      <div className="px-3 py-1.5 bg-blue-100 dark:bg-blue-900/50 border-2 border-blue-500 rounded shadow-sm min-w-[120px] flex items-center justify-center gap-2 z-50 relative bg-background">
-        <Box className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-        <span className="text-xs font-bold text-blue-700 dark:text-blue-300">Switch</span>
+      <div className="px-3 py-1.5 bg-blue-950/50 border-2 border-blue-500 rounded shadow-sm min-w-[120px] flex items-center justify-center gap-2">
+        <Box className="w-4 h-4 text-blue-400" />
+        <span className="text-xs font-bold text-blue-300">Switch</span>
       </div>
     )
   }
 
   // Device styling
   const borderColor = data.isQuarantined ? 'border-red-500' : (isOnline ? 'border-green-500' : 'border-gray-500')
-  const bgColor = data.isQuarantined ? 'bg-red-50' : 'bg-card'
+  const bgColor = data.isQuarantined ? 'bg-red-950/30' : 'bg-slate-900'
 
   return (
-    <div className={`px-3 py-2 ${bgColor} border ${borderColor} rounded shadow-sm w-[160px] z-50 relative`}>
+    <div className={`px-3 py-2 ${bgColor} border ${borderColor} rounded shadow-sm w-[160px]`}>
       <div className="flex items-center gap-2 mb-1">
         <div className={`w-2 h-2 rounded-full ${statusColor}`} />
         {getDeviceIcon(data.deviceType)}
         {data.isQuarantined && <Lock className="w-3 h-3 text-red-500" />}
         <div className="flex-1 overflow-hidden">
-          <h3 className="font-semibold text-xs text-foreground truncate" title={data.label}>{data.label}</h3>
+          <h3 className="font-semibold text-xs text-slate-200 truncate" title={data.label}>{data.label}</h3>
         </div>
       </div>
-      <div className="text-[10px] text-muted-foreground truncate">
+      <div className="text-[10px] text-slate-400 truncate">
         {data.ipAddress}
       </div>
     </div>
@@ -128,13 +128,11 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       subnetMap.get(subnet)?.push(agent)
     })
 
-    // --- RADIAL LAYOUT ALGORITHM ---
-
-    // Center Point (Server)
+    // --- RADIAL LAYOUT (ABSOLUTE POSITIONING) ---
     const CENTER_X = 0
     const CENTER_Y = 0
 
-    // Place Main Server at Center
+    // Place Main Server
     if (mainServer) {
       nodes.push({
         id: mainServer.device_id,
@@ -147,7 +145,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           deviceType: 'server',
           isQuarantined: mainServer.is_quarantined,
         },
-        zIndex: 100, // Top layer
+        zIndex: 100,
       })
     } else {
       nodes.push({
@@ -164,47 +162,47 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       })
     }
 
-    // Process Subnets in a Circle
     const subnets = Array.from(subnetMap.keys())
-    const RADIUS = 600 // Distance from center to subnet center
+    const RADIUS = 600
     const ANGLE_STEP = (2 * Math.PI) / (subnets.length || 1)
 
     subnets.forEach((subnet, index) => {
       const angle = index * ANGLE_STEP
       const subnetAgents = subnetMap.get(subnet) || []
 
-      // Calculate Subnet Group Position
-      // We position the group such that its center is roughly at (x, y)
-      // But ReactFlow positions are top-left, so we need to offset by half width/height
-      const subnetWidth = Math.max(300, subnetAgents.length * 180 + 40)
-      const subnetHeight = 250
-
+      // Calculate Group Center
       const groupCenterX = CENTER_X + RADIUS * Math.cos(angle)
       const groupCenterY = CENTER_Y + RADIUS * Math.sin(angle)
 
-      const groupX = groupCenterX - (subnetWidth / 2)
-      const groupY = groupCenterY - (subnetHeight / 2)
+      const subnetWidth = Math.max(300, subnetAgents.length * 180 + 40)
+      const subnetHeight = 250
+
+      // Top-Left corner for the Group Box
+      const groupBoxX = groupCenterX - (subnetWidth / 2)
+      const groupBoxY = groupCenterY - (subnetHeight / 2)
 
       const groupId = `group-${subnet}`
       const switchId = `switch-${subnet}`
 
-      // Subnet Group Node
+      // Subnet Group Node (Background)
       nodes.push({
         id: groupId,
         type: 'subnet',
-        position: { x: groupX, y: groupY },
+        position: { x: groupBoxX, y: groupBoxY },
         style: { width: subnetWidth, height: subnetHeight },
         data: { label: `Subnet ${subnet}.x` },
-        zIndex: -1, // Bottom layer
+        zIndex: -1, // Behind everything
       })
 
-      // Switch Node (Top-Center of Subnet Group)
+      // Switch Node (Absolute Position)
+      // Centered horizontally in the group, near top
+      const switchX = groupBoxX + (subnetWidth / 2) - 60
+      const switchY = groupBoxY + 40
+
       nodes.push({
         id: switchId,
         type: 'device',
-        position: { x: (subnetWidth / 2) - 60, y: 40 },
-        parentNode: groupId,
-        extent: 'parent',
+        position: { x: switchX, y: switchY },
         data: {
           label: 'Switch',
           deviceType: 'switch',
@@ -214,30 +212,28 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       })
 
       // Backbone Connection (Server -> Switch)
-      // We connect to the Switch ID, but since Switch is a child node, ReactFlow handles the absolute position automatically for edges if we use the IDs correctly.
       edges.push({
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
-        type: 'default',
-        style: { stroke: '#e2e8f0', strokeWidth: 3 }, // Slate-200, Thick
+        type: 'default', // Straight/Bezier
+        style: { stroke: '#e2e8f0', strokeWidth: 3 },
         animated: false,
       })
 
-      // Place Agents inside the Subnet Group
+      // Place Agents (Absolute Position)
       subnetAgents.forEach((agent, agentIndex) => {
         const DEVICE_SPACING = 180
         const rowWidth = subnetAgents.length * DEVICE_SPACING
         const rowStartX = (subnetWidth - rowWidth) / 2
-        const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10
-        const agentY = 140
+
+        const agentX = groupBoxX + rowStartX + (agentIndex * DEVICE_SPACING) + 10
+        const agentY = groupBoxY + 140
 
         nodes.push({
           id: agent.device_id,
           type: 'device',
           position: { x: agentX, y: agentY },
-          parentNode: groupId,
-          extent: 'parent',
           data: {
             label: agent.device_name || agent.hostname,
             ipAddress: agent.ip_address,
@@ -255,9 +251,9 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           id: `link-${switchId}-${agent.device_id}`,
           source: switchId,
           target: agent.device_id,
-          type: 'step', // Orthogonal for inside the box
+          type: 'step', // Orthogonal
           style: {
-            stroke: '#e2e8f0', // Slate-200
+            stroke: '#94a3b8', // Slate-400
             strokeWidth: 2
           },
           markerEnd: {
@@ -306,15 +302,14 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         fitView
-        className="bg-white dark:bg-slate-950"
-        minZoom={0.1}
+        className="bg-slate-950"
       >
-        <Background color="#94a3b8" gap={20} size={1} />
+        <Background color="#334155" gap={20} size={1} />
         <Controls />
         <MiniMap
           nodeColor={(node) => {
-            if (node.type === 'subnet') return '#f1f5f9'
-            return '#cbd5e1'
+            if (node.type === 'subnet') return '#1e293b'
+            return '#475569'
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
         />
