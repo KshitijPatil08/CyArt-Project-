@@ -1,21 +1,8 @@
 "use client"
 
-import 'reactflow/dist/style.css'
-import React, { useCallback, useMemo } from 'react'
-import ReactFlow, {
-  Node,
-  Edge,
-  Background,
-  Controls,
-  MiniMap,
-  Connection,
-  addEdge,
-  useNodesState,
-  useEdgesState,
-  MarkerType,
-  NodeTypes,
-} from 'reactflow'
-import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network } from 'lucide-react'
+
+import React, { useState, useRef, useEffect } from 'react'
+import { Monitor, Server, Laptop, Smartphone, Lock, Box, Network, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 
 interface Device {
@@ -35,89 +22,88 @@ interface NetworkTopologyProps {
   devices: Device[]
 }
 
-// Subnet Group Node (The "Box") - Visual Background Only
-const SubnetNode = ({ data }: { data: any }) => {
-  return (
-    <div className="w-full h-full bg-slate-900/10 border-2 border-dashed border-slate-500/50 rounded-xl relative">
-      <div className="absolute -top-3 left-4 bg-slate-950 px-2 text-sm font-bold text-slate-400 flex items-center gap-2 border border-slate-800 rounded-md shadow-sm">
-        <Network className="w-4 h-4" />
-        {data.label}
-      </div>
-    </div>
-  )
-}
-
-// Device Node (Card Style)
-const DeviceNode = ({ data }: { data: any }) => {
-  const getDeviceIcon = (deviceType?: string) => {
-    switch (deviceType?.toLowerCase()) {
-      case 'server':
-        return <Server className="w-5 h-5" />
-      case 'switch':
-        return <Box className="w-5 h-5" />
-      case 'laptop':
-        return <Laptop className="w-5 h-5" />
-      case 'mobile':
-      case 'smartphone':
-        return <Smartphone className="w-5 h-5" />
-      default:
-        return <Monitor className="w-5 h-5" />
-    }
-  }
-
-  const isSwitch = data.deviceType === 'switch'
-  const isOnline = data.status === 'online'
-  const statusColor = isOnline ? 'bg-green-500' : 'bg-gray-500'
-
-  // Switch styling
-  if (isSwitch) {
-    return (
-      <div className="px-3 py-1.5 bg-blue-950/80 border-2 border-blue-500 rounded shadow-sm min-w-[120px] flex items-center justify-center gap-2">
-        <Box className="w-4 h-4 text-blue-400" />
-        <span className="text-xs font-bold text-blue-300">Switch</span>
-      </div>
-    )
-  }
-
-  // Device styling
-  const borderColor = data.isQuarantined ? 'border-red-500' : (isOnline ? 'border-green-500' : 'border-gray-500')
-  const bgColor = data.isQuarantined ? 'bg-red-950/30' : 'bg-slate-900'
-
-  return (
-    <div className={`px-3 py-2 ${bgColor} border ${borderColor} rounded shadow-sm w-[160px]`}>
-      <div className="flex items-center gap-2 mb-1">
-        <div className={`w-2 h-2 rounded-full ${statusColor}`} />
-        {getDeviceIcon(data.deviceType)}
-        {data.isQuarantined && <Lock className="w-3 h-3 text-red-500" />}
-        <div className="flex-1 overflow-hidden">
-          <h3 className="font-semibold text-xs text-slate-200 truncate" title={data.label}>{data.label}</h3>
-        </div>
-      </div>
-      <div className="text-[10px] text-slate-400 truncate">
-        {data.ipAddress}
-      </div>
-    </div>
-  )
-}
-
-const nodeTypes: NodeTypes = {
-  device: DeviceNode,
-  subnet: SubnetNode,
+interface NodePosition {
+  x: number
+  y: number
+  id: string
+  type: 'server' | 'switch' | 'device'
+  data: any
 }
 
 export function NetworkTopology({ devices }: NetworkTopologyProps) {
-  const { initialNodes, initialEdges } = useMemo(() => {
-    if (devices.length === 0) return { initialNodes: [], initialEdges: [] }
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const svgRef = useRef<SVGSVGElement>(null)
 
-    const nodes: Node[] = []
-    const edges: Edge[] = []
+  const getDeviceIcon = (deviceType?: string) => {
+    switch (deviceType?.toLowerCase()) {
+      case 'server':
+        return Server
+      case 'switch':
+        return Box
+      case 'laptop':
+        return Laptop
+      case 'mobile':
+      case 'smartphone':
+        return Smartphone
+      default:
+        return Monitor
+    }
+  }
 
-    // 1. Identify Main Server
-    const servers = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
+  // Calculate node positions and connections
+  const topology = React.useMemo(() => {
+    if (devices.length === 0) return { nodes: [], edges: [], subnets: [] }
+
+    const nodes: NodePosition[] = []
+    const edges: any[] = []
+    const subnets: any[] = []
+
+    // Find main server
+    const servers = devices.filter(d =>
+      d.is_server ||
+      d.device_type?.toLowerCase() === 'server' ||
+      d.device_name?.toLowerCase().includes('server')
+    )
     const mainServer = servers.length > 0 ? servers[0] : null
     const mainServerId = mainServer ? mainServer.device_id : 'virtual-server'
 
-    // 2. Group Agents by Subnet
+    const CENTER_X = 400
+    const CENTER_Y = 300
+
+    // Add main server node
+    if (mainServer) {
+      nodes.push({
+        x: CENTER_X,
+        y: CENTER_Y,
+        id: mainServer.device_id,
+        type: 'server',
+        data: {
+          label: mainServer.device_name,
+          ipAddress: mainServer.ip_address,
+          status: mainServer.status,
+          deviceType: 'server',
+          isQuarantined: mainServer.is_quarantined,
+        }
+      })
+    } else {
+      nodes.push({
+        x: CENTER_X,
+        y: CENTER_Y,
+        id: 'virtual-server',
+        type: 'server',
+        data: {
+          label: 'Central Server',
+          ipAddress: 'N/A',
+          status: 'online',
+          deviceType: 'server',
+        }
+      })
+    }
+
+    // Group agents by subnet
     const agents = devices.filter(d => !servers.includes(d))
     const subnetMap = new Map<string, Device[]>()
 
@@ -128,116 +114,71 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       subnetMap.get(subnet)?.push(agent)
     })
 
-    // --- RADIAL LAYOUT (PARENT-CHILD GROUPING) ---
-    const CENTER_X = 0
-    const CENTER_Y = 0
+    const subnetArray = Array.from(subnetMap.keys())
+    const RADIUS = 350
+    const ANGLE_STEP = (2 * Math.PI) / (subnetArray.length || 1)
 
-    // Place Main Server
-    if (mainServer) {
-      nodes.push({
-        id: mainServer.device_id,
-        type: 'device',
-        position: { x: CENTER_X, y: CENTER_Y },
-        data: {
-          label: mainServer.device_name,
-          ipAddress: mainServer.ip_address,
-          status: mainServer.status,
-          deviceType: 'server',
-          isQuarantined: mainServer.is_quarantined,
-        },
-        zIndex: 100,
-      })
-    } else {
-      nodes.push({
-        id: 'virtual-server',
-        type: 'device',
-        position: { x: CENTER_X, y: CENTER_Y },
-        data: {
-          label: 'Central Server',
-          ipAddress: 'N/A',
-          status: 'online',
-          deviceType: 'server',
-        },
-        zIndex: 100,
-      })
-    }
-
-    const subnets = Array.from(subnetMap.keys())
-    const RADIUS = 600
-    const ANGLE_STEP = (2 * Math.PI) / (subnets.length || 1)
-
-    subnets.forEach((subnet, index) => {
+    subnetArray.forEach((subnet, index) => {
       const angle = index * ANGLE_STEP
       const subnetAgents = subnetMap.get(subnet) || []
 
-      // Calculate Group Center
       const groupCenterX = CENTER_X + RADIUS * Math.cos(angle)
       const groupCenterY = CENTER_Y + RADIUS * Math.sin(angle)
 
-      const subnetWidth = Math.max(300, subnetAgents.length * 180 + 40)
-      const subnetHeight = 250
+      const subnetWidth = Math.max(250, subnetAgents.length * 140 + 40)
+      const subnetHeight = 180
 
-      // Top-Left corner for the Group Box
-      const groupBoxX = groupCenterX - (subnetWidth / 2)
-      const groupBoxY = groupCenterY - (subnetHeight / 2)
-
-      const groupId = `group-${subnet}`
       const switchId = `switch-${subnet}`
+      const switchX = groupCenterX
+      const switchY = groupCenterY - 40
 
-      // Subnet Group Node (Parent)
-      nodes.push({
-        id: groupId,
-        type: 'subnet',
-        position: { x: groupBoxX, y: groupBoxY },
-        style: { width: subnetWidth, height: subnetHeight },
-        data: { label: `Subnet ${subnet}.x` },
-        zIndex: -1,
+      // Add subnet box
+      subnets.push({
+        x: groupCenterX - subnetWidth / 2,
+        y: groupCenterY - subnetHeight / 2,
+        width: subnetWidth,
+        height: subnetHeight,
+        label: `Subnet ${subnet}.x`
       })
 
-      // Switch Node (Child - Relative Position)
+      // Add switch node
       nodes.push({
+        x: switchX,
+        y: switchY,
         id: switchId,
-        type: 'device',
-        position: { x: (subnetWidth / 2) - 60, y: 40 },
-        parentNode: groupId,
-        extent: 'parent',
+        type: 'switch',
         data: {
           label: 'Switch',
           deviceType: 'switch',
           status: 'online',
-        },
-        zIndex: 10,
+        }
       })
 
-      // Backbone Connection (Server -> Switch) - FIXED
+      // Add edge from server to switch
       edges.push({
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
-        type: 'straight',
-        style: {
-          stroke: '#3b82f6',
-          strokeWidth: 3
-        },
-        animated: true,
-        zIndex: 1,
+        sourceNode: nodes.find(n => n.id === mainServerId),
+        targetNode: { x: switchX, y: switchY, id: switchId },
+        type: 'backbone',
+        animated: true
       })
 
-      // Place Agents (Child - Relative Position)
+      // Add agent devices
       subnetAgents.forEach((agent, agentIndex) => {
-        const DEVICE_SPACING = 180
+        const DEVICE_SPACING = 140
         const rowWidth = subnetAgents.length * DEVICE_SPACING
-        const rowStartX = (subnetWidth - rowWidth) / 2
+        const startX = groupCenterX - rowWidth / 2 + DEVICE_SPACING / 2
 
-        const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10
-        const agentY = 140
+        const agentX = startX + agentIndex * DEVICE_SPACING
+        const agentY = groupCenterY + 50
 
-        nodes.push({
+        const agentNode = {
+          x: agentX,
+          y: agentY,
           id: agent.device_id,
-          type: 'device',
-          position: { x: agentX, y: agentY },
-          parentNode: groupId,
-          extent: 'parent',
+          type: 'device' as const,
           data: {
             label: agent.device_name || agent.hostname,
             ipAddress: agent.ip_address,
@@ -245,49 +186,60 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
             status: agent.status,
             deviceType: agent.device_type || 'unknown',
             isQuarantined: agent.is_quarantined,
-          },
-          zIndex: 10,
-        })
+          }
+        }
 
-        // Wired Connection (Switch -> Agent) - FIXED
+        nodes.push(agentNode)
+
+        // Add edge from switch to device
         const isOnline = agent.status === 'online'
-        const strokeColor = isOnline ? '#22c55e' : '#ef4444'
-
         edges.push({
           id: `link-${switchId}-${agent.device_id}`,
           source: switchId,
           target: agent.device_id,
-          type: 'smoothstep',
-          style: {
-            stroke: strokeColor,
-            strokeWidth: 2
-          },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 15,
-            height: 15,
-            color: strokeColor,
-          },
-          zIndex: 1,
+          sourceNode: { x: switchX, y: switchY, id: switchId },
+          targetNode: agentNode,
+          type: 'device',
+          color: isOnline ? '#22c55e' : '#ef4444'
         })
       })
     })
 
-    return { initialNodes: nodes, initialEdges: edges }
+    return { nodes, edges, subnets }
   }, [devices])
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0) {
+      setIsDragging(true)
+      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
+    }
+  }
 
-  const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges]
-  )
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging) {
+      setPan({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      })
+    }
+  }
 
-  React.useEffect(() => {
-    setNodes(initialNodes)
-    setEdges(initialEdges)
-  }, [initialNodes, initialEdges, setNodes, setEdges])
+  const handleMouseUp = () => {
+    setIsDragging(false)
+  }
+
+  const handleZoomIn = () => {
+    setZoom(prev => Math.min(prev + 0.2, 3))
+  }
+
+  const handleZoomOut = () => {
+    setZoom(prev => Math.max(prev - 0.2, 0.3))
+  }
+
+  const handleReset = () => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }
 
   if (devices.length === 0) {
     return (
@@ -300,32 +252,267 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
   }
 
   return (
-    <div className="w-full h-[600px] border rounded-lg bg-background">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        className="bg-slate-950"
-        defaultEdgeOptions={{
-          style: { strokeWidth: 2 },
-          type: 'smoothstep'
-        }}
+    <div className="relative w-full h-[600px] border rounded-lg bg-slate-950 overflow-hidden">
+      {/* Controls */}
+      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 bg-slate-900 border border-slate-700 rounded-lg p-2">
+        <button
+          onClick={handleZoomIn}
+          className="p-2 hover:bg-slate-800 rounded transition-colors"
+          title="Zoom In"
+        >
+          <ZoomIn className="w-4 h-4 text-slate-300" />
+        </button>
+        <button
+          onClick={handleZoomOut}
+          className="p-2 hover:bg-slate-800 rounded transition-colors"
+          title="Zoom Out"
+        >
+          <ZoomOut className="w-4 h-4 text-slate-300" />
+        </button>
+        <button
+          onClick={handleReset}
+          className="p-2 hover:bg-slate-800 rounded transition-colors"
+          title="Reset View"
+        >
+          <Maximize2 className="w-4 h-4 text-slate-300" />
+        </button>
+      </div>
+
+      {/* Canvas */}
+      <svg
+        ref={svgRef}
+        className="w-full h-full cursor-grab active:cursor-grabbing"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
       >
-        <Background color="#334155" gap={20} size={1} />
-        <Controls />
-        <MiniMap
-          nodeColor={(node) => {
-            if (node.type === 'subnet') return '#1e293b'
-            return '#475569'
-          }}
-          maskColor="rgba(0, 0, 0, 0.1)"
-        />
-      </ReactFlow>
+        <defs>
+          <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" fill="#334155" />
+          </pattern>
+          <marker
+            id="arrowhead-green"
+            markerWidth="10"
+            markerHeight="10"
+            refX="9"
+            refY="3"
+            orient="auto"
+          >
+            <polygon points="0 0, 10 3, 0 6" fill="#22c55e" />
+          </marker>
+          <marker
+            id="arrowhead-red"
+            markerWidth="10"
+            markerHeight="10"
+            refX="9"
+            refY="3"
+            orient="auto"
+          >
+            <polygon points="0 0, 10 3, 0 6" fill="#ef4444" />
+          </marker>
+        </defs>
+
+        <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+          {/* Background grid */}
+          <rect x="0" y="0" width="800" height="600" fill="url(#grid)" />
+
+          {/* Subnet boxes */}
+          {topology.subnets.map((subnet, idx) => (
+            <g key={`subnet-${idx}`}>
+              <rect
+                x={subnet.x}
+                y={subnet.y}
+                width={subnet.width}
+                height={subnet.height}
+                fill="rgba(15, 23, 42, 0.1)"
+                stroke="rgba(100, 116, 139, 0.5)"
+                strokeWidth="2"
+                strokeDasharray="5,5"
+                rx="12"
+              />
+              <text
+                x={subnet.x + 20}
+                y={subnet.y - 5}
+                fill="#94a3b8"
+                fontSize="12"
+                fontWeight="bold"
+              >
+                <tspan>⚡</tspan> {subnet.label}
+              </text>
+            </g>
+          ))}
+
+          {/* Edges */}
+          {topology.edges.map((edge) => {
+            const sourceNode = topology.nodes.find(n => n.id === edge.source)
+            const targetNode = topology.nodes.find(n => n.id === edge.target)
+
+            if (!sourceNode || !targetNode) return null
+
+            const isBackbone = edge.type === 'backbone'
+            const strokeColor = isBackbone ? '#3b82f6' : edge.color
+            const strokeWidth = isBackbone ? 3 : 2
+            const markerEnd = isBackbone ? '' : (edge.color === '#22c55e' ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)')
+
+            return (
+              <g key={edge.id}>
+                <line
+                  x1={sourceNode.x}
+                  y1={sourceNode.y}
+                  x2={targetNode.x}
+                  y2={targetNode.y}
+                  stroke={strokeColor}
+                  strokeWidth={strokeWidth}
+                  markerEnd={markerEnd}
+                  opacity={0.8}
+                >
+                  {edge.animated && (
+                    <animate
+                      attributeName="stroke-dashoffset"
+                      from="0"
+                      to="20"
+                      dur="1s"
+                      repeatCount="indefinite"
+                    />
+                  )}
+                </line>
+              </g>
+            )
+          })}
+
+          {/* Nodes */}
+          {topology.nodes.map((node) => {
+            const Icon = getDeviceIcon(node.data.deviceType)
+            const isSwitch = node.type === 'switch'
+            const isServer = node.type === 'server'
+            const isOnline = node.data.status === 'online'
+            const isQuarantined = node.data.isQuarantined
+
+            if (isSwitch) {
+              return (
+                <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
+                  <rect
+                    x="-60"
+                    y="-15"
+                    width="120"
+                    height="30"
+                    fill="rgba(30, 58, 138, 0.8)"
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    rx="4"
+                  />
+                  <text
+                    x="0"
+                    y="5"
+                    textAnchor="middle"
+                    fill="#93c5fd"
+                    fontSize="12"
+                    fontWeight="bold"
+                  >
+                    ⚙ Switch
+                  </text>
+                </g>
+              )
+            }
+
+            if (isServer) {
+              return (
+                <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
+                  <rect
+                    x="-70"
+                    y="-30"
+                    width="140"
+                    height="60"
+                    fill="#1e293b"
+                    stroke="#10b981"
+                    strokeWidth="2"
+                    rx="6"
+                  />
+                  <circle cx="-50" cy="-15" r="3" fill={isOnline ? '#22c55e' : '#6b7280'} />
+                  <text
+                    x="0"
+                    y="-5"
+                    textAnchor="middle"
+                    fill="#e2e8f0"
+                    fontSize="12"
+                    fontWeight="bold"
+                  >
+                    🖥 {node.data.label}
+                  </text>
+                  <text
+                    x="0"
+                    y="12"
+                    textAnchor="middle"
+                    fill="#94a3b8"
+                    fontSize="10"
+                  >
+                    {node.data.ipAddress}
+                  </text>
+                </g>
+              )
+            }
+
+            // Regular device
+            const borderColor = isQuarantined ? '#ef4444' : (isOnline ? '#22c55e' : '#6b7280')
+            const bgColor = isQuarantined ? 'rgba(127, 29, 29, 0.3)' : '#0f172a'
+
+            return (
+              <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
+                <rect
+                  x="-70"
+                  y="-25"
+                  width="140"
+                  height="50"
+                  fill={bgColor}
+                  stroke={borderColor}
+                  strokeWidth="1.5"
+                  rx="4"
+                />
+                <circle cx="-55" cy="-12" r="2.5" fill={isOnline ? '#22c55e' : '#6b7280'} />
+                {isQuarantined && (
+                  <text x="-40" y="-8" fill="#ef4444" fontSize="10">🔒</text>
+                )}
+                <text
+                  x="0"
+                  y="-5"
+                  textAnchor="middle"
+                  fill="#e2e8f0"
+                  fontSize="11"
+                  fontWeight="600"
+                >
+                  {node.data.label.length > 15 ? node.data.label.substring(0, 15) + '...' : node.data.label}
+                </text>
+                <text
+                  x="0"
+                  y="10"
+                  textAnchor="middle"
+                  fill="#64748b"
+                  fontSize="9"
+                >
+                  {node.data.ipAddress}
+                </text>
+              </g>
+            )
+          })}
+        </g>
+      </svg>
+
+      {/* Legend */}
+      <div className="absolute bottom-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg p-3 text-xs">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-3 h-3 rounded-full bg-green-500"></div>
+          <span className="text-slate-300">Online</span>
+        </div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-3 h-3 rounded-full bg-gray-500"></div>
+          <span className="text-slate-300">Offline</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Lock className="w-3 h-3 text-red-500" />
+          <span className="text-slate-300">Quarantined</span>
+        </div>
+      </div>
     </div>
   )
 }
