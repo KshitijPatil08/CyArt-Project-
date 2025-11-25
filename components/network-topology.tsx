@@ -38,7 +38,7 @@ interface NetworkTopologyProps {
 // Subnet Group Node (The "Box") - Visual Background Only
 const SubnetNode = ({ data }: { data: any }) => {
   return (
-    <div className="w-full h-full bg-slate-900/20 border-2 border-dashed border-slate-600 rounded-xl relative">
+    <div className="w-full h-full bg-slate-900/10 border-2 border-dashed border-slate-500/50 rounded-xl relative">
       <div className="absolute -top-3 left-4 bg-slate-950 px-2 text-sm font-bold text-slate-400 flex items-center gap-2 border border-slate-800 rounded-md shadow-sm">
         <Network className="w-4 h-4" />
         {data.label}
@@ -72,7 +72,7 @@ const DeviceNode = ({ data }: { data: any }) => {
   // Switch styling
   if (isSwitch) {
     return (
-      <div className="px-3 py-1.5 bg-blue-950/50 border-2 border-blue-500 rounded shadow-sm min-w-[120px] flex items-center justify-center gap-2">
+      <div className="px-3 py-1.5 bg-blue-950/80 border-2 border-blue-500 rounded shadow-sm min-w-[120px] flex items-center justify-center gap-2">
         <Box className="w-4 h-4 text-blue-400" />
         <span className="text-xs font-bold text-blue-300">Switch</span>
       </div>
@@ -128,7 +128,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       subnetMap.get(subnet)?.push(agent)
     })
 
-    // --- RADIAL LAYOUT (ABSOLUTE POSITIONING) ---
+    // --- RADIAL LAYOUT (PARENT-CHILD GROUPING) ---
     const CENTER_X = 0
     const CENTER_Y = 0
 
@@ -184,25 +184,23 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       const groupId = `group-${subnet}`
       const switchId = `switch-${subnet}`
 
-      // Subnet Group Node (Background)
+      // Subnet Group Node (Parent)
       nodes.push({
         id: groupId,
         type: 'subnet',
         position: { x: groupBoxX, y: groupBoxY },
         style: { width: subnetWidth, height: subnetHeight },
         data: { label: `Subnet ${subnet}.x` },
-        zIndex: -1, // Behind everything
+        zIndex: -1,
       })
 
-      // Switch Node (Absolute Position)
-      // Centered horizontally in the group, near top
-      const switchX = groupBoxX + (subnetWidth / 2) - 60
-      const switchY = groupBoxY + 40
-
+      // Switch Node (Child - Relative Position)
       nodes.push({
         id: switchId,
         type: 'device',
-        position: { x: switchX, y: switchY },
+        position: { x: (subnetWidth / 2) - 60, y: 40 }, // Relative to Parent
+        parentNode: groupId,
+        extent: 'parent',
         data: {
           label: 'Switch',
           deviceType: 'switch',
@@ -216,24 +214,27 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
-        type: 'default', // Straight/Bezier
-        style: { stroke: '#e2e8f0', strokeWidth: 3 },
+        type: 'default',
+        style: { stroke: '#e2e8f0', strokeWidth: 4 }, // Very Thick
         animated: false,
+        zIndex: 50,
       })
 
-      // Place Agents (Absolute Position)
+      // Place Agents (Child - Relative Position)
       subnetAgents.forEach((agent, agentIndex) => {
         const DEVICE_SPACING = 180
         const rowWidth = subnetAgents.length * DEVICE_SPACING
         const rowStartX = (subnetWidth - rowWidth) / 2
 
-        const agentX = groupBoxX + rowStartX + (agentIndex * DEVICE_SPACING) + 10
-        const agentY = groupBoxY + 140
+        const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10 // Relative
+        const agentY = 140 // Relative
 
         nodes.push({
           id: agent.device_id,
           type: 'device',
           position: { x: agentX, y: agentY },
+          parentNode: groupId,
+          extent: 'parent',
           data: {
             label: agent.device_name || agent.hostname,
             ipAddress: agent.ip_address,
@@ -251,7 +252,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           id: `link-${switchId}-${agent.device_id}`,
           source: switchId,
           target: agent.device_id,
-          type: 'step', // Orthogonal
+          type: 'step',
           style: {
             stroke: '#94a3b8', // Slate-400
             strokeWidth: 2
@@ -262,6 +263,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
             height: 10,
             color: isOnline ? '#22c55e' : '#ef4444',
           },
+          zIndex: 50,
         })
       })
     })
