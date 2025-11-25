@@ -14,8 +14,9 @@ import ReactFlow, {
   useEdgesState,
   MarkerType,
   NodeTypes,
+  Position,
 } from 'reactflow'
-import { Monitor, Server, Laptop, Smartphone, AlertCircle, Lock } from 'lucide-react'
+import { Monitor, Server, Laptop, Smartphone, AlertCircle, Lock, Box, Router } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 
 interface Device {
@@ -28,6 +29,7 @@ interface Device {
   ip_address: string
   device_type?: string
   is_quarantined?: boolean
+  is_server?: boolean
 }
 
 interface NetworkTopologyProps {
@@ -40,6 +42,8 @@ const DeviceNode = ({ data }: { data: any }) => {
     switch (deviceType?.toLowerCase()) {
       case 'server':
         return <Server className="w-5 h-5" />
+      case 'switch':
+        return <Box className="w-5 h-5" /> // Using Box as a generic switch icon
       case 'laptop':
         return <Laptop className="w-5 h-5" />
       case 'mobile':
@@ -50,7 +54,25 @@ const DeviceNode = ({ data }: { data: any }) => {
     }
   }
 
+  const isSwitch = data.deviceType === 'switch'
   const statusColor = data.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
+
+  // Switch styling
+  if (isSwitch) {
+    return (
+      <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 border-2 border-blue-500 rounded-md shadow-md min-w-[150px]">
+        <div className="flex items-center gap-2">
+          <Router className="w-5 h-5 text-blue-500" />
+          <div className="flex-1">
+            <h3 className="font-bold text-sm text-foreground">{data.label}</h3>
+            <p className="text-xs text-muted-foreground">{data.subnet}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Device styling
   const borderColor = data.isQuarantined ? 'border-red-500' : (data.status === 'online' ? 'border-green-500' : 'border-gray-500')
   const bgColor = data.isQuarantined ? 'bg-red-50' : 'bg-card'
 
@@ -61,7 +83,7 @@ const DeviceNode = ({ data }: { data: any }) => {
         {getDeviceIcon(data.deviceType)}
         {data.isQuarantined && <Lock className="w-4 h-4 text-red-500" />}
         <div className="flex-1">
-          <h3 className="font-semibold text-sm text-foreground">{data.label}</h3>
+          <h3 className="font-semibold text-sm text-foreground truncate max-w-[120px]">{data.label}</h3>
         </div>
       </div>
       <div className="space-y-1 text-xs">
@@ -70,9 +92,6 @@ const DeviceNode = ({ data }: { data: any }) => {
         </p>
         <p className="text-muted-foreground">
           <span className="font-medium">Owner:</span> {data.owner}
-        </p>
-        <p className="text-muted-foreground">
-          <span className="font-medium">Location:</span> {data.location}
         </p>
         <p className="text-muted-foreground">
           <span className="font-medium">Status:</span>{' '}
@@ -90,42 +109,37 @@ const nodeTypes: NodeTypes = {
 }
 
 export function NetworkTopology({ devices }: NetworkTopologyProps) {
-  // Generate nodes from devices
-  const initialNodes: Node[] = useMemo(() => {
-    if (devices.length === 0) return []
-
-    // Separate servers and agents
-    const servers = devices.filter(d => (d as any).is_server === true || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
-    const agents = devices.filter(d => !servers.includes(d))
-
-    const centerX = 500
-    const centerY = 400
-    const serverRadius = 100
-    const agentRadius = Math.min(300, Math.max(200, agents.length * 25))
+  // Generate nodes and edges based on subnet grouping
+  const { initialNodes, initialEdges } = useMemo(() => {
+    if (devices.length === 0) return { initialNodes: [], initialEdges: [] }
 
     const nodes: Node[] = []
+    const edges: Edge[] = []
 
-    // Place server(s) in center
-    if (servers.length > 0) {
-      servers.forEach((server, index) => {
-        const offsetX = servers.length > 1 ? (index - (servers.length - 1) / 2) * 150 : 0
-        nodes.push({
-          id: server.device_id,
-          type: 'device',
-          position: { x: centerX + offsetX, y: centerY },
-          data: {
-            label: server.device_name || server.hostname || 'Server',
-            ipAddress: server.ip_address || 'N/A',
-            owner: server.owner || 'Server',
-            location: server.location || 'Data Center',
-            status: server.status || 'offline',
-            deviceType: 'server',
-            isQuarantined: (server as any).is_quarantined,
-          },
-        })
+    // 1. Identify Main Server(s)
+    const servers = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
+    const mainServer = servers.length > 0 ? servers[0] : null
+    const mainServerId = mainServer ? mainServer.device_id : 'virtual-server'
+
+    // Place Main Server
+    const centerX = 600
+    const centerY = 100
+
+    if (mainServer) {
+      nodes.push({
+        id: mainServer.device_id,
+        type: 'device',
+        position: { x: centerX, y: centerY },
+        data: {
+          label: mainServer.device_name,
+          ipAddress: mainServer.ip_address,
+          owner: mainServer.owner,
+          status: mainServer.status,
+          deviceType: 'server',
+          isQuarantined: mainServer.is_quarantined,
+        },
       })
     } else {
-      // If no server, create a virtual server node
       nodes.push({
         id: 'virtual-server',
         type: 'device',
@@ -134,7 +148,6 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           label: 'Central Server',
           ipAddress: 'N/A',
           owner: 'System',
-          location: 'Data Center',
           status: 'online',
           deviceType: 'server',
           isQuarantined: false,
@@ -142,96 +155,92 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       })
     }
 
-    // Place agents in star topology around server(s)
-    const mainServerId = servers.length > 0 ? servers[0].device_id : 'virtual-server'
-    const angleStep = agents.length > 0 ? (2 * Math.PI) / agents.length : 0
-
-    agents.forEach((agent, index) => {
-      const angle = index * angleStep - Math.PI / 2 // Start from top
-      const x = centerX + agentRadius * Math.cos(angle)
-      const y = centerY + agentRadius * Math.sin(angle)
-
-      nodes.push({
-        id: agent.device_id,
-        type: 'device',
-        position: { x, y },
-        data: {
-          label: agent.device_name || agent.hostname,
-          ipAddress: agent.ip_address || 'N/A',
-          owner: agent.owner || 'Unknown',
-          location: agent.location || 'Unknown',
-          status: agent.status || 'offline',
-          deviceType: agent.device_type || 'windows',
-          isQuarantined: agent.is_quarantined,
-        },
-      })
-    })
-
-    return nodes
-  }, [devices])
-
-  // Generate edges based on star topology (server to agents)
-  const initialEdges: Edge[] = useMemo(() => {
-    const edges: Edge[] = []
-
-    // Separate servers and agents
-    const servers = devices.filter(d => (d as any).is_server === true || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
+    // 2. Group Agents by Subnet
     const agents = devices.filter(d => !servers.includes(d))
+    const subnetMap = new Map<string, Device[]>()
 
-    const mainServerId = servers.length > 0 ? servers[0].device_id : 'virtual-server'
+    agents.forEach(agent => {
+      // Extract subnet (first 3 octets, e.g., 192.168.1)
+      const ipParts = (agent.ip_address || '0.0.0.0').split('.')
+      const subnet = ipParts.length === 4 ? `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}` : 'Unknown Subnet'
 
-    // Create star topology: connect all agents to the main server
-    agents.forEach((agent) => {
-      const isOnline = agent.status === 'online'
-      const serverStatus = servers.length > 0 ? (servers[0].status === 'online') : true
-      const bothOnline = isOnline && serverStatus
-
-      edges.push({
-        id: `edge-${mainServerId}-${agent.device_id}`,
-        source: mainServerId,
-        target: agent.device_id,
-        type: 'smoothstep',
-        animated: bothOnline,
-        style: {
-          stroke: bothOnline ? '#10b981' : '#6b7280',
-          strokeWidth: bothOnline ? 3 : 2,
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: bothOnline ? '#10b981' : '#6b7280',
-        },
-        label: bothOnline ? 'Connected' : 'Offline',
-        labelStyle: {
-          fill: bothOnline ? '#10b981' : '#6b7280',
-          fontWeight: 600,
-        },
-      })
+      if (!subnetMap.has(subnet)) {
+        subnetMap.set(subnet, [])
+      }
+      subnetMap.get(subnet)?.push(agent)
     })
 
-    // Connect additional servers to main server if multiple servers exist
-    if (servers.length > 1) {
-      for (let i = 1; i < servers.length; i++) {
-        const isOnline = servers[i].status === 'online' && servers[0].status === 'online'
-        edges.push({
-          id: `edge-server-${servers[0].device_id}-${servers[i].device_id}`,
-          source: servers[0].device_id,
-          target: servers[i].device_id,
-          type: 'smoothstep',
-          animated: isOnline,
-          style: {
-            stroke: isOnline ? '#3b82f6' : '#6b7280',
-            strokeWidth: 2,
-            strokeDasharray: '5,5',
-          },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: isOnline ? '#3b82f6' : '#6b7280',
+    // 3. Create Switches and Place Agents
+    const subnets = Array.from(subnetMap.keys())
+    const switchSpacingX = 400
+    const switchY = 300
+
+    subnets.forEach((subnet, subnetIndex) => {
+      const switchId = `switch-${subnet}`
+      const switchX = centerX + (subnetIndex - (subnets.length - 1) / 2) * switchSpacingX
+
+      // Create Switch Node
+      nodes.push({
+        id: switchId,
+        type: 'device',
+        position: { x: switchX, y: switchY },
+        data: {
+          label: `Switch - ${subnet}`,
+          subnet: `${subnet}.x`,
+          status: 'online',
+          deviceType: 'switch',
+        },
+      })
+
+      // Connect Server to Switch (Backbone)
+      edges.push({
+        id: `link-${mainServerId}-${switchId}`,
+        source: mainServerId,
+        target: switchId,
+        type: 'step', // Orthogonal lines for backbone
+        style: { stroke: '#3b82f6', strokeWidth: 4 }, // Thick blue line
+        animated: true,
+      })
+
+      // Place Agents under their Switch
+      const subnetAgents = subnetMap.get(subnet) || []
+      const agentSpacingX = 220
+      const agentStartY = switchY + 200
+
+      subnetAgents.forEach((agent, agentIndex) => {
+        const agentX = switchX + (agentIndex - (subnetAgents.length - 1) / 2) * agentSpacingX
+
+        nodes.push({
+          id: agent.device_id,
+          type: 'device',
+          position: { x: agentX, y: agentStartY },
+          data: {
+            label: agent.device_name || agent.hostname,
+            ipAddress: agent.ip_address,
+            owner: agent.owner,
+            status: agent.status,
+            deviceType: agent.device_type || 'unknown',
+            isQuarantined: agent.is_quarantined,
           },
         })
-      }
-    }
 
-    return edges
+        // Connect Switch to Agent (Wired)
+        const isOnline = agent.status === 'online'
+        edges.push({
+          id: `link-${switchId}-${agent.device_id}`,
+          source: switchId,
+          target: agent.device_id,
+          type: 'step', // Orthogonal lines for wired look
+          style: {
+            stroke: isOnline ? '#10b981' : '#9ca3af', // Green or Gray
+            strokeWidth: 2
+          },
+          animated: false, // Wires don't animate usually, but could if active
+        })
+      })
+    })
+
+    return { initialNodes: nodes, initialEdges: edges }
   }, [devices])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
@@ -275,6 +284,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         <MiniMap
           nodeColor={(node) => {
             if (node.data.isQuarantined) return '#ef4444'
+            if (node.data.deviceType === 'switch') return '#3b82f6'
             return node.data.status === 'online' ? '#10b981' : '#6b7280'
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
@@ -283,4 +293,3 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
     </div>
   )
 }
-
