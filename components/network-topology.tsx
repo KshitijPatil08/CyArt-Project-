@@ -1,6 +1,5 @@
 "use client"
 
-
 import React, { useState, useRef, useEffect } from 'react'
 import { Monitor, Server, Laptop, Smartphone, Lock, Box, Network, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -115,7 +114,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
     })
 
     const subnetArray = Array.from(subnetMap.keys())
-    const RADIUS = 350
+    const RADIUS = 450 // Increased radius for better spacing
     const ANGLE_STEP = (2 * Math.PI) / (subnetArray.length || 1)
 
     subnetArray.forEach((subnet, index) => {
@@ -125,12 +124,12 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       const groupCenterX = CENTER_X + RADIUS * Math.cos(angle)
       const groupCenterY = CENTER_Y + RADIUS * Math.sin(angle)
 
-      const subnetWidth = Math.max(250, subnetAgents.length * 140 + 40)
-      const subnetHeight = 180
+      const subnetWidth = Math.max(280, subnetAgents.length * 160 + 40)
+      const subnetHeight = 220
 
       const switchId = `switch-${subnet}`
       const switchX = groupCenterX
-      const switchY = groupCenterY - 40
+      const switchY = groupCenterY - 60
 
       // Add subnet box
       subnets.push({
@@ -154,7 +153,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         }
       })
 
-      // Add edge from server to switch
+      // Add edge from server to switch (Backbone - Straight)
       edges.push({
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
@@ -167,12 +166,12 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
 
       // Add agent devices
       subnetAgents.forEach((agent, agentIndex) => {
-        const DEVICE_SPACING = 140
+        const DEVICE_SPACING = 160
         const rowWidth = subnetAgents.length * DEVICE_SPACING
         const startX = groupCenterX - rowWidth / 2 + DEVICE_SPACING / 2
 
         const agentX = startX + agentIndex * DEVICE_SPACING
-        const agentY = groupCenterY + 50
+        const agentY = groupCenterY + 60
 
         const agentNode = {
           x: agentX,
@@ -191,7 +190,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
 
         nodes.push(agentNode)
 
-        // Add edge from switch to device
+        // Add edge from switch to device (Orthogonal)
         const isOnline = agent.status === 'online'
         edges.push({
           id: `link-${switchId}-${agent.device_id}`,
@@ -199,7 +198,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           target: agent.device_id,
           sourceNode: { x: switchX, y: switchY, id: switchId },
           targetNode: agentNode,
-          type: 'device',
+          type: 'device', // Will be rendered as orthogonal
           color: isOnline ? '#22c55e' : '#ef4444'
         })
       })
@@ -239,6 +238,12 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
   const handleReset = () => {
     setZoom(1)
     setPan({ x: 0, y: 0 })
+  }
+
+  // Helper for orthogonal paths
+  const getOrthogonalPath = (x1: number, y1: number, x2: number, y2: number) => {
+    const midY = (y1 + y2) / 2
+    return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`
   }
 
   if (devices.length === 0) {
@@ -325,18 +330,28 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
                 y={subnet.y}
                 width={subnet.width}
                 height={subnet.height}
-                fill="rgba(15, 23, 42, 0.1)"
-                stroke="rgba(100, 116, 139, 0.5)"
+                fill="rgba(15, 23, 42, 0.3)"
+                stroke="rgba(148, 163, 184, 0.4)"
                 strokeWidth="2"
-                strokeDasharray="5,5"
-                rx="12"
+                strokeDasharray="8,8"
+                rx="16"
+              />
+              <rect
+                x={subnet.x + 16}
+                y={subnet.y - 12}
+                width={subnet.label.length * 8 + 30}
+                height={24}
+                fill="#0f172a"
+                stroke="#334155"
+                rx="6"
               />
               <text
-                x={subnet.x + 20}
-                y={subnet.y - 5}
+                x={subnet.x + 24}
+                y={subnet.y + 4}
                 fill="#94a3b8"
                 fontSize="12"
                 fontWeight="bold"
+                alignmentBaseline="middle"
               >
                 <tspan>⚡</tspan> {subnet.label}
               </text>
@@ -351,34 +366,41 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
             if (!sourceNode || !targetNode) return null
 
             const isBackbone = edge.type === 'backbone'
-            const strokeColor = isBackbone ? '#3b82f6' : edge.color
+            const strokeColor = isBackbone ? '#e2e8f0' : edge.color // Slate-200 for backbone
             const strokeWidth = isBackbone ? 3 : 2
             const markerEnd = isBackbone ? '' : (edge.color === '#22c55e' ? 'url(#arrowhead-green)' : 'url(#arrowhead-red)')
 
-            return (
-              <g key={edge.id}>
-                <line
-                  x1={sourceNode.x}
-                  y1={sourceNode.y}
-                  x2={targetNode.x}
-                  y2={targetNode.y}
-                  stroke={strokeColor}
-                  strokeWidth={strokeWidth}
-                  markerEnd={markerEnd}
-                  opacity={0.8}
-                >
-                  {edge.animated && (
-                    <animate
-                      attributeName="stroke-dashoffset"
-                      from="0"
-                      to="20"
-                      dur="1s"
-                      repeatCount="indefinite"
-                    />
-                  )}
-                </line>
-              </g>
-            )
+            if (isBackbone) {
+              return (
+                <g key={edge.id}>
+                  <line
+                    x1={sourceNode.x}
+                    y1={sourceNode.y}
+                    x2={targetNode.x}
+                    y2={targetNode.y}
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    markerEnd={markerEnd}
+                    opacity={0.6}
+                  />
+                </g>
+              )
+            } else {
+              // Orthogonal Path for Devices
+              const pathD = getOrthogonalPath(sourceNode.x, sourceNode.y, targetNode.x, targetNode.y)
+              return (
+                <g key={edge.id}>
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    markerEnd={markerEnd}
+                    opacity={0.8}
+                  />
+                </g>
+              )
+            }
           })}
 
           {/* Nodes */}
@@ -397,16 +419,16 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
                     y="-15"
                     width="120"
                     height="30"
-                    fill="rgba(30, 58, 138, 0.8)"
-                    stroke="#3b82f6"
+                    fill="rgba(30, 58, 138, 0.9)"
+                    stroke="#60a5fa"
                     strokeWidth="2"
-                    rx="4"
+                    rx="6"
                   />
                   <text
                     x="0"
                     y="5"
                     textAnchor="middle"
-                    fill="#93c5fd"
+                    fill="#bfdbfe"
                     fontSize="12"
                     fontWeight="bold"
                   >
@@ -427,25 +449,25 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
                     fill="#1e293b"
                     stroke="#10b981"
                     strokeWidth="2"
-                    rx="6"
+                    rx="8"
                   />
-                  <circle cx="-50" cy="-15" r="3" fill={isOnline ? '#22c55e' : '#6b7280'} />
+                  <circle cx="-50" cy="-15" r="4" fill={isOnline ? '#22c55e' : '#6b7280'} />
                   <text
                     x="0"
                     y="-5"
                     textAnchor="middle"
-                    fill="#e2e8f0"
-                    fontSize="12"
+                    fill="#f8fafc"
+                    fontSize="13"
                     fontWeight="bold"
                   >
                     🖥 {node.data.label}
                   </text>
                   <text
                     x="0"
-                    y="12"
+                    y="15"
                     textAnchor="middle"
                     fill="#94a3b8"
-                    fontSize="10"
+                    fontSize="11"
                   >
                     {node.data.ipAddress}
                   </text>
@@ -467,9 +489,9 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
                   fill={bgColor}
                   stroke={borderColor}
                   strokeWidth="1.5"
-                  rx="4"
+                  rx="6"
                 />
-                <circle cx="-55" cy="-12" r="2.5" fill={isOnline ? '#22c55e' : '#6b7280'} />
+                <circle cx="-55" cy="-12" r="3" fill={isOnline ? '#22c55e' : '#6b7280'} />
                 {isQuarantined && (
                   <text x="-40" y="-8" fill="#ef4444" fontSize="10">🔒</text>
                 )}
@@ -485,10 +507,10 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
                 </text>
                 <text
                   x="0"
-                  y="10"
+                  y="12"
                   textAnchor="middle"
                   fill="#64748b"
-                  fontSize="9"
+                  fontSize="10"
                 >
                   {node.data.ipAddress}
                 </text>
