@@ -14,9 +14,8 @@ import ReactFlow, {
   useEdgesState,
   MarkerType,
   NodeTypes,
-  Position,
 } from 'reactflow'
-import { Monitor, Server, Laptop, Smartphone, AlertCircle, Lock, Box, Router } from 'lucide-react'
+import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 
 interface Device {
@@ -39,16 +38,16 @@ interface NetworkTopologyProps {
 // Subnet Group Node (The "Box")
 const SubnetNode = ({ data }: { data: any }) => {
   return (
-    <div className="w-full h-full bg-slate-100/50 dark:bg-slate-900/50 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl relative">
-      <div className="absolute -top-3 left-4 bg-background px-2 text-sm font-bold text-muted-foreground flex items-center gap-2">
-        <Router className="w-4 h-4" />
+    <div className="w-full h-full bg-slate-50/80 dark:bg-slate-900/40 border-2 border-dashed border-slate-400 dark:border-slate-600 rounded-xl relative">
+      <div className="absolute -top-3 left-4 bg-background px-2 text-sm font-bold text-muted-foreground flex items-center gap-2 border border-slate-200 dark:border-slate-800 rounded-md shadow-sm">
+        <Network className="w-4 h-4" />
         {data.label}
       </div>
     </div>
   )
 }
 
-// Device Node
+// Device Node (Card Style)
 const DeviceNode = ({ data }: { data: any }) => {
   const getDeviceIcon = (deviceType?: string) => {
     switch (deviceType?.toLowerCase()) {
@@ -67,7 +66,8 @@ const DeviceNode = ({ data }: { data: any }) => {
   }
 
   const isSwitch = data.deviceType === 'switch'
-  const statusColor = data.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
+  const isOnline = data.status === 'online'
+  const statusColor = isOnline ? 'bg-green-500' : 'bg-gray-500'
 
   // Switch styling (Small header node inside the group)
   if (isSwitch) {
@@ -80,7 +80,7 @@ const DeviceNode = ({ data }: { data: any }) => {
   }
 
   // Device styling
-  const borderColor = data.isQuarantined ? 'border-red-500' : (data.status === 'online' ? 'border-green-500' : 'border-gray-500')
+  const borderColor = data.isQuarantined ? 'border-red-500' : (isOnline ? 'border-green-500' : 'border-gray-500')
   const bgColor = data.isQuarantined ? 'bg-red-50' : 'bg-card'
 
   return (
@@ -88,6 +88,7 @@ const DeviceNode = ({ data }: { data: any }) => {
       <div className="flex items-center gap-2 mb-1">
         <div className={`w-2 h-2 rounded-full ${statusColor}`} />
         {getDeviceIcon(data.deviceType)}
+        {data.isQuarantined && <Lock className="w-3 h-3 text-red-500" />}
         <div className="flex-1 overflow-hidden">
           <h3 className="font-semibold text-xs text-foreground truncate" title={data.label}>{data.label}</h3>
         </div>
@@ -169,18 +170,17 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
     subnets.forEach((subnet, subnetIndex) => {
       const subnetAgents = subnetMap.get(subnet) || []
       const subnetWidth = Math.max(300, subnetAgents.length * DEVICE_SPACING_X + 40)
-      const subnetHeight = 250 // Fixed height for single row, expand if needed
+      const subnetHeight = 250
 
-      // Calculate Subnet Group Position (Centered relative to server)
       const totalWidth = subnets.length * SUBNET_SPACING_X
       const startX = SERVER_X - (totalWidth / 2) + (SUBNET_SPACING_X / 2)
-      const groupX = startX + (subnetIndex * (subnetWidth + 50)) // Add gap between groups
+      const groupX = startX + (subnetIndex * (subnetWidth + 50))
       const groupY = SUBNET_Y
 
       const groupId = `group-${subnet}`
       const switchId = `switch-${subnet}`
 
-      // Create Subnet Group Node (Container)
+      // Subnet Group
       nodes.push({
         id: groupId,
         type: 'subnet',
@@ -190,12 +190,11 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         zIndex: -1,
       })
 
-      // Create Switch Node (Inside Group, relative position)
-      // Centered at top of group
+      // Switch Node
       nodes.push({
         id: switchId,
         type: 'device',
-        position: { x: (subnetWidth / 2) - 60, y: 40 }, // Relative to group
+        position: { x: (subnetWidth / 2) - 60, y: 40 },
         parentNode: groupId,
         extent: 'parent',
         data: {
@@ -205,23 +204,22 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         },
       })
 
-      // Connect Server to Switch
+      // Backbone Connection (Server -> Switch)
       edges.push({
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
         type: 'step',
-        style: { stroke: '#3b82f6', strokeWidth: 3 },
-        animated: true,
+        style: { stroke: '#000000', strokeWidth: 3 }, // Black cable
+        animated: false,
       })
 
-      // Place Agents (Inside Group, relative position)
+      // Place Agents
       subnetAgents.forEach((agent, agentIndex) => {
-        // Center agents row in the group
         const rowWidth = subnetAgents.length * DEVICE_SPACING_X
         const rowStartX = (subnetWidth - rowWidth) / 2
         const agentX = rowStartX + (agentIndex * DEVICE_SPACING_X) + 10
-        const agentY = 140 // Below switch
+        const agentY = 140
 
         nodes.push({
           id: agent.device_id,
@@ -239,7 +237,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           },
         })
 
-        // Connect Switch to Agent
+        // Wired Connection (Switch -> Agent)
         const isOnline = agent.status === 'online'
         edges.push({
           id: `link-${switchId}-${agent.device_id}`,
@@ -247,8 +245,14 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           target: agent.device_id,
           type: 'step',
           style: {
-            stroke: isOnline ? '#10b981' : '#64748b', // Green or Slate-500
+            stroke: '#000000', // Black cable
             strokeWidth: 2
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 10,
+            height: 10,
+            color: isOnline ? '#22c55e' : '#ef4444', // Green/Red indicator
           },
         })
       })
@@ -290,7 +294,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         fitView
-        className="bg-muted/10"
+        className="bg-white dark:bg-slate-950"
       >
         <Background color="#94a3b8" gap={20} size={1} />
         <Controls />
