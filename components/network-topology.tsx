@@ -198,7 +198,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       nodes.push({
         id: switchId,
         type: 'device',
-        position: { x: (subnetWidth / 2) - 60, y: 40 }, // Relative to Parent
+        position: { x: (subnetWidth / 2) - 60, y: 40 },
         parentNode: groupId,
         extent: 'parent',
         data: {
@@ -209,15 +209,18 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         zIndex: 10,
       })
 
-      // Backbone Connection (Server -> Switch)
+      // Backbone Connection (Server -> Switch) - FIXED
       edges.push({
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
-        type: 'default',
-        style: { stroke: '#e2e8f0', strokeWidth: 4 }, // Very Thick
-        animated: false,
-        zIndex: 50,
+        type: 'straight',
+        style: {
+          stroke: '#3b82f6',
+          strokeWidth: 3
+        },
+        animated: true,
+        zIndex: 1,
       })
 
       // Place Agents (Child - Relative Position)
@@ -226,8 +229,8 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         const rowWidth = subnetAgents.length * DEVICE_SPACING
         const rowStartX = (subnetWidth - rowWidth) / 2
 
-        const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10 // Relative
-        const agentY = 140 // Relative
+        const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10
+        const agentY = 140
 
         nodes.push({
           id: agent.device_id,
@@ -246,24 +249,26 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           zIndex: 10,
         })
 
-        // Wired Connection (Switch -> Agent)
+        // Wired Connection (Switch -> Agent) - FIXED
         const isOnline = agent.status === 'online'
+        const strokeColor = isOnline ? '#22c55e' : '#ef4444'
+
         edges.push({
           id: `link-${switchId}-${agent.device_id}`,
           source: switchId,
           target: agent.device_id,
-          type: 'step',
+          type: 'smoothstep',
           style: {
-            stroke: '#94a3b8', // Slate-400
+            stroke: strokeColor,
             strokeWidth: 2
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 10,
-            height: 10,
-            color: isOnline ? '#22c55e' : '#ef4444',
+            width: 15,
+            height: 15,
+            color: strokeColor,
           },
-          zIndex: 50,
+          zIndex: 1,
         })
       })
     })
@@ -304,7 +309,12 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         className="bg-slate-950"
+        defaultEdgeOptions={{
+          style: { strokeWidth: 2 },
+          type: 'smoothstep'
+        }}
       >
         <Background color="#334155" gap={20} size={1} />
         <Controls />
