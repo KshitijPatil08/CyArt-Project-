@@ -100,82 +100,52 @@ const DeviceNode = ({ data }: { data: any }) => {
   )
 }
 
-// Custom Wired Edge with better network cable visualization
+// Simple straight edge for better visibility
 const WiredEdge = ({
   id,
   sourceX,
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   style = {},
   markerEnd,
   data,
 }: any) => {
-  // Calculate control points for a more natural cable-like curve
-  const offset = 50;
-  const ctrlOffset = 30;
+  // Draw a straight line between source and target
+  const path = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
   
   // Determine if this is a switch-to-device connection
   const isSwitchConnection = data?.isSwitchConnection || false;
+  const isBackbone = data?.isBackbone || false;
   
-  let path;
+  // Set colors based on connection type
+  let strokeColor = style.stroke || '#94a3b8';
+  let strokeWidth = 2;
   
-  if (isSwitchConnection) {
-    // For switch connections, use a straight line with a small curve
-    const midY = sourceY + (targetY - sourceY) * 0.7;
-    path = `M ${sourceX} ${sourceY} 
-            C ${sourceX} ${midY}, ${targetX} ${midY}, ${targetX} ${targetY}`;
-  } else {
-    // For server-to-switch connections, use a more pronounced curve
-    const ctrlX1 = sourceX + (targetX - sourceX) * 0.5;
-    const ctrlY1 = sourceY;
-    const ctrlX2 = sourceX + (targetX - sourceX) * 0.5;
-    const ctrlY2 = targetY;
-    
-    path = `M ${sourceX} ${sourceY} 
-            C ${ctrlX1} ${ctrlY1}, ${ctrlX2} ${ctrlY2}, ${targetX} ${targetY}`;
+  if (isBackbone) {
+    strokeColor = '#60a5fa'; // Blue for backbone connections
+    strokeWidth = 3;
+  } else if (isSwitchConnection) {
+    strokeColor = data?.isOnline ? '#4ade80' : '#f87171'; // Green/Red based on status
+    strokeWidth = 2;
   }
 
-  // Add a subtle gradient to the wire
-  const gradientId = `gradient-${id}`;
-  const strokeColor = style.stroke || '#94a3b8';
-  
   return (
-    <>
-      <defs>
-        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor={strokeColor} stopOpacity="0.8" />
-          <stop offset="100%" stopColor={strokeColor} stopOpacity="0.5" />
-        </linearGradient>
-      </defs>
-      <path
-        id={id}
-        className="react-flow__edge-path"
-        d={path}
-        style={{
-          ...style,
-          stroke: `url(#${gradientId})`,
-          strokeWidth: isSwitchConnection ? 1.5 : 2.5,
-          strokeDasharray: style.strokeDasharray || 'none',
-          fill: 'none',
-        }}
-        markerEnd={markerEnd}
-      />
-      {/* Add a subtle highlight on top of the wire */}
-      <path
-        d={path}
-        style={{
-          stroke: 'rgba(255, 255, 255, 0.1)',
-          strokeWidth: isSwitchConnection ? 3 : 4,
-          fill: 'none',
-          pointerEvents: 'none',
-        }}
-      />
-    </>
+    <path
+      id={id}
+      className="react-flow__edge-path"
+      d={path}
+      style={{
+        ...style,
+        stroke: strokeColor,
+        strokeWidth: strokeWidth,
+        fill: 'none',
+        pointerEvents: 'auto',
+      }}
+      markerEnd={markerEnd}
+    />
   );
-}
+};
 
 const nodeTypes: NodeTypes = {
   device: DeviceNode,
@@ -297,12 +267,15 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         target: switchId,
         type: 'wired',
         style: { 
-          stroke: '#60a5fa', // Blue-400
+          stroke: '#60a5fa',
           strokeWidth: 3,
         },
         animated: true,
-        zIndex: 50,
-        data: { isBackbone: true },
+        zIndex: 1000, // Higher z-index to ensure visibility
+        data: { 
+          isBackbone: true,
+          isOnline: true
+        },
       })
 
       // Place Agents (Child - Relative Position)
@@ -341,16 +314,15 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           target: agent.device_id,
           type: 'wired',
           style: {
-            stroke: isOnline ? '#4ade80' : '#f87171', // Green-400 when online, Red-400 when offline
-            strokeWidth: 1.5,
+            // Color will be set in the WiredEdge component
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 8,
-            height: 8,
+            width: 10,
+            height: 10,
             color: isOnline ? '#22c55e' : '#ef4444',
           },
-          zIndex: 50,
+          zIndex: 500, // Ensure edges are above nodes
           data: {
             isSwitchConnection: true,
             portNumber,
@@ -398,28 +370,40 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
 
   return (
     <div className="w-full h-[600px] border rounded-lg bg-background">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        fitView
-        className="bg-slate-950"
-        defaultEdgeOptions={{
-          type: 'wired',
-          style: { 
-            stroke: '#94a3b8',
+      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          fitView
+          className="bg-slate-950"
+          defaultEdgeOptions={{
+            type: 'wired',
+            style: { 
+              stroke: '#94a3b8',
+              strokeWidth: 2,
+            },
+          }}
+          connectionLineStyle={{
+            stroke: '#60a5fa',
             strokeWidth: 2,
-          },
-        }}
-        connectionLineStyle={{
-          stroke: '#60a5fa',
-          strokeWidth: 2,
-        }}
-      >
+          }}
+          edgesUpdatable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          style={{
+            zIndex: 1,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+          }}
+        >
         <Background color="#334155" gap={20} size={1} />
         <Controls />
         <MiniMap
@@ -429,7 +413,8 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
         />
-      </ReactFlow>
+        </ReactFlow>
+      </div>
     </div>
   )
 }
