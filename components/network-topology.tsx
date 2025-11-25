@@ -36,14 +36,26 @@ interface NetworkTopologyProps {
   devices: Device[]
 }
 
-// Custom node component with device information
+// Subnet Group Node (The "Box")
+const SubnetNode = ({ data }: { data: any }) => {
+  return (
+    <div className="w-full h-full bg-slate-100/50 dark:bg-slate-900/50 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl relative">
+      <div className="absolute -top-3 left-4 bg-background px-2 text-sm font-bold text-muted-foreground flex items-center gap-2">
+        <Router className="w-4 h-4" />
+        {data.label}
+      </div>
+    </div>
+  )
+}
+
+// Device Node
 const DeviceNode = ({ data }: { data: any }) => {
   const getDeviceIcon = (deviceType?: string) => {
     switch (deviceType?.toLowerCase()) {
       case 'server':
         return <Server className="w-5 h-5" />
       case 'switch':
-        return <Box className="w-5 h-5" /> // Using Box as a generic switch icon
+        return <Box className="w-5 h-5" />
       case 'laptop':
         return <Laptop className="w-5 h-5" />
       case 'mobile':
@@ -57,17 +69,12 @@ const DeviceNode = ({ data }: { data: any }) => {
   const isSwitch = data.deviceType === 'switch'
   const statusColor = data.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
 
-  // Switch styling
+  // Switch styling (Small header node inside the group)
   if (isSwitch) {
     return (
-      <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 border-2 border-blue-500 rounded-md shadow-md min-w-[150px]">
-        <div className="flex items-center gap-2">
-          <Router className="w-5 h-5 text-blue-500" />
-          <div className="flex-1">
-            <h3 className="font-bold text-sm text-foreground">{data.label}</h3>
-            <p className="text-xs text-muted-foreground">{data.subnet}</p>
-          </div>
-        </div>
+      <div className="px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 border border-blue-500 rounded shadow-sm min-w-[120px] flex items-center justify-center gap-2">
+        <Box className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        <span className="text-xs font-bold text-blue-700 dark:text-blue-300">Switch</span>
       </div>
     )
   }
@@ -77,28 +84,16 @@ const DeviceNode = ({ data }: { data: any }) => {
   const bgColor = data.isQuarantined ? 'bg-red-50' : 'bg-card'
 
   return (
-    <div className={`px-4 py-3 ${bgColor} border-2 ${borderColor} rounded-lg shadow-lg min-w-[200px]`}>
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`w-3 h-3 rounded-full ${statusColor}`} />
+    <div className={`px-3 py-2 ${bgColor} border ${borderColor} rounded shadow-sm w-[160px]`}>
+      <div className="flex items-center gap-2 mb-1">
+        <div className={`w-2 h-2 rounded-full ${statusColor}`} />
         {getDeviceIcon(data.deviceType)}
-        {data.isQuarantined && <Lock className="w-4 h-4 text-red-500" />}
-        <div className="flex-1">
-          <h3 className="font-semibold text-sm text-foreground truncate max-w-[120px]">{data.label}</h3>
+        <div className="flex-1 overflow-hidden">
+          <h3 className="font-semibold text-xs text-foreground truncate" title={data.label}>{data.label}</h3>
         </div>
       </div>
-      <div className="space-y-1 text-xs">
-        <p className="text-muted-foreground">
-          <span className="font-medium">IP:</span> {data.ipAddress}
-        </p>
-        <p className="text-muted-foreground">
-          <span className="font-medium">Owner:</span> {data.owner}
-        </p>
-        <p className="text-muted-foreground">
-          <span className="font-medium">Status:</span>{' '}
-          <span className={`capitalize ${data.status === 'online' ? 'text-green-600' : 'text-gray-500'}`}>
-            {data.status}
-          </span>
-        </p>
+      <div className="text-[10px] text-muted-foreground truncate">
+        {data.ipAddress}
       </div>
     </div>
   )
@@ -106,34 +101,49 @@ const DeviceNode = ({ data }: { data: any }) => {
 
 const nodeTypes: NodeTypes = {
   device: DeviceNode,
+  subnet: SubnetNode,
 }
 
 export function NetworkTopology({ devices }: NetworkTopologyProps) {
-  // Generate nodes and edges based on subnet grouping
   const { initialNodes, initialEdges } = useMemo(() => {
     if (devices.length === 0) return { initialNodes: [], initialEdges: [] }
 
     const nodes: Node[] = []
     const edges: Edge[] = []
 
-    // 1. Identify Main Server(s)
+    // 1. Identify Main Server
     const servers = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
     const mainServer = servers.length > 0 ? servers[0] : null
     const mainServerId = mainServer ? mainServer.device_id : 'virtual-server'
 
-    // Place Main Server
-    const centerX = 600
-    const centerY = 100
+    // 2. Group Agents by Subnet
+    const agents = devices.filter(d => !servers.includes(d))
+    const subnetMap = new Map<string, Device[]>()
 
+    agents.forEach(agent => {
+      const ipParts = (agent.ip_address || '0.0.0.0').split('.')
+      const subnet = ipParts.length === 4 ? `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}` : 'Unknown'
+      if (!subnetMap.has(subnet)) subnetMap.set(subnet, [])
+      subnetMap.get(subnet)?.push(agent)
+    })
+
+    // Layout Constants
+    const SERVER_X = 600
+    const SERVER_Y = 50
+    const SUBNET_SPACING_X = 350
+    const SUBNET_Y = 250
+    const DEVICE_SPACING_X = 180
+    const DEVICE_ROW_SPACING_Y = 100
+
+    // Place Main Server
     if (mainServer) {
       nodes.push({
         id: mainServer.device_id,
         type: 'device',
-        position: { x: centerX, y: centerY },
+        position: { x: SERVER_X, y: SERVER_Y },
         data: {
           label: mainServer.device_name,
           ipAddress: mainServer.ip_address,
-          owner: mainServer.owner,
           status: mainServer.status,
           deviceType: 'server',
           isQuarantined: mainServer.is_quarantined,
@@ -143,77 +153,82 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       nodes.push({
         id: 'virtual-server',
         type: 'device',
-        position: { x: centerX, y: centerY },
+        position: { x: SERVER_X, y: SERVER_Y },
         data: {
           label: 'Central Server',
           ipAddress: 'N/A',
-          owner: 'System',
           status: 'online',
           deviceType: 'server',
-          isQuarantined: false,
         },
       })
     }
 
-    // 2. Group Agents by Subnet
-    const agents = devices.filter(d => !servers.includes(d))
-    const subnetMap = new Map<string, Device[]>()
-
-    agents.forEach(agent => {
-      // Extract subnet (first 3 octets, e.g., 192.168.1)
-      const ipParts = (agent.ip_address || '0.0.0.0').split('.')
-      const subnet = ipParts.length === 4 ? `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}` : 'Unknown Subnet'
-
-      if (!subnetMap.has(subnet)) {
-        subnetMap.set(subnet, [])
-      }
-      subnetMap.get(subnet)?.push(agent)
-    })
-
-    // 3. Create Switches and Place Agents
+    // Process Subnets
     const subnets = Array.from(subnetMap.keys())
-    const switchSpacingX = 400
-    const switchY = 300
 
     subnets.forEach((subnet, subnetIndex) => {
-      const switchId = `switch-${subnet}`
-      const switchX = centerX + (subnetIndex - (subnets.length - 1) / 2) * switchSpacingX
+      const subnetAgents = subnetMap.get(subnet) || []
+      const subnetWidth = Math.max(300, subnetAgents.length * DEVICE_SPACING_X + 40)
+      const subnetHeight = 250 // Fixed height for single row, expand if needed
 
-      // Create Switch Node
+      // Calculate Subnet Group Position (Centered relative to server)
+      const totalWidth = subnets.length * SUBNET_SPACING_X
+      const startX = SERVER_X - (totalWidth / 2) + (SUBNET_SPACING_X / 2)
+      const groupX = startX + (subnetIndex * (subnetWidth + 50)) // Add gap between groups
+      const groupY = SUBNET_Y
+
+      const groupId = `group-${subnet}`
+      const switchId = `switch-${subnet}`
+
+      // Create Subnet Group Node (Container)
+      nodes.push({
+        id: groupId,
+        type: 'subnet',
+        position: { x: groupX, y: groupY },
+        style: { width: subnetWidth, height: subnetHeight },
+        data: { label: `Subnet ${subnet}.x` },
+        zIndex: -1,
+      })
+
+      // Create Switch Node (Inside Group, relative position)
+      // Centered at top of group
       nodes.push({
         id: switchId,
         type: 'device',
-        position: { x: switchX, y: switchY },
+        position: { x: (subnetWidth / 2) - 60, y: 40 }, // Relative to group
+        parentNode: groupId,
+        extent: 'parent',
         data: {
-          label: `Switch - ${subnet}`,
-          subnet: `${subnet}.x`,
-          status: 'online',
+          label: 'Switch',
           deviceType: 'switch',
+          status: 'online',
         },
       })
 
-      // Connect Server to Switch (Backbone)
+      // Connect Server to Switch
       edges.push({
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
-        type: 'step', // Orthogonal lines for backbone
-        style: { stroke: '#3b82f6', strokeWidth: 4 }, // Thick blue line
+        type: 'step',
+        style: { stroke: '#3b82f6', strokeWidth: 3 },
         animated: true,
       })
 
-      // Place Agents under their Switch
-      const subnetAgents = subnetMap.get(subnet) || []
-      const agentSpacingX = 220
-      const agentStartY = switchY + 200
-
+      // Place Agents (Inside Group, relative position)
       subnetAgents.forEach((agent, agentIndex) => {
-        const agentX = switchX + (agentIndex - (subnetAgents.length - 1) / 2) * agentSpacingX
+        // Center agents row in the group
+        const rowWidth = subnetAgents.length * DEVICE_SPACING_X
+        const rowStartX = (subnetWidth - rowWidth) / 2
+        const agentX = rowStartX + (agentIndex * DEVICE_SPACING_X) + 10
+        const agentY = 140 // Below switch
 
         nodes.push({
           id: agent.device_id,
           type: 'device',
-          position: { x: agentX, y: agentStartY },
+          position: { x: agentX, y: agentY },
+          parentNode: groupId,
+          extent: 'parent',
           data: {
             label: agent.device_name || agent.hostname,
             ipAddress: agent.ip_address,
@@ -224,18 +239,17 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           },
         })
 
-        // Connect Switch to Agent (Wired)
+        // Connect Switch to Agent
         const isOnline = agent.status === 'online'
         edges.push({
           id: `link-${switchId}-${agent.device_id}`,
           source: switchId,
           target: agent.device_id,
-          type: 'step', // Orthogonal lines for wired look
+          type: 'step',
           style: {
-            stroke: isOnline ? '#10b981' : '#9ca3af', // Green or Gray
+            stroke: isOnline ? '#10b981' : '#64748b', // Green or Slate-500
             strokeWidth: 2
           },
-          animated: false, // Wires don't animate usually, but could if active
         })
       })
     })
@@ -251,7 +265,6 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
     [setEdges]
   )
 
-  // Update nodes and edges when devices change
   React.useEffect(() => {
     setNodes(initialNodes)
     setEdges(initialEdges)
@@ -277,15 +290,14 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         fitView
-        className="bg-muted/20"
+        className="bg-muted/10"
       >
-        <Background color="#e5e7eb" gap={16} />
+        <Background color="#94a3b8" gap={20} size={1} />
         <Controls />
         <MiniMap
           nodeColor={(node) => {
-            if (node.data.isQuarantined) return '#ef4444'
-            if (node.data.deviceType === 'switch') return '#3b82f6'
-            return node.data.status === 'online' ? '#10b981' : '#6b7280'
+            if (node.type === 'subnet') return '#f1f5f9'
+            return '#cbd5e1'
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
         />
