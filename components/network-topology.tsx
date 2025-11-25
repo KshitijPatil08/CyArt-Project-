@@ -38,7 +38,7 @@ interface NetworkTopologyProps {
 // Subnet Group Node (The "Box")
 const SubnetNode = ({ data }: { data: any }) => {
   return (
-    <div className="w-full h-full bg-slate-50/80 dark:bg-slate-900/40 border-2 border-dashed border-slate-400 dark:border-slate-600 rounded-xl relative">
+    <div className="w-full h-full bg-slate-50/50 dark:bg-slate-900/40 border-2 border-dashed border-slate-400 dark:border-slate-600 rounded-xl relative">
       <div className="absolute -top-3 left-4 bg-background px-2 text-sm font-bold text-muted-foreground flex items-center gap-2 border border-slate-200 dark:border-slate-800 rounded-md shadow-sm">
         <Network className="w-4 h-4" />
         {data.label}
@@ -210,7 +210,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         source: mainServerId,
         target: switchId,
         type: 'step',
-        style: { stroke: '#000000', strokeWidth: 3 }, // Black cable
+        style: { stroke: '#94a3b8', strokeWidth: 3 }, // Visible Slate-400
         animated: false,
       })
 
@@ -245,14 +245,14 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           target: agent.device_id,
           type: 'step',
           style: {
-            stroke: '#000000', // Black cable
+            stroke: '#94a3b8', // Visible Slate-400
             strokeWidth: 2
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             width: 10,
             height: 10,
-            color: isOnline ? '#22c55e' : '#ef4444', // Green/Red indicator
+            color: isOnline ? '#22c55e' : '#ef4444',
           },
         })
       })
