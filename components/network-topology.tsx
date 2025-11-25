@@ -50,54 +50,103 @@ const SubnetNode = ({ data }: { data: any }) => {
 // Device Node (Card Style)
 const DeviceNode = ({ data }: { data: any }) => {
   const getDeviceIcon = (deviceType?: string) => {
+    const iconClass = "w-5 h-5";
+    const iconProps = { className: `${iconClass} flex-shrink-0` };
+    
     switch (deviceType?.toLowerCase()) {
       case 'server':
-        return <Server className="w-5 h-5" />
+        return <Server {...iconProps} />;
       case 'switch':
-        return <Box className="w-5 h-5" />
+        return <Box {...iconProps} />;
       case 'laptop':
-        return <Laptop className="w-5 h-5" />
+        return <Laptop {...iconProps} />;
       case 'mobile':
       case 'smartphone':
-        return <Smartphone className="w-5 h-5" />
+        return <Smartphone {...iconProps} />;
+      case 'router':
+      case 'firewall':
+        return <Network {...iconProps} />;
       default:
-        return <Monitor className="w-5 h-5" />
+        return <Monitor {...iconProps} />;
     }
-  }
+  };
 
-  const isSwitch = data.deviceType === 'switch'
-  const isOnline = data.status === 'online'
-  const statusColor = isOnline ? 'bg-green-500' : 'bg-gray-500'
+  const isSwitch = data.deviceType === 'switch';
+  const isServer = data.deviceType === 'server';
+  const isOnline = data.status === 'online';
+  const isQuarantined = data.isQuarantined;
+  
+  // Status colors
+  const statusColor = isOnline ? 'bg-green-500' : 'bg-gray-500';
+  const borderColor = isQuarantined 
+    ? 'border-red-500' 
+    : (isOnline ? 'border-green-500' : 'border-gray-500');
+  const bgColor = isQuarantined 
+    ? 'bg-red-950/30' 
+    : (isServer ? 'bg-blue-950/80' : 'bg-slate-900');
 
   // Switch styling
   if (isSwitch) {
     return (
-      <div className="px-3 py-1.5 bg-blue-950/80 border-2 border-blue-500 rounded shadow-sm min-w-[120px] flex items-center justify-center gap-2">
+      <div className={`
+        px-3 py-1.5 
+        ${bgColor} 
+        border-2 ${borderColor} 
+        rounded-lg 
+        shadow-md 
+        min-w-[120px] 
+        flex items-center justify-center gap-2
+        transition-all duration-200
+        hover:shadow-lg hover:shadow-blue-500/20
+        relative
+      `}>
         <Box className="w-4 h-4 text-blue-400" />
-        <span className="text-xs font-bold text-blue-300">Switch</span>
+        <span className="text-xs font-semibold text-blue-200">Switch</span>
+        {isQuarantined && <Lock className="w-3 h-3 text-red-500 flex-shrink-0" />}
+        <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ${statusColor} border border-white/50`} />
       </div>
-    )
+    );
   }
 
-  // Device styling
-  const borderColor = data.isQuarantined ? 'border-red-500' : (isOnline ? 'border-green-500' : 'border-gray-500')
-  const bgColor = data.isQuarantined ? 'bg-red-950/30' : 'bg-slate-900'
-
+  // Regular device card
   return (
-    <div className={`px-3 py-2 ${bgColor} border ${borderColor} rounded shadow-sm w-[160px]`}>
+    <div className={`
+      px-3 py-2 
+      ${bgColor} 
+      border ${borderColor} 
+      rounded-lg 
+      shadow-sm 
+      w-[160px]
+      transition-all duration-200
+      hover:shadow-md hover:shadow-slate-500/20
+      relative
+      group
+    `}>
       <div className="flex items-center gap-2 mb-1">
-        <div className={`w-2 h-2 rounded-full ${statusColor}`} />
+        <div className={`w-2.5 h-2.5 rounded-full ${statusColor} flex-shrink-0`} />
         {getDeviceIcon(data.deviceType)}
-        {data.isQuarantined && <Lock className="w-3 h-3 text-red-500" />}
-        <div className="flex-1 overflow-hidden">
-          <h3 className="font-semibold text-xs text-slate-200 truncate" title={data.label}>{data.label}</h3>
+        {isQuarantined && <Lock className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
+        <div className="flex-1 min-w-0">
+          <h3 
+            className="font-semibold text-xs text-slate-200 truncate" 
+            title={data.label}
+          >
+            {data.label}
+          </h3>
         </div>
       </div>
-      <div className="text-[10px] text-slate-400 truncate">
-        {data.ipAddress}
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-slate-400 truncate">
+          {data.ipAddress}
+        </span>
+        {!isOnline && (
+          <span className="text-[10px] text-slate-500 ml-2 whitespace-nowrap">
+            offline
+          </span>
+        )}
       </div>
     </div>
-  )
+  );
 }
 
 // Simple straight edge for better visibility
