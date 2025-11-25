@@ -100,9 +100,37 @@ const DeviceNode = ({ data }: { data: any }) => {
   )
 }
 
+// Custom Wired Edge (Orthogonal: Down -> Over -> Down)
+const WiredEdge = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  style = {},
+  markerEnd,
+}: any) => {
+  const midY = (sourceY + targetY) / 2
+  const path = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`
+
+  return (
+    <path
+      id={id}
+      style={style}
+      className="react-flow__edge-path"
+      d={path}
+      markerEnd={markerEnd}
+    />
+  )
+}
+
 const nodeTypes: NodeTypes = {
   device: DeviceNode,
   subnet: SubnetNode,
+}
+
+const edgeTypes = {
+  wired: WiredEdge,
 }
 
 export function NetworkTopology({ devices }: NetworkTopologyProps) {
@@ -198,7 +226,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       nodes.push({
         id: switchId,
         type: 'device',
-        position: { x: (subnetWidth / 2) - 60, y: 40 },
+        position: { x: (subnetWidth / 2) - 60, y: 40 }, // Relative to Parent
         parentNode: groupId,
         extent: 'parent',
         data: {
@@ -209,18 +237,15 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         zIndex: 10,
       })
 
-      // Backbone Connection (Server -> Switch) - MADE VISIBLE
+      // Backbone Connection (Server -> Switch)
       edges.push({
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
-        type: 'straight',
-        style: {
-          stroke: '#60a5fa', // Blue-400 for backbone
-          strokeWidth: 3
-        },
-        animated: true,
-        zIndex: 1,
+        type: 'default',
+        style: { stroke: '#e2e8f0', strokeWidth: 4 }, // Very Thick
+        animated: false,
+        zIndex: 50,
       })
 
       // Place Agents (Child - Relative Position)
@@ -229,8 +254,8 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         const rowWidth = subnetAgents.length * DEVICE_SPACING
         const rowStartX = (subnetWidth - rowWidth) / 2
 
-        const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10
-        const agentY = 140
+        const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10 // Relative
+        const agentY = 140 // Relative
 
         nodes.push({
           id: agent.device_id,
@@ -249,26 +274,24 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           zIndex: 10,
         })
 
-        // Wired Connection (Switch -> Agent) - MADE VISIBLE
+        // Wired Connection (Switch -> Agent)
         const isOnline = agent.status === 'online'
-        const strokeColor = isOnline ? '#22c55e' : '#ef4444' // Green/Red based on status
-
         edges.push({
           id: `link-${switchId}-${agent.device_id}`,
           source: switchId,
           target: agent.device_id,
-          type: 'smoothstep',
+          type: 'wired', // Use Custom Edge
           style: {
-            stroke: strokeColor,
+            stroke: '#94a3b8', // Slate-400
             strokeWidth: 2
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 12,
-            height: 12,
-            color: strokeColor,
+            width: 10,
+            height: 10,
+            color: isOnline ? '#22c55e' : '#ef4444',
           },
-          zIndex: 1,
+          zIndex: 50,
         })
       })
     })
@@ -308,12 +331,9 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
         className="bg-slate-950"
-        defaultEdgeOptions={{
-          style: { strokeWidth: 2 },
-        }}
       >
         <Background color="#334155" gap={20} size={1} />
         <Controls />
