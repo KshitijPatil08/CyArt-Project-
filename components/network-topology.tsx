@@ -209,9 +209,9 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
         id: `link-${mainServerId}-${switchId}`,
         source: mainServerId,
         target: switchId,
-        type: 'default',
-        style: { stroke: '#ffffff', strokeWidth: 2 }, // Bright White
-        animated: false,
+        type: 'straight', // Debug: Straight line
+        style: { stroke: '#00ffff', strokeWidth: 3 }, // Debug: Cyan
+        animated: true,
       })
 
       // Place Agents
@@ -243,21 +243,16 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           id: `link-${switchId}-${agent.device_id}`,
           source: switchId,
           target: agent.device_id,
-          type: 'default',
+          type: 'straight', // Debug: Straight line
           style: {
-            stroke: '#ffffff', // Bright White
-            strokeWidth: 2
-          },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 10,
-            height: 10,
-            color: isOnline ? '#22c55e' : '#ef4444',
+            stroke: '#00ffff', // Debug: Cyan
+            strokeWidth: 3
           },
         })
       })
     })
 
+    console.log('Topology generated:', { nodes: nodes.length, edges: edges.length })
     return { initialNodes: nodes, initialEdges: edges }
   }, [devices])
 
