@@ -5,6 +5,7 @@ import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, Shi
 import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
 import { QuarantineManagement } from './quarantine-management';
+import { SeverityRulesManagement } from './SeverityRulesManagement';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,17 +62,21 @@ export default function SecurityDashboard() {
   const [usbEventCount, setUsbEventCount] = useState(0);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine' | 'rules'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
+  const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
+
+  const updateServerStatus = (status: ServerStatus) => {
+    setServerStatus(status);
+    setServerUpdatedAt(new Date().toISOString());
+  };
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://v0-project1-r9.vercel.app';
 
   const fetchDevices = async () => {
     try {
       const res = await fetch(`${API_URL}/api/devices/list`);
-      if (!res.ok) throw new Error('Failed to fetch');
-
       const data = await res.json();
       const normalizedDevices = (data.devices || []).map((device: any) => ({
         ...device,
@@ -79,22 +84,20 @@ export default function SecurityDashboard() {
       }));
       setDevices(normalizedDevices);
 
-      // Refined Server Status Logic:
-      // 1. If there are devices marked as 'is_server', use their status.
-      // 2. If no devices are marked as 'is_server', assume Server is Online (since API is working).
+      // Auto-update server status based on devices
       const serverDevices = normalizedDevices.filter((d: Device) => d.is_server);
-
       if (serverDevices.length > 0) {
         const isAnyServerOnline = serverDevices.some((d: Device) => d.status === 'online');
         setServerStatus(isAnyServerOnline ? 'online' : 'offline');
       } else {
+        // If no specific server device is found, assume online if API is reachable
         setServerStatus('online');
       }
 
       setLoading(false);
     } catch (error) {
       console.error('Error fetching devices:', error);
-      setServerStatus('offline'); // API unreachable -> Server is Offline
+      setServerStatus('offline');
       setLoading(false);
     }
   };
@@ -245,7 +248,7 @@ export default function SecurityDashboard() {
             <div className="relative z-10 space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm uppercase tracking-widest text-muted-foreground">Server Status</p>
+                  <p className="text-sm uppercase tracking-widest text-muted-foreground">Server Control</p>
                   <div className="flex items-center gap-3 mt-2">
                     <div className={`h-10 w-10 rounded-full flex items-center justify-center border ${serverStatus === 'online' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600' : 'bg-rose-500/10 border-rose-500 text-rose-500'}`}>
                       <Wifi className="w-5 h-5" />
@@ -258,28 +261,67 @@ export default function SecurityDashboard() {
                     </div>
                   </div>
                 </div>
-                {/* Auto-detected status indicator */}
-                <div className={`h-10 w-10 rounded-full flex items-center justify-center border ${serverStatus === 'online'
-                  ? 'border-emerald-500/60 text-emerald-600 bg-emerald-500/10'
-                  : 'border-rose-500/60 text-rose-500 bg-rose-500/10'
-                  }`}>
-                  <Zap className="w-4 h-4" />
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
+                        ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
+                        : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
+                        }`}
+                    >
+                      <div className="relative">
+                        <Zap className="w-4 h-4" />
+                        <span
+                          className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
+                            }`}
+                        ></span>
+                      </div>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      onClick={() => updateServerStatus('online')}
+                      className="gap-3"
+                    >
+                      <div className="h-6 w-6 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center">
+                        <Power className="w-3 h-3 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Online</p>
+                        <p className="text-xs text-muted-foreground">Mark agent as healthy</p>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => updateServerStatus('offline')}
+                      className="gap-3"
+                    >
+                      <div className="h-6 w-6 rounded-full bg-rose-500/15 border border-rose-500/40 flex items-center justify-center">
+                        <Power className="w-3 h-3 text-rose-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Offline</p>
+                        <p className="text-xs text-muted-foreground">Temporarily suppress activity</p>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="rounded-lg bg-background/60 border border-muted/60 p-3">
-                  <p className="text-xs text-muted-foreground">Last Check</p>
+                  <p className="text-xs text-muted-foreground">Last Change</p>
                   <div className="flex items-center gap-2 mt-1 text-sm font-medium">
                     <Clock className="w-4 h-4 text-muted-foreground" />
-                    {new Date().toLocaleTimeString()}
+                    {new Date(serverUpdatedAt).toLocaleTimeString()}
                   </div>
                 </div>
                 <div className="rounded-lg bg-background/60 border border-muted/60 p-3">
                   <p className="text-xs text-muted-foreground">Server Health</p>
                   <div className="flex items-center gap-2 mt-1 text-sm font-medium">
                     <AlertTriangle className={`w-4 h-4 ${serverStatus === 'online' ? 'text-emerald-500' : 'text-rose-500'}`} />
-                    {serverStatus === 'online' ? 'Stable' : 'Critical'}
+                    {serverStatus === 'online' ? 'Stable' : 'Degraded'}
                   </div>
                 </div>
               </div>
@@ -354,6 +396,15 @@ export default function SecurityDashboard() {
               <ShieldAlert className="w-4 h-4" />
               Quarantine
             </Button>
+            <Button
+              variant={viewMode === 'rules' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('rules')}
+              className="gap-2 whitespace-nowrap"
+            >
+              <Settings className="w-4 h-4" />
+              Rules Engine
+            </Button>
           </div>
         </div>
 
@@ -365,6 +416,10 @@ export default function SecurityDashboard() {
         ) : viewMode === 'quarantine' ? (
           <div className="bg-card border rounded-lg shadow-sm">
             <QuarantineManagement />
+          </div>
+        ) : viewMode === 'rules' ? (
+          <div className="bg-card border rounded-lg shadow-sm">
+            <SeverityRulesManagement />
           </div>
         ) : viewMode === 'topology' ? (
           <div className="mb-6">
