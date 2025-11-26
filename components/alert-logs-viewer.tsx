@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Download, Filter, Trash2, Clock, Activity, Shield } from "lucide-react"
+import { AlertCircle, Download, Filter, Trash2, Clock, Activity, Shield, AlertTriangle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Dialog,
@@ -24,17 +24,27 @@ interface Log {
   id: string
   device_id: string
   log_type: string
-  source: string
+  hardware_type?: string
+  event?: string
+  source?: string
   severity: string
   message: string
   timestamp: string
-  event_code: string
+  event_code?: string
   raw_data: any
 }
 
 interface Device {
   id: string
   device_name: string
+}
+
+interface SeverityCounts {
+  critical: number
+  error: number
+  warning: number
+  info: number
+  debug: number
 }
 
 export function AlertLogsViewer() {
@@ -59,13 +69,13 @@ export function AlertLogsViewer() {
   const [customRange, setCustomRange] = useState({ before: "", after: "" })
   const [clearing, setClearing] = useState(false)
 
-  const severitySnapshot = logs.reduce(
-    (acc, log) => {
-      acc[log.severity as keyof typeof acc] = (acc[log.severity as keyof typeof acc] || 0) + 1
-      return acc
-    },
-    { critical: 0, error: 0, warning: 0, info: 0, debug: 0 } as Record<string, number>,
-  )
+  const [severityCounts, setSeverityCounts] = useState<SeverityCounts>({
+    critical: 0,
+    error: 0,
+    warning: 0,
+    info: 0,
+    debug: 0,
+  })
 
   useEffect(() => {
     fetchDevices()
@@ -74,6 +84,7 @@ export function AlertLogsViewer() {
 
   useEffect(() => {
     fetchLogs()
+    fetchSeverityCounts()
   }, [filters, pagination.offset])
 
   const fetchDevices = async () => {
@@ -83,6 +94,67 @@ export function AlertLogsViewer() {
       setDevices(data || [])
     } catch (error) {
       console.error("[v0] Error fetching devices:", error)
+    }
+  }
+
+  const getBaseQuery = () => {
+    let query = supabase.from("logs").select("*", { count: "exact", head: true })
+
+    if (filters.device_id && filters.device_id !== "all") {
+      query = query.eq("device_id", filters.device_id)
+    }
+
+    if (filters.log_type !== "all") {
+      if (filters.log_type === "usb") {
+        query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)")
+      } else {
+        query = query.eq("log_type", filters.log_type)
+      }
+    }
+
+    if (filters.search) {
+      query = query.ilike("message", `%${filters.search}%`)
+    }
+
+    return query
+  }
+
+  const fetchSeverityCounts = async () => {
+    try {
+      // If a specific severity is selected, we know the counts for others are 0
+      // and the count for the selected one is the total.
+      if (filters.severity !== "all") {
+        const counts = { critical: 0, error: 0, warning: 0, info: 0, debug: 0 }
+        // We can't easily get the total here without the main query result, 
+        // but we can just let the main fetchLogs update the total and we set the specific one here?
+        // Actually, let's just query the count for the selected severity to be safe and consistent.
+        const query = getBaseQuery().eq("severity", filters.severity)
+        const { count } = await query
+
+        counts[filters.severity as keyof typeof counts] = count || 0
+        setSeverityCounts(counts)
+        return
+      }
+
+      // Otherwise, fetch counts for all severities in parallel
+      const severities = ["critical", "error", "warning", "info", "debug"]
+      const promises = severities.map(async (severity) => {
+        const query = getBaseQuery().eq("severity", severity)
+        const { count } = await query
+        return { severity, count: count || 0 }
+      })
+
+      const results = await Promise.all(promises)
+
+      const newCounts = results.reduce((acc, curr) => {
+        acc[curr.severity as keyof SeverityCounts] = curr.count
+        return acc
+      }, { critical: 0, error: 0, warning: 0, info: 0, debug: 0 } as SeverityCounts)
+
+      setSeverityCounts(newCounts)
+
+    } catch (error) {
+      console.error("Error fetching severity counts:", error)
     }
   }
 
@@ -196,7 +268,7 @@ export function AlertLogsViewer() {
   const handleExport = async () => {
     try {
       const csv = [
-        ["Timestamp", "Device", "Type", "Severity", "Message", "Source"].join(","),
+        ["Timestamp", "Device", "Type", "Severity", "Message", "Event"].join(","),
         ...logs.map((log) =>
           [
             new Date(log.timestamp).toLocaleString(),
@@ -204,7 +276,7 @@ export function AlertLogsViewer() {
             log.log_type,
             log.severity,
             `"${log.message.replace(/"/g, '""')}"`,
-            log.source,
+            log.event || log.source || "-",
           ].join(","),
         ),
       ].join("\n")
@@ -251,6 +323,8 @@ export function AlertLogsViewer() {
         return "bg-blue-500/10 border-blue-500/40"
       case "application":
         return "bg-green-500/10 border-green-500/40"
+      case "network":
+        return "bg-indigo-500/10 border-indigo-500/40"
       default:
         return "bg-muted/30 border-border"
     }
@@ -276,7 +350,7 @@ export function AlertLogsViewer() {
         </CardHeader>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         {[
           {
             label: "Total Logs",
@@ -286,19 +360,25 @@ export function AlertLogsViewer() {
           },
           {
             label: "Critical Alerts",
-            value: severitySnapshot.critical,
+            value: severityCounts.critical,
             icon: AlertCircle,
             accent: "from-red-500/20 to-red-500/5 text-red-600 dark:text-red-300",
           },
           {
+            label: "Errors",
+            value: severityCounts.error,
+            icon: AlertTriangle,
+            accent: "from-orange-500/20 to-orange-500/5 text-orange-600 dark:text-orange-200",
+          },
+          {
             label: "Warnings",
-            value: severitySnapshot.warning,
+            value: severityCounts.warning,
             icon: Shield,
             accent: "from-amber-500/20 to-amber-500/5 text-amber-600 dark:text-amber-200",
           },
           {
             label: "Informational",
-            value: severitySnapshot.info,
+            value: severityCounts.info,
             icon: Clock,
             accent: "from-blue-500/20 to-blue-500/5 text-blue-600 dark:text-blue-200",
           },
@@ -437,7 +517,7 @@ export function AlertLogsViewer() {
                       <TableHead>Type</TableHead>
                       <TableHead>Severity</TableHead>
                       <TableHead>Message</TableHead>
-                      <TableHead>Source</TableHead>
+                      <TableHead>Event</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -454,7 +534,7 @@ export function AlertLogsViewer() {
                           <Badge className={getSeverityColor(log.severity)}>{log.severity}</Badge>
                         </TableCell>
                         <TableCell className="max-w-md truncate">{log.message}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{log.source}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{log.event || log.source || "-"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

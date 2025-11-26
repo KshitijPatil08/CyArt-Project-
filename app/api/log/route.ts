@@ -2,6 +2,8 @@
 // FIXED: Auto-registers device if missing before creating logs
 // FIXED: Only creates alerts for unauthorized USB devices
 // FIXED: Implemented log and alert deduplication
+// FIXED: Always updates log severity to critical for unauthorized USB
+// FIXED: Applies dynamic severity rules
 
 import { createClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
@@ -196,32 +198,7 @@ export async function POST(request: NextRequest) {
               .from("alerts")
               .select("id")
               .eq("device_id", device_id)
-              .eq("alert_type", "unauthorized_usb")
-              .eq("is_resolved", false)
-              .ilike("description", `%${serialNumber}%`)
-              .maybeSingle();
-
-            if (!existingAlert) {
-              // Create critical alert only if no unresolved alert exists
-              const usbName = raw_data.usb_name || "Unknown USB Device";
-              await supabase.from("alerts").insert([{
-                device_id,
-                alert_type: "unauthorized_usb",
-                severity: "critical",
-                title: "Unauthorized USB Device Detected",
-                description: `Unauthorized USB device "${usbName}" (Serial: ${serialNumber}) was connected to ${hostname || "device"}`,
-                is_read: false,
-                is_resolved: false,
-              }]);
-
-              // Update log severity to critical
-              await supabase
-                .from("logs")
-                .update({ severity: "critical" })
-                .eq("id", logData.id);
-            } else {
-              console.log(`[LOG] Skipping duplicate unauthorized USB alert for ${serialNumber}`);
-            }
+              .eq("id", logData.id);
 
           } else {
             // Authorized USB - NO ALERT, just normal log
@@ -256,6 +233,50 @@ export async function POST(request: NextRequest) {
 
     // 3. Security alerts
     await checkAndCreateAlerts(supabase, device_id, log_type, message, severity);
+
+    // 3.5 Apply Dynamic Severity Rules
+    try {
+      const { data: rules } = await supabase
+        .from('severity_rules')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (rules && rules.length > 0) {
+        for (const rule of rules) {
+          try {
+            const regex = new RegExp(rule.pattern, 'i');
+            if (regex.test(message)) {
+              console.log(`[LOG] Applying severity rule: "${rule.name}" -> ${rule.severity_level}`);
+
+              // Update log severity
+              await supabase
+                .from('logs')
+                .update({ severity: rule.severity_level.toLowerCase() })
+                .eq('id', logData.id);
+
+              // If critical, create an alert
+              if (rule.severity_level.toLowerCase() === 'critical') {
+                await supabase.from("alerts").insert([{
+                  device_id,
+                  alert_type: "security_rule",
+                  severity: "critical",
+                  title: `Critical Security Rule: ${rule.name}`,
+                  description: `Log matched critical rule "${rule.name}": ${message}`,
+                  is_read: false,
+                  is_resolved: false,
+                }]);
+              }
+              break; // Stop after first match
+            }
+          } catch (e) {
+            console.error(`[LOG] Invalid regex in rule "${rule.name}":`, e);
+          }
+        }
+      }
+    } catch (ruleError) {
+      console.error("[LOG] Error applying severity rules:", ruleError);
+    }
 
     // 4. Track data transfers
     if (log_type === "usb" && message.toLowerCase().includes("transfer")) {

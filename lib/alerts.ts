@@ -94,7 +94,7 @@ export async function checkAndCreateAlerts(
       .select('id, created_at')
       .eq('device_id', device_id)
       .eq('alert_type', matchedRule.type)
-      .eq('resolved', false)
+      .eq('is_resolved', false)
       .order('created_at', { ascending: false })
       .limit(1);
 
