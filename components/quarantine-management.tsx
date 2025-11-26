@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AlertCircle, Unlock, ShieldAlert, Monitor } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { ReleaseDialog } from "./release-dialog"
 
 interface QuarantinedDevice {
     device_id: string
@@ -21,6 +22,8 @@ interface QuarantinedDevice {
 export function QuarantineManagement() {
     const [devices, setDevices] = useState<QuarantinedDevice[]>([])
     const [loading, setLoading] = useState(true)
+    const [releaseDialogOpen, setReleaseDialogOpen] = useState(false)
+    const [selectedDevice, setSelectedDevice] = useState<QuarantinedDevice | null>(null)
     const { toast } = useToast()
 
     useEffect(() => {
@@ -44,31 +47,13 @@ export function QuarantineManagement() {
         }
     }
 
-    const handleRelease = async (deviceId: string, deviceName: string) => {
-        if (!confirm(`Are you sure you want to release "${deviceName}" from quarantine?`)) return
+    const handleReleaseClick = (device: QuarantinedDevice) => {
+        setSelectedDevice(device)
+        setReleaseDialogOpen(true)
+    }
 
-        try {
-            const response = await fetch("/api/devices/quarantine", {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    device_id: deviceId,
-                    released_by: "admin" // In a real app, this would come from auth context
-                }),
-            })
-
-            if (!response.ok) throw new Error("Failed to release device")
-
-            toast({
-                title: "Success",
-                description: `${deviceName} has been released from quarantine.`
-            })
-
-            fetchQuarantinedDevices()
-        } catch (error) {
-            console.error("Error releasing device:", error)
-            toast({ title: "Error", description: "Failed to release device", variant: "destructive" })
-        }
+    const handleReleaseSuccess = () => {
+        fetchQuarantinedDevices()
     }
 
     if (loading) {
@@ -148,7 +133,7 @@ export function QuarantineManagement() {
                                                     variant="outline"
                                                     size="sm"
                                                     className="gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                                    onClick={() => handleRelease(device.device_id, device.device_name)}
+                                                    onClick={() => handleReleaseClick(device)}
                                                 >
                                                     <Unlock className="w-4 h-4" />
                                                     Release
@@ -162,6 +147,13 @@ export function QuarantineManagement() {
                     )}
                 </CardContent>
             </Card>
+
+            <ReleaseDialog
+                open={releaseDialogOpen}
+                onOpenChange={setReleaseDialogOpen}
+                device={selectedDevice}
+                onSuccess={handleReleaseSuccess}
+            />
         </div>
     )
 }
