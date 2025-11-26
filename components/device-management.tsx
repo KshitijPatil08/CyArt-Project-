@@ -19,6 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { QuarantineDialog } from "./quarantine-dialog"
+import { ReleaseDialog } from "./release-dialog"
 
 interface Device {
   id: string
@@ -52,6 +54,9 @@ export function DeviceManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingDevice, setEditingDevice] = useState<Device | null>(null)
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({})
+  const [quarantineDialogOpen, setQuarantineDialogOpen] = useState(false)
+  const [releaseDialogOpen, setReleaseDialogOpen] = useState(false)
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [formData, setFormData] = useState({
     device_name: "",
     device_type: "windows",
@@ -167,58 +172,22 @@ export function DeviceManagement() {
     }
   }
 
-  const handleQuarantine = async (deviceId: string, deviceName: string) => {
-    const reason = prompt(`Enter reason for quarantining "${deviceName}":`)
-    if (!reason) return
-
-    try {
-      const response = await fetch("/api/devices/quarantine", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          device_id: deviceId,
-          reason,
-          quarantined_by: "admin@company.com", // Replace with actual user
-        }),
-      })
-
-      if (!response.ok) throw new Error("Quarantine failed")
-
-      toast({
-        title: "Device Quarantined",
-        description: `${deviceName} has been quarantined. Network access will be restricted within 10 seconds.`,
-      })
-      fetchDevices()
-    } catch (error) {
-      console.error("Error quarantining device:", error)
-      toast({ title: "Error", description: "Failed to quarantine device", variant: "destructive" })
-    }
+  const handleQuarantine = (device: Device) => {
+    setSelectedDevice(device)
+    setQuarantineDialogOpen(true)
   }
 
-  const handleReleaseQuarantine = async (deviceId: string, deviceName: string) => {
-    if (!confirm(`Release "${deviceName}" from quarantine?`)) return
+  const handleReleaseQuarantine = (device: Device) => {
+    setSelectedDevice(device)
+    setReleaseDialogOpen(true)
+  }
 
-    try {
-      const response = await fetch("/api/devices/quarantine", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          device_id: deviceId,
-          released_by: "admin@company.com", // Replace with actual user
-        }),
-      })
+  const handleQuarantineSuccess = () => {
+    fetchDevices()
+  }
 
-      if (!response.ok) throw new Error("Release failed")
-
-      toast({
-        title: "Quarantine Released",
-        description: `${deviceName} has been released from quarantine.`,
-      })
-      fetchDevices()
-    } catch (error) {
-      console.error("Error releasing quarantine:", error)
-      toast({ title: "Error", description: "Failed to release quarantine", variant: "destructive" })
-    }
+  const handleReleaseSuccess = () => {
+    fetchDevices()
   }
 
   const copyToClipboard = (text: string, label: string) => {
@@ -453,17 +422,17 @@ export function DeviceManagement() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleReleaseQuarantine(device.id, device.device_name)}
+                              onClick={() => handleReleaseQuarantine(device)}
                               className="text-green-600 hover:text-green-700"
                               title="Release from quarantine"
                             >
                               <ShieldOff className="w-4 h-4" />
                             </Button>
                           ) : (
-                          <Button
+                            <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleQuarantine(device.id, device.device_name)}
+                              onClick={() => handleQuarantine(device)}
                               className="text-orange-600 hover:text-orange-700"
                               title="Quarantine device"
                             >
@@ -488,6 +457,30 @@ export function DeviceManagement() {
           )}
         </CardContent>
       </Card>
+
+      <QuarantineDialog
+        open={quarantineDialogOpen}
+        onOpenChange={setQuarantineDialogOpen}
+        device={selectedDevice ? {
+          device_id: selectedDevice.id,
+          device_name: selectedDevice.device_name,
+          ip_address: selectedDevice.ip_address
+        } : null}
+        onSuccess={handleQuarantineSuccess}
+      />
+
+      <ReleaseDialog
+        open={releaseDialogOpen}
+        onOpenChange={setReleaseDialogOpen}
+        device={selectedDevice ? {
+          device_id: selectedDevice.id,
+          device_name: selectedDevice.device_name,
+          ip_address: selectedDevice.ip_address,
+          quarantine_reason: selectedDevice.quarantine_reason || undefined,
+          quarantined_at: selectedDevice.quarantined_at || undefined
+        } : null}
+        onSuccess={handleReleaseSuccess}
+      />
     </div>
   )
 }
