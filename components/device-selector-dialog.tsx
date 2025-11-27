@@ -10,6 +10,7 @@ import { Monitor, Search, AlertCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 
 interface Device {
+    id?: string
     device_id: string
     device_name: string
     ip_address: string
@@ -44,8 +45,13 @@ export function DeviceSelectorDialog({ open, onOpenChange, onDeviceSelect }: Dev
             const res = await fetch("/api/devices/list")
             const data = await res.json()
 
-            // Filter to show only non-quarantined devices
-            const availableDevices = (data.devices || []).filter((d: Device) => !d.is_quarantined)
+            // Filter to show only non-quarantined devices and normalize IDs
+            const availableDevices = (data.devices || [])
+                .map((d: any) => ({
+                    ...d,
+                    device_id: d.device_id || d.id // Ensure device_id is present
+                }))
+                .filter((d: Device) => !d.is_quarantined)
             setDevices(availableDevices)
         } catch (error) {
             console.error("Error fetching devices:", error)

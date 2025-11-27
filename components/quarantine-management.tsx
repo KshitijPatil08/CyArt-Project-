@@ -12,6 +12,7 @@ import { QuarantineDialog } from "./quarantine-dialog"
 import { DeviceSelectorDialog } from "./device-selector-dialog"
 
 interface Device {
+    id?: string
     device_id: string
     device_name: string
     ip_address: string
@@ -40,8 +41,13 @@ export function QuarantineManagement() {
             const res = await fetch("/api/devices/list")
             const data = await res.json()
 
-            // Show only quarantined devices
-            const quarantinedDevices = (data.devices || []).filter((d: Device) => d.is_quarantined)
+            // Show only quarantined devices and normalize IDs
+            const quarantinedDevices = (data.devices || [])
+                .map((d: any) => ({
+                    ...d,
+                    device_id: d.device_id || d.id // Ensure device_id is present
+                }))
+                .filter((d: Device) => d.is_quarantined)
             setDevices(quarantinedDevices)
             setLoading(false)
         } catch (error) {
