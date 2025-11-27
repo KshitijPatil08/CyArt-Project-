@@ -5,10 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Unlock, ShieldAlert, Monitor, Shield } from "lucide-react"
+import { AlertCircle, Unlock, ShieldAlert, Monitor } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { ReleaseDialog } from "./release-dialog"
-import { QuarantineDialog } from "./quarantine-dialog"
 
 interface Device {
     device_id: string
@@ -25,7 +24,6 @@ export function QuarantineManagement() {
     const [devices, setDevices] = useState<Device[]>([])
     const [loading, setLoading] = useState(true)
     const [releaseDialogOpen, setReleaseDialogOpen] = useState(false)
-    const [quarantineDialogOpen, setQuarantineDialogOpen] = useState(false)
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
     const { toast } = useToast()
 
@@ -38,8 +36,9 @@ export function QuarantineManagement() {
             const res = await fetch("/api/devices/list")
             const data = await res.json()
 
-            // Show all devices, not just quarantined ones
-            setDevices(data.devices || [])
+            // Show only quarantined devices
+            const quarantinedDevices = (data.devices || []).filter((d: Device) => d.is_quarantined)
+            setDevices(quarantinedDevices)
             setLoading(false)
         } catch (error) {
             console.error("Error fetching devices:", error)
@@ -48,15 +47,11 @@ export function QuarantineManagement() {
         }
     }
 
-    const handleQuarantineClick = (device: Device) => {
-        setSelectedDevice(device)
-        setQuarantineDialogOpen(true)
-    }
-
     const handleReleaseClick = (device: Device) => {
         setSelectedDevice(device)
         setReleaseDialogOpen(true)
     }
+
 
     const handleReleaseSuccess = () => {
         fetchQuarantinedDevices()
@@ -76,7 +71,7 @@ export function QuarantineManagement() {
                 <div>
                     <h2 className="text-lg font-semibold text-foreground">Quarantine Management</h2>
                     <p className="text-sm text-muted-foreground">
-                        Manage devices that have been restricted from network access
+                        View and release devices that have been quarantined from network access
                     </p>
                 </div>
             </div>
@@ -88,7 +83,7 @@ export function QuarantineManagement() {
                         Device Quarantine Management
                     </CardTitle>
                     <CardDescription>
-                        Total devices: {devices.length} | Quarantined: {devices.filter(d => d.is_quarantined).length}
+                        Quarantined devices: {devices.length}
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -97,8 +92,8 @@ export function QuarantineManagement() {
                             <div className="bg-muted w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <Monitor className="w-8 h-8 text-muted-foreground" />
                             </div>
-                            <h3 className="text-lg font-medium text-foreground">No Devices Found</h3>
-                            <p className="text-muted-foreground mt-1">No devices registered yet.</p>
+                            <h3 className="text-lg font-medium text-foreground">No Quarantined Devices</h3>
+                            <p className="text-muted-foreground mt-1">No devices are currently quarantined.</p>
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
@@ -143,27 +138,15 @@ export function QuarantineManagement() {
                                                 {device.quarantined_at ? new Date(device.quarantined_at).toLocaleString() : "-"}
                                             </TableCell>
                                             <TableCell>
-                                                {device.is_quarantined ? (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                                        onClick={() => handleReleaseClick(device)}
-                                                    >
-                                                        <Unlock className="w-4 h-4" />
-                                                        Release
-                                                    </Button>
-                                                ) : (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="gap-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                                                        onClick={() => handleQuarantineClick(device)}
-                                                    >
-                                                        <Shield className="w-4 h-4" />
-                                                        Quarantine
-                                                    </Button>
-                                                )}
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                    onClick={() => handleReleaseClick(device)}
+                                                >
+                                                    <Unlock className="w-4 h-4" />
+                                                    Release
+                                                </Button>
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -174,16 +157,7 @@ export function QuarantineManagement() {
                 </CardContent>
             </Card>
 
-            <QuarantineDialog
-                open={quarantineDialogOpen}
-                onOpenChange={setQuarantineDialogOpen}
-                device={selectedDevice ? {
-                    device_id: selectedDevice.device_id,
-                    device_name: selectedDevice.device_name,
-                    ip_address: selectedDevice.ip_address
-                } : null}
-                onSuccess={handleReleaseSuccess}
-            />
+
 
             <ReleaseDialog
                 open={releaseDialogOpen}
