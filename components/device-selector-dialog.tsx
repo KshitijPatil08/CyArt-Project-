@@ -90,7 +90,7 @@ export function DeviceSelectorDialog({ open, onOpenChange, onDeviceSelect }: Dev
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[700px] max-h-[80vh]">
+            <DialogContent className="sm:max-w-[900px] max-h-[80vh]">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Monitor className="w-5 h-5" />
@@ -101,7 +101,7 @@ export function DeviceSelectorDialog({ open, onOpenChange, onDeviceSelect }: Dev
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4">
+                <div className="space-y-4 px-1">
                     {/* Search Bar */}
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -127,7 +127,7 @@ export function DeviceSelectorDialog({ open, onOpenChange, onDeviceSelect }: Dev
                                 </p>
                             </div>
                         ) : (
-                            <div className="max-h-[400px] overflow-y-auto">
+                            <div className="max-h-[400px] overflow-y-auto overflow-x-hidden">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
