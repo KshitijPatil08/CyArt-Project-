@@ -5,9 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Unlock, ShieldAlert, Monitor } from "lucide-react"
+import { AlertCircle, Unlock, ShieldAlert, Monitor, Plus } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { ReleaseDialog } from "./release-dialog"
+import { QuarantineDialog } from "./quarantine-dialog"
+import { DeviceSelectorDialog } from "./device-selector-dialog"
 
 interface Device {
     device_id: string
@@ -24,6 +26,8 @@ export function QuarantineManagement() {
     const [devices, setDevices] = useState<Device[]>([])
     const [loading, setLoading] = useState(true)
     const [releaseDialogOpen, setReleaseDialogOpen] = useState(false)
+    const [deviceSelectorOpen, setDeviceSelectorOpen] = useState(false)
+    const [quarantineDialogOpen, setQuarantineDialogOpen] = useState(false)
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
     const { toast } = useToast()
 
@@ -57,6 +61,15 @@ export function QuarantineManagement() {
         fetchQuarantinedDevices()
     }
 
+    const handleDeviceSelect = (device: { device_id: string; device_name: string; ip_address: string }) => {
+        setSelectedDevice(device as Device)
+        setQuarantineDialogOpen(true)
+    }
+
+    const handleQuarantineSuccess = () => {
+        fetchQuarantinedDevices()
+    }
+
     if (loading) {
         return (
             <div className="flex items-center justify-center p-12">
@@ -74,6 +87,13 @@ export function QuarantineManagement() {
                         View and release devices that have been quarantined from network access
                     </p>
                 </div>
+                <Button
+                    onClick={() => setDeviceSelectorOpen(true)}
+                    className="gap-2"
+                >
+                    <Plus className="w-4 h-4" />
+                    Add Quarantine Device
+                </Button>
             </div>
 
             <Card>
@@ -157,7 +177,22 @@ export function QuarantineManagement() {
                 </CardContent>
             </Card>
 
+            <DeviceSelectorDialog
+                open={deviceSelectorOpen}
+                onOpenChange={setDeviceSelectorOpen}
+                onDeviceSelect={handleDeviceSelect}
+            />
 
+            <QuarantineDialog
+                open={quarantineDialogOpen}
+                onOpenChange={setQuarantineDialogOpen}
+                device={selectedDevice ? {
+                    device_id: selectedDevice.device_id,
+                    device_name: selectedDevice.device_name,
+                    ip_address: selectedDevice.ip_address
+                } : null}
+                onSuccess={handleQuarantineSuccess}
+            />
 
             <ReleaseDialog
                 open={releaseDialogOpen}
