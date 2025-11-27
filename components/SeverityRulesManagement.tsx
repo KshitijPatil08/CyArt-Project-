@@ -107,20 +107,13 @@ export function SeverityRulesManagement() {
     }
 
     return (
-        <div className="space-y-6 p-6">
-            <Card className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-background border-primary/10">
-                <CardHeader>
-                    <div className="flex items-center gap-2">
-                        <ShieldAlert className="w-8 h-8 text-primary" />
-                        <div>
-                            <CardTitle>Severity Rules Engine</CardTitle>
-                            <CardDescription>
-                                Define keywords that automatically trigger specific severity levels for incoming logs.
-                            </CardDescription>
-                        </div>
-                    </div>
-                </CardHeader>
-            </Card>
+        <div className="space-y-6">
+            <div>
+                <h2 className="text-lg font-semibold text-foreground">Severity Rules Engine</h2>
+                <p className="text-sm text-muted-foreground">
+                    Define keywords that automatically trigger specific severity levels for incoming logs.
+                </p>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Add Rule Form */}

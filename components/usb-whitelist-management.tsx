@@ -126,11 +126,11 @@ export function USBWhitelistManagement() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">USB Whitelist Management</h1>
-          <p className="text-muted-foreground mt-1">Manage authorized USB devices</p>
+          <h2 className="text-lg font-semibold text-foreground">USB Whitelist Management</h2>
+          <p className="text-sm text-muted-foreground">Manage authorized USB devices</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
