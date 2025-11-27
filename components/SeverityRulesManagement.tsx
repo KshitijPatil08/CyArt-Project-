@@ -107,7 +107,7 @@ export function SeverityRulesManagement() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 p-6">
             <div>
                 <h2 className="text-lg font-semibold text-foreground">Severity Rules Engine</h2>
                 <p className="text-sm text-muted-foreground">
