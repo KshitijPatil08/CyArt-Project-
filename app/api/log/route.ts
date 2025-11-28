@@ -4,6 +4,7 @@
 // FIXED: Implemented log and alert deduplication
 // FIXED: Always updates log severity to critical for unauthorized USB
 // FIXED: Applies dynamic severity rules
+// FIXED: USB whitelist check BEFORE log creation to set proper severity
 
 import { createClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
 
     const {
       device_id,
-      log_type,
+      log_type: raw_log_type,
       source,
       severity,
       message,
@@ -29,6 +30,9 @@ export async function POST(request: NextRequest) {
       device_name,
       hostname,
     } = body;
+
+    // Normalize log_type to lowercase to match frontend filters
+    const log_type = raw_log_type?.toLowerCase();
 
     if (!device_id || !log_type || !message || !timestamp) {
       return NextResponse.json(
@@ -138,14 +142,47 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Now safe to insert log
+    // CRITICAL: Check USB whitelist BEFORE creating log to set proper severity
+    let finalSeverity = severity || "info";
+    let isAuthorizedUSB = false;
+
+    if (log_type === "hardware" && hardware_type?.toLowerCase() === "usb" && event === "connected" && raw_data) {
+      const serialNumber = raw_data.serial_number;
+
+      if (serialNumber && serialNumber !== "UNKNOWN") {
+        // Check if USB is authorized
+        const { data: authorizedUSB } = await supabase
+          .from("authorized_usb_devices")
+          .select("*")
+          .eq("serial_number", serialNumber)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (authorizedUSB) {
+          // Whitelisted USB - set to info
+          finalSeverity = "info";
+          isAuthorizedUSB = true;
+          console.log(`[LOG] Authorized USB connected: ${serialNumber}`);
+        } else {
+          // Non-whitelisted USB - set to critical
+          finalSeverity = "critical";
+          console.log(`[LOG] Unauthorized USB detected: ${serialNumber}`);
+        }
+      } else {
+        // USB without serial number - set to critical
+        finalSeverity = "critical";
+        console.log(`[LOG] USB connected without serial number`);
+      }
+    }
+
+    // Now safe to insert log with correct severity
     const { data: logData, error: logError } = await supabase
       .from("logs")
       .insert([{
         device_id,
         log_type,
         source: source || "windows-agent",
-        severity: severity || "info",
+        severity: finalSeverity,
         message,
         event_code,
         timestamp: (timestamp && !isNaN(Date.parse(timestamp))) ? new Date(timestamp).toISOString() : new Date().toISOString(),
@@ -166,7 +203,7 @@ export async function POST(request: NextRequest) {
 
     console.log("[LOG] Log created successfully:", logData.id);
 
-    // 2. Create device event and check USB whitelist (only if hardware event)
+    // 2. Create device event and alerts for USB devices (only if hardware event)
     if (log_type === "hardware" && hardware_type) {
       await supabase.from("device_events").insert([{
         device_id,
@@ -177,55 +214,55 @@ export async function POST(request: NextRequest) {
         timestamp: new Date(timestamp).toISOString(),
       }]);
 
-      // Check USB whitelist if it's a USB device
+      // Create alerts for unauthorized USB devices
       if (hardware_type.toLowerCase() === "usb" && event === "connected" && raw_data) {
         const serialNumber = raw_data.serial_number;
 
-        if (serialNumber && serialNumber !== "UNKNOWN") {
-          // Check if USB is authorized
-          const { data: authorizedUSB } = await supabase
-            .from("authorized_usb_devices")
-            .select("*")
-            .eq("serial_number", serialNumber)
-            .eq("is_active", true)
-            .maybeSingle();
-
-          if (!authorizedUSB) {
-            // Unauthorized USB detected
-
-            // Check for existing unresolved alert for this specific USB
+        if (!isAuthorizedUSB) {
+          if (serialNumber && serialNumber !== "UNKNOWN") {
+            // Unauthorized USB with serial - create critical alert
             const { data: existingAlert } = await supabase
               .from("alerts")
               .select("id")
               .eq("device_id", device_id)
-              .eq("id", logData.id);
+              .eq("alert_type", "hardware_event")
+              .eq("is_resolved", false)
+              .ilike("title", `%${serialNumber}%`)
+              .maybeSingle();
 
+            if (!existingAlert) {
+              await supabase.from("alerts").insert([{
+                device_id,
+                alert_type: "hardware_event",
+                severity: "critical",
+                title: "Unauthorized USB Device Detected",
+                description: `Unauthorized USB device "${raw_data.usb_name || 'Unknown'}" (Serial: ${serialNumber}) connected to ${hostname || "device"}`,
+                is_read: false,
+                is_resolved: false,
+              }]);
+            }
           } else {
-            // Authorized USB - NO ALERT, just normal log
-            console.log(`[LOG] Authorized USB connected: ${serialNumber}`);
-          }
-        } else {
-          // USB without serial number - moderate alert
-          // Check for existing unresolved alert for unknown USB
-          const { data: existingUnknownAlert } = await supabase
-            .from("alerts")
-            .select("id")
-            .eq("device_id", device_id)
-            .eq("alert_type", "hardware_event")
-            .eq("is_resolved", false)
-            .ilike("title", "%No Serial%")
-            .maybeSingle();
+            // USB without serial number - create critical alert
+            const { data: existingUnknownAlert } = await supabase
+              .from("alerts")
+              .select("id")
+              .eq("device_id", device_id)
+              .eq("alert_type", "hardware_event")
+              .eq("is_resolved", false)
+              .ilike("title", "%No Serial%")
+              .maybeSingle();
 
-          if (!existingUnknownAlert) {
-            await supabase.from("alerts").insert([{
-              device_id,
-              alert_type: "hardware_event",
-              severity: "moderate",
-              title: "USB Device Connected (No Serial)",
-              description: `USB device "${raw_data.usb_name || 'Unknown'}" connected to ${hostname || "device"} but serial number could not be determined`,
-              is_read: false,
-              is_resolved: false,
-            }]);
+            if (!existingUnknownAlert) {
+              await supabase.from("alerts").insert([{
+                device_id,
+                alert_type: "hardware_event",
+                severity: "critical",
+                title: "USB Device Connected (No Serial)",
+                description: `USB device "${raw_data.usb_name || 'Unknown'}" connected to ${hostname || "device"} but serial number could not be determined`,
+                is_read: false,
+                is_resolved: false,
+              }]);
+            }
           }
         }
       }

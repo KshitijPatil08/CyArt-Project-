@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Download, Filter, Trash2, Clock, Activity, Shield, AlertTriangle } from "lucide-react"
+import { AlertCircle, Download, Filter, Trash2, Clock, Activity, Shield, AlertTriangle, Siren, XCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Dialog,
@@ -41,10 +41,10 @@ interface Device {
 
 interface SeverityCounts {
   critical: number
+  high: number
   error: number
   warning: number
   info: number
-  debug: number
 }
 
 export function AlertLogsViewer() {
@@ -71,10 +71,10 @@ export function AlertLogsViewer() {
 
   const [severityCounts, setSeverityCounts] = useState<SeverityCounts>({
     critical: 0,
+    high: 0,
     error: 0,
     warning: 0,
     info: 0,
-    debug: 0,
   })
 
   useEffect(() => {
@@ -124,7 +124,7 @@ export function AlertLogsViewer() {
       // If a specific severity is selected, we know the counts for others are 0
       // and the count for the selected one is the total.
       if (filters.severity !== "all") {
-        const counts = { critical: 0, error: 0, warning: 0, info: 0, debug: 0 }
+        const counts = { critical: 0, high: 0, error: 0, warning: 0, info: 0 }
         // We can't easily get the total here without the main query result, 
         // but we can just let the main fetchLogs update the total and we set the specific one here?
         // Actually, let's just query the count for the selected severity to be safe and consistent.
@@ -137,7 +137,7 @@ export function AlertLogsViewer() {
       }
 
       // Otherwise, fetch counts for all severities in parallel
-      const severities = ["critical", "error", "warning", "info", "debug"]
+      const severities = ["critical", "high", "error", "warning", "info"]
       const promises = severities.map(async (severity) => {
         const query = getBaseQuery().eq("severity", severity)
         const { count } = await query
@@ -149,7 +149,7 @@ export function AlertLogsViewer() {
       const newCounts = results.reduce((acc, curr) => {
         acc[curr.severity as keyof SeverityCounts] = curr.count
         return acc
-      }, { critical: 0, error: 0, warning: 0, info: 0, debug: 0 } as SeverityCounts)
+      }, { critical: 0, high: 0, error: 0, warning: 0, info: 0 } as SeverityCounts)
 
       setSeverityCounts(newCounts)
 
@@ -300,14 +300,14 @@ export function AlertLogsViewer() {
     switch (severity) {
       case "critical":
         return "bg-red-500/20 text-red-300"
+      case "high":
+        return "bg-orange-600/20 text-orange-300"
       case "error":
         return "bg-orange-500/20 text-orange-200"
       case "warning":
         return "bg-yellow-500/20 text-yellow-200"
       case "info":
         return "bg-blue-500/20 text-blue-200"
-      case "debug":
-        return "bg-gray-500/20 text-gray-200"
       default:
         return "bg-muted text-foreground"
     }
@@ -350,7 +350,7 @@ export function AlertLogsViewer() {
         </CardHeader>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="flex flex-wrap gap-4">
         {[
           {
             label: "Total Logs",
@@ -359,15 +359,21 @@ export function AlertLogsViewer() {
             accent: "from-primary/15 to-primary/5 text-primary",
           },
           {
-            label: "Critical Alerts",
+            label: "Critical Logs",
             value: severityCounts.critical,
             icon: AlertCircle,
             accent: "from-red-500/20 to-red-500/5 text-red-600 dark:text-red-300",
           },
           {
+            label: "High Severity",
+            value: severityCounts.high,
+            icon: Siren,
+            accent: "from-orange-600/20 to-orange-600/5 text-orange-700 dark:text-orange-300",
+          },
+          {
             label: "Errors",
             value: severityCounts.error,
-            icon: AlertTriangle,
+            icon: XCircle,
             accent: "from-orange-500/20 to-orange-500/5 text-orange-600 dark:text-orange-200",
           },
           {
@@ -382,17 +388,19 @@ export function AlertLogsViewer() {
             icon: Clock,
             accent: "from-blue-500/20 to-blue-500/5 text-blue-600 dark:text-blue-200",
           },
-        ].map((card) => (
-          <Card key={card.label} className={`bg-gradient-to-br ${card.accent} border-border/40`}>
-            <CardContent className="py-6 flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{card.label}</p>
-                <p className="text-2xl font-bold">{card.value}</p>
-              </div>
-              <card.icon className="w-8 h-8 opacity-70" />
-            </CardContent>
-          </Card>
-        ))}
+        ]
+          .filter((card) => card.label === "Total Logs" || (typeof card.value === "number" && card.value > 0))
+          .map((card) => (
+            <Card key={card.label} className={`bg-gradient-to-br ${card.accent} border-border/40 flex-1 min-w-[200px]`}>
+              <CardContent className="py-6 flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">{card.label}</p>
+                  <p className="text-2xl font-bold">{card.value}</p>
+                </div>
+                <card.icon className="w-8 h-8 opacity-70" />
+              </CardContent>
+            </Card>
+          ))}
       </div>
 
       {/* Filters */}
@@ -460,10 +468,10 @@ export function AlertLogsViewer() {
                 <SelectContent>
                   <SelectItem value="all">All levels</SelectItem>
                   <SelectItem value="critical">Critical</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
                   <SelectItem value="error">Error</SelectItem>
                   <SelectItem value="warning">Warning</SelectItem>
                   <SelectItem value="info">Info</SelectItem>
-                  <SelectItem value="debug">Debug</SelectItem>
                 </SelectContent>
               </Select>
             </div>

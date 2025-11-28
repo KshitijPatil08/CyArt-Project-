@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { ShieldAlert, Check } from "lucide-react";
+import { ShieldAlert, Check, Loader2 } from "lucide-react";
 
 interface Alert {
   id: string;
@@ -20,6 +20,7 @@ interface Alert {
 
 export default function RealTimeAlerts() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const supabase = createClient();
   const { toast } = useToast();
 
@@ -49,7 +50,7 @@ export default function RealTimeAlerts() {
 
           // Show toast
           toast({
-            title: "CRITICAL ALERT",
+            title: "🚨 CRITICAL ALERT",
             description: newAlert.title,
             variant: "destructive",
             duration: 5000,
@@ -64,6 +65,7 @@ export default function RealTimeAlerts() {
   }, []);
 
   const handleResolve = async (id: string) => {
+    setResolvingId(id);
     try {
       const { error } = await supabase
         .from('alerts')
@@ -74,7 +76,7 @@ export default function RealTimeAlerts() {
 
       setAlerts(prev => prev.filter(a => a.id !== id));
       toast({
-        title: "Alert Resolved",
+        title: "✓ Alert Resolved",
         description: "The alert has been marked as resolved.",
       });
     } catch (error) {
@@ -84,6 +86,8 @@ export default function RealTimeAlerts() {
         description: "Failed to resolve alert.",
         variant: "destructive",
       });
+    } finally {
+      setResolvingId(null);
     }
   };
 
@@ -116,31 +120,41 @@ export default function RealTimeAlerts() {
           alerts.map((alert) => (
             <div
               key={alert.id}
-              className="flex flex-col gap-1 border-b border-red-100 dark:border-red-900/30 py-3 last:border-0"
+              className="flex flex-col gap-2 border-b border-red-100 dark:border-red-900/30 py-3 last:border-0"
             >
-              <div className="flex justify-between items-start">
-                <p className="font-semibold text-red-700 dark:text-red-400 text-sm">
+              <div className="flex justify-between items-start gap-2">
+                <p className="font-semibold text-red-700 dark:text-red-400 text-sm flex-1">
                   {alert.title}
                 </p>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <Badge className={`${severityColor(alert.severity)} text-white border-0`}>
                     {alert.severity.toUpperCase()}
                   </Badge>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-red-700 hover:text-red-900 hover:bg-red-100 dark:hover:bg-red-900/20"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-3 text-xs font-medium bg-green-50 hover:bg-green-100 text-green-700 hover:text-green-800 border-green-200 hover:border-green-300 dark:bg-green-950/30 dark:hover:bg-green-950/50 dark:text-green-400 dark:border-green-800"
                     onClick={() => handleResolve(alert.id)}
-                    title="Mark as Resolved"
+                    disabled={resolvingId === alert.id}
                   >
-                    <Check className="h-4 w-4" />
+                    {resolvingId === alert.id ? (
+                      <>
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        Resolving...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-3 w-3 mr-1" />
+                        Resolve
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground line-clamp-2">
                 {alert.description}
               </p>
-              <p className="text-[10px] text-gray-400 mt-1">
+              <p className="text-[10px] text-gray-400">
                 {new Date(alert.created_at).toLocaleString()}
               </p>
             </div>
