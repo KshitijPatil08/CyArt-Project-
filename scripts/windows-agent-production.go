@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev/" // replaced by build script
+	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
 	POLL_INTERVAL             = 30 * time.Second
 	CHECK_QUARANTINE_INTERVAL = 10 * time.Second
 	REGISTRATION_FILE         = "device_id.txt"
@@ -452,13 +452,16 @@ func trackUSBDevices() {
 
 		// Determine severity based on device name
 		// User requested: Volume, Mass Storage, E:\, USB -> Critical
-		// Drivers (Composite, Hubs, Controllers) -> Info
+		// Drivers (Composite, Hubs, Controllers, Bluetooth, Webcams) -> Info
 		severity := "critical"
 		lowerName := strings.ToLower(name)
 		if strings.Contains(lowerName, "composite device") ||
 			strings.Contains(lowerName, "root hub") ||
 			strings.Contains(lowerName, "controller") ||
-			strings.Contains(lowerName, "dfu device") {
+			strings.Contains(lowerName, "dfu device") ||
+			strings.Contains(lowerName, "bluetooth") ||
+			strings.Contains(lowerName, "webcam") ||
+			strings.Contains(lowerName, "camera") {
 			severity = "info"
 		}
 
@@ -724,4 +727,6 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
 
