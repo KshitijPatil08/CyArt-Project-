@@ -36,6 +36,7 @@ var (
 	apiURL        string
 	agentDir      string
 	isQuarantined = false
+	connectedUSBDevices = make(map[string]string)
 )
 
 type DeviceRegistration struct {
@@ -73,6 +74,14 @@ type QuarantineStatus struct {
 	QuarantineReason string `json:"quarantine_reason"`
 	QuarantinedAt    string `json:"quarantined_at"`
 	QuarantinedBy    string `json:"quarantined_by"`
+}
+
+type AuthorizedDevice struct {
+	DeviceName   string `json:"device_name"`
+	VendorID     string `json:"vendor_id"`
+	ProductID    string `json:"product_id"`
+	SerialNumber string `json:"serial_number"`
+	IsActive     bool   `json:"is_active"`
 }
 
 func init() {
@@ -396,6 +405,52 @@ func showQuarantineWarning(reason string) {
 	exec.Command("msg", "*", msg).Run()
 }
 
+func fetchWhitelist() ([]AuthorizedDevice, error) {
+	url := fmt.Sprintf("%s/api/usb/whitelist?active_only=true", apiURL)
+	client := http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Success bool               `json:"success"`
+		Devices []AuthorizedDevice `json:"devices"`
+	}
+	if json.Unmarshal(body, &result) != nil {
+		return nil, fmt.Errorf("failed to parse whitelist")
+	}
+	return result.Devices, nil
+}
+
+func checkWhitelist(serial, vid, pid string) bool {
+	whitelist, err := fetchWhitelist()
+	if err != nil {
+		logMessage("Error fetching whitelist: " + err.Error())
+		return false
+	}
+
+	for _, d := range whitelist {
+		match := true
+		if d.SerialNumber != "" && d.SerialNumber != serial {
+			match = false
+		}
+		if d.VendorID != "" && d.VendorID != vid {
+			match = false
+		}
+		if d.ProductID != "" && d.ProductID != pid {
+			match = false
+		}
+
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 func trackUSBDevices() {
 	if deviceID == "" || isQuarantined {
 		return
@@ -422,6 +477,8 @@ func trackUSBDevices() {
 	hostname := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
+	currentDevices := make(map[string]bool)
+
 	for _, d := range list {
 		name, _ := d["Name"].(string)
 		pnp, _ := d["PNPDeviceID"].(string)
@@ -431,6 +488,14 @@ func trackUSBDevices() {
 			parts := strings.Split(pnp, "\\")
 			serial = parts[len(parts)-1]
 		}
+
+		currentDevices[serial] = true
+
+		if _, exists := connectedUSBDevices[serial]; exists {
+			continue
+		}
+
+		connectedUSBDevices[serial] = name
 
 		vendor := ""
 		if i := strings.Index(pnp, "VID_"); i >= 0 && i+8 <= len(pnp) {
@@ -450,12 +515,13 @@ func trackUSBDevices() {
 			"pnp_device_id": pnp,
 		}
 
-		// Determine severity based on device name
-		// User requested: Volume, Mass Storage, E:\, USB -> Critical
-		// Drivers (Composite, Hubs, Controllers, Bluetooth, Webcams) -> Info
 		severity := "critical"
 		lowerName := strings.ToLower(name)
-		if strings.Contains(lowerName, "composite device") ||
+
+		if checkWhitelist(serial, vendor, product) {
+			severity = "info"
+			logMessage("Authorized USB device connected: " + name)
+		} else if strings.Contains(lowerName, "composite device") ||
 			strings.Contains(lowerName, "root hub") ||
 			strings.Contains(lowerName, "controller") ||
 			strings.Contains(lowerName, "dfu device") ||
@@ -463,11 +529,13 @@ func trackUSBDevices() {
 			strings.Contains(lowerName, "webcam") ||
 			strings.Contains(lowerName, "camera") {
 			severity = "info"
+		} else {
+			logMessage("Unauthorized USB device connected: " + name)
 		}
 
 		sendLog(LogEntry{
 			DeviceID:     deviceID,
-			DeviceName:   deviceName, // Use actual device name, not USB device name
+			DeviceName:   deviceName,
 			Hostname:     hostname,
 			LogType:      "usb",
 			HardwareType: "usb",
@@ -478,6 +546,27 @@ func trackUSBDevices() {
 			Timestamp:    ts,
 			RawData:      raw,
 		})
+	}
+
+	for serial, name := range connectedUSBDevices {
+		if _, stillConnected := currentDevices[serial]; !stillConnected {
+			delete(connectedUSBDevices, serial)
+
+			sendLog(LogEntry{
+				DeviceID:     deviceID,
+				DeviceName:   deviceName,
+				Hostname:     hostname,
+				LogType:      "usb",
+				HardwareType: "usb",
+				Event:        "disconnected",
+				Source:       "windows-agent",
+				Severity:     "info",
+				Message:      "USB disconnected: " + name,
+				Timestamp:    ts,
+				RawData:      map[string]interface{}{"serial_number": serial, "usb_name": name},
+			})
+			logMessage("USB disconnected: " + name)
+		}
 	}
 }
 
