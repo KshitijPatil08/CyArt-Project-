@@ -450,6 +450,18 @@ func trackUSBDevices() {
 			"pnp_device_id": pnp,
 		}
 
+		// Determine severity based on device name
+		// User requested: Volume, Mass Storage, E:\, USB -> Critical
+		// Drivers (Composite, Hubs, Controllers) -> Info
+		severity := "critical"
+		lowerName := strings.ToLower(name)
+		if strings.Contains(lowerName, "composite device") ||
+			strings.Contains(lowerName, "root hub") ||
+			strings.Contains(lowerName, "controller") ||
+			strings.Contains(lowerName, "dfu device") {
+			severity = "info"
+		}
+
 		sendLog(LogEntry{
 			DeviceID:     deviceID,
 			DeviceName:   deviceName, // Use actual device name, not USB device name
@@ -458,7 +470,7 @@ func trackUSBDevices() {
 			HardwareType: "usb",
 			Event:        "connected",
 			Source:       "windows-agent",
-			Severity:     "info",
+			Severity:     severity,
 			Message:      "USB connected: " + name,
 			Timestamp:    ts,
 			RawData:      raw,

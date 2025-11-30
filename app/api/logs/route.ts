@@ -52,3 +52,38 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const body = await request.json();
+    const { after, before } = body;
+
+    if (!after && !before) {
+      return NextResponse.json({ error: "Time range required" }, { status: 400 });
+    }
+
+    let query = supabase.from("logs").delete();
+
+    if (after) {
+      query = query.gte("timestamp", after);
+    }
+    if (before) {
+      query = query.lte("timestamp", before);
+    }
+
+    const { data, error } = await query.select();
+
+    if (error) throw error;
+
+    return NextResponse.json({
+      success: true,
+      deleted: data?.length || 0,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
+    );
+  }
+}
