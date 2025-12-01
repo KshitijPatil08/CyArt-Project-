@@ -62,6 +62,7 @@ export function USBWhitelistManagement() {
   const [activeTab, setActiveTab] = useState<"authorized" | "pending">("authorized")
   const [devices, setDevices] = useState<AuthorizedUSB[]>([])
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
+  const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
@@ -103,6 +104,14 @@ export function USBWhitelistManagement() {
   useEffect(() => {
     fetchDevices()
     fetchPendingRequests()
+    fetchLogs()
+
+    // Poll for status updates
+    const interval = setInterval(() => {
+      fetchLogs()
+    }, 5000)
+
+    return () => clearInterval(interval)
   }, [])
 
   const fetchDevices = async () => {
@@ -130,6 +139,32 @@ export function USBWhitelistManagement() {
     } catch (error) {
       console.error("Error fetching pending requests:", error)
     }
+  }
+
+  const fetchLogs = async () => {
+    try {
+      // Fetch recent USB logs to determine connection status
+      const res = await fetch("/api/logs?usb_only=true&limit=100")
+      const data = await res.json()
+      setLogs(data.logs || [])
+    } catch (error) {
+      console.error("Error fetching logs:", error)
+    }
+  }
+
+  const getConnectionStatus = (serialNumber: string) => {
+    // Find the most recent log for this serial number
+    const deviceLogs = logs.filter(log =>
+      (log.raw_data?.serial_number === serialNumber) ||
+      (log.message && log.message.includes(serialNumber))
+    ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+    if (deviceLogs.length === 0) return "disconnected"
+
+    const lastLog = deviceLogs[0]
+    // Check if the last event was a connection and it happened recently (e.g., last 24 hours to be safe, or just trust the last state)
+    // We trust the last state: if last was 'connected', it's connected. If 'disconnected', it's disconnected.
+    return lastLog.event === 'connected' ? 'connected' : 'disconnected'
   }
 
   const handleAddDevice = async () => {
@@ -459,9 +494,20 @@ export function USBWhitelistManagement() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge className={device.is_active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
-                              {device.is_active ? "Active" : "Inactive"}
-                            </Badge>
+                            <div className="flex flex-col gap-1">
+                              {/* Connection Status */}
+                              <Badge variant={getConnectionStatus(device.serial_number) === 'connected' ? "default" : "secondary"}
+                                className={getConnectionStatus(device.serial_number) === 'connected' ? "bg-green-500 hover:bg-green-600" : ""}
+                              >
+                                {getConnectionStatus(device.serial_number) === 'connected' ? "Connected" : "Disconnected"}
+                              </Badge>
+
+                              {/* Authorization Status */}
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <span className={`w-2 h-2 rounded-full ${device.is_active ? "bg-green-500" : "bg-red-500"}`}></span>
+                                {device.is_active ? "Authorized" : "Disabled"}
+                              </div>
+                            </div>
                           </TableCell>
                           <TableCell className="text-sm">
                             {new Date(device.created_at).toLocaleDateString()}
