@@ -142,11 +142,52 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // CRITICAL: Check USB whitelist BEFORE creating log to set proper severity
+    // 1. SEVERITY DETERMINATION LOGIC
     let finalSeverity = severity || "info";
     let isAuthorizedUSB = false;
+    let matchedRuleName = null;
+    let ruleApplied = false;
 
-    if (log_type === "hardware" && hardware_type?.toLowerCase() === "usb" && event === "connected" && raw_data) {
+    // STEP 1: Check Dynamic Severity Rules FIRST (Highest Priority)
+    try {
+      const { data: rules } = await supabase
+        .from('severity_rules')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      console.log(`[LOG] Checking ${rules?.length || 0} severity rules against message: "${message}"`);
+
+      if (rules && rules.length > 0) {
+        for (const rule of rules) {
+          try {
+            // Use 'keyword' from DB schema (not 'pattern')
+            const regex = new RegExp(rule.keyword, 'i');
+            const isMatch = regex.test(message);
+            console.log(`[LOG] Rule (Keyword: ${rule.keyword}) Match Result: ${isMatch}`);
+
+            if (isMatch) {
+              // Use 'target_severity' from DB schema (not 'severity_level')
+              console.log(`[LOG] Severity Rule Matched! Applying: "${rule.keyword}" -> ${rule.target_severity}`);
+
+              // Apply rule severity immediately
+              finalSeverity = rule.target_severity.toLowerCase();
+              matchedRuleName = rule.keyword;
+              ruleApplied = true;
+
+              break; // Stop after first match
+            }
+          } catch (e) {
+            console.error(`[LOG] Invalid regex in rule "${rule.keyword}":`, e);
+          }
+        }
+      }
+    } catch (ruleError) {
+      console.error("[LOG] Error applying severity rules:", ruleError);
+    }
+
+    // STEP 2: Check USB Whitelist (Only if NO rule was applied)
+    if (!ruleApplied && log_type === "hardware" && hardware_type?.toLowerCase() === "usb" && event === "connected" && raw_data) {
       const serialNumber = raw_data.serial_number;
 
       if (serialNumber && serialNumber !== "UNKNOWN") {
@@ -162,11 +203,11 @@ export async function POST(request: NextRequest) {
           // Whitelisted USB - set to info
           finalSeverity = "info";
           isAuthorizedUSB = true;
-          console.log(`[LOG] Authorized USB connected: ${serialNumber}`);
+          console.log(`[LOG] Authorized USB connected (Whitelist): ${serialNumber}`);
         } else {
           // Non-whitelisted USB - set to critical
           finalSeverity = "critical";
-          console.log(`[LOG] Unauthorized USB detected: ${serialNumber}`);
+          console.log(`[LOG] Unauthorized USB detected (Whitelist): ${serialNumber}`);
         }
       } else {
         // USB without serial number - set to critical
@@ -202,6 +243,19 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[LOG] Log created successfully:", logData.id);
+
+    // Create alert for matched rule if critical
+    if (matchedRuleName && finalSeverity === 'critical') {
+      await supabase.from("alerts").insert([{
+        device_id,
+        alert_type: "security_rule",
+        severity: "critical",
+        title: `Critical Security Rule: ${matchedRuleName}`,
+        description: `Log matched critical rule "${matchedRuleName}": ${message}`,
+        is_read: false,
+        is_resolved: false,
+      }]);
+    }
 
     // 2. Create device event and alerts for USB devices (only if hardware event)
     if (log_type === "hardware" && hardware_type) {
@@ -258,7 +312,7 @@ export async function POST(request: NextRequest) {
                 alert_type: "hardware_event",
                 severity: "critical",
                 title: "USB Device Connected (No Serial)",
-                description: `USB device "${raw_data.usb_name || 'Unknown'}" connected to ${hostname || "device"} but serial number could not be determined`,
+                description: `USB device "${raw_data.usb_name || 'Unknown'}\" connected to ${hostname || "device"} but serial number could not be determined`,
                 is_read: false,
                 is_resolved: false,
               }]);
@@ -270,50 +324,6 @@ export async function POST(request: NextRequest) {
 
     // 3. Security alerts
     await checkAndCreateAlerts(supabase, device_id, log_type, message, severity);
-
-    // 3.5 Apply Dynamic Severity Rules
-    try {
-      const { data: rules } = await supabase
-        .from('severity_rules')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-
-      if (rules && rules.length > 0) {
-        for (const rule of rules) {
-          try {
-            const regex = new RegExp(rule.pattern, 'i');
-            if (regex.test(message)) {
-              console.log(`[LOG] Applying severity rule: "${rule.name}" -> ${rule.severity_level}`);
-
-              // Update log severity
-              await supabase
-                .from('logs')
-                .update({ severity: rule.severity_level.toLowerCase() })
-                .eq('id', logData.id);
-
-              // If critical, create an alert
-              if (rule.severity_level.toLowerCase() === 'critical') {
-                await supabase.from("alerts").insert([{
-                  device_id,
-                  alert_type: "security_rule",
-                  severity: "critical",
-                  title: `Critical Security Rule: ${rule.name}`,
-                  description: `Log matched critical rule "${rule.name}": ${message}`,
-                  is_read: false,
-                  is_resolved: false,
-                }]);
-              }
-              break; // Stop after first match
-            }
-          } catch (e) {
-            console.error(`[LOG] Invalid regex in rule "${rule.name}":`, e);
-          }
-        }
-      }
-    } catch (ruleError) {
-      console.error("[LOG] Error applying severity rules:", ruleError);
-    }
 
     // 4. Track data transfers
     if (log_type === "usb" && message.toLowerCase().includes("transfer")) {
