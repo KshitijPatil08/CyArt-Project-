@@ -102,8 +102,9 @@ export default function SecurityDashboard() {
         const isAnyServerOnline = serverDevices.some((d: Device) => d.status === 'online');
         setServerStatus(isAnyServerOnline ? 'online' : 'offline');
       } else {
-        // If no specific server device is found, assume online if API is reachable
-        setServerStatus('online');
+        // If no specific server device is found, strictly report offline
+        // (User must register the server using the registration script)
+        setServerStatus('offline');
       }
 
       setLoading(false);
