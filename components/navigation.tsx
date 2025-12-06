@@ -69,6 +69,17 @@ export function Navigation() {
   //   return null
   // }
 
+  // Filter navigation items based on role
+  const filteredNavigation = navigation.filter(item => {
+    // Admin-only pages
+    if (item.name === "Logs" || item.name === "Devices") {
+      return user?.user_metadata?.role === 'admin';
+    }
+
+    // USB Whitelist and Quarantine are visible to all (regulated by component-level permissions)
+    return true;
+  });
+
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -83,7 +94,7 @@ export function Navigation() {
             </Link>
 
             <div className="hidden md:flex md:gap-1">
-              {navigation.map((item) => {
+              {filteredNavigation.map((item) => {
                 const isActive = pathname === item.href
                 return (
                   <Link key={item.name} href={item.href}>
@@ -123,7 +134,7 @@ export function Navigation() {
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t py-4 space-y-1 animate-in slide-in-from-top-2">
-            {navigation.map((item) => {
+            {filteredNavigation.map((item) => {
               const isActive = pathname === item.href
               return (
                 <Link key={item.name} href={item.href}>
