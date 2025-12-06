@@ -36,7 +36,6 @@ var (
 	apiURL        string
 	agentDir      string
 	isQuarantined = false
-	connectedUSBDevices = make(map[string]string)
 )
 
 type DeviceRegistration struct {
@@ -74,14 +73,6 @@ type QuarantineStatus struct {
 	QuarantineReason string `json:"quarantine_reason"`
 	QuarantinedAt    string `json:"quarantined_at"`
 	QuarantinedBy    string `json:"quarantined_by"`
-}
-
-type AuthorizedDevice struct {
-	DeviceName   string `json:"device_name"`
-	VendorID     string `json:"vendor_id"`
-	ProductID    string `json:"product_id"`
-	SerialNumber string `json:"serial_number"`
-	IsActive     bool   `json:"is_active"`
 }
 
 func init() {
@@ -405,52 +396,6 @@ func showQuarantineWarning(reason string) {
 	exec.Command("msg", "*", msg).Run()
 }
 
-func fetchWhitelist() ([]AuthorizedDevice, error) {
-	url := fmt.Sprintf("%s/api/usb/whitelist?active_only=true", apiURL)
-	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	var result struct {
-		Success bool               `json:"success"`
-		Devices []AuthorizedDevice `json:"devices"`
-	}
-	if json.Unmarshal(body, &result) != nil {
-		return nil, fmt.Errorf("failed to parse whitelist")
-	}
-	return result.Devices, nil
-}
-
-func checkWhitelist(serial, vid, pid string) bool {
-	whitelist, err := fetchWhitelist()
-	if err != nil {
-		logMessage("Error fetching whitelist: " + err.Error())
-		return false
-	}
-
-	for _, d := range whitelist {
-		match := true
-		if d.SerialNumber != "" && d.SerialNumber != serial {
-			match = false
-		}
-		if d.VendorID != "" && d.VendorID != vid {
-			match = false
-		}
-		if d.ProductID != "" && d.ProductID != pid {
-			match = false
-		}
-
-		if match {
-			return true
-		}
-	}
-	return false
-}
-
 func trackUSBDevices() {
 	if deviceID == "" || isQuarantined {
 		return
@@ -477,8 +422,6 @@ func trackUSBDevices() {
 	hostname := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
-	currentDevices := make(map[string]bool)
-
 	for _, d := range list {
 		name, _ := d["Name"].(string)
 		pnp, _ := d["PNPDeviceID"].(string)
@@ -488,14 +431,6 @@ func trackUSBDevices() {
 			parts := strings.Split(pnp, "\\")
 			serial = parts[len(parts)-1]
 		}
-
-		currentDevices[serial] = true
-
-		if _, exists := connectedUSBDevices[serial]; exists {
-			continue
-		}
-
-		connectedUSBDevices[serial] = name
 
 		vendor := ""
 		if i := strings.Index(pnp, "VID_"); i >= 0 && i+8 <= len(pnp) {
@@ -515,58 +450,151 @@ func trackUSBDevices() {
 			"pnp_device_id": pnp,
 		}
 
-		severity := "critical"
-		lowerName := strings.ToLower(name)
-
-		if checkWhitelist(serial, vendor, product) {
-			severity = "info"
-			logMessage("Authorized USB device connected: " + name)
-		} else if strings.Contains(lowerName, "composite device") ||
-			strings.Contains(lowerName, "root hub") ||
-			strings.Contains(lowerName, "controller") ||
-			strings.Contains(lowerName, "dfu device") ||
-			strings.Contains(lowerName, "bluetooth") ||
-			strings.Contains(lowerName, "webcam") ||
-			strings.Contains(lowerName, "camera") {
-			severity = "info"
-		} else {
-			logMessage("Unauthorized USB device connected: " + name)
-		}
-
 		sendLog(LogEntry{
 			DeviceID:     deviceID,
-			DeviceName:   deviceName,
+			DeviceName:   deviceName, // Use actual device name, not USB device name
 			Hostname:     hostname,
 			LogType:      "usb",
 			HardwareType: "usb",
 			Event:        "connected",
 			Source:       "windows-agent",
-			Severity:     severity,
+			Severity:     "info",
 			Message:      "USB connected: " + name,
 			Timestamp:    ts,
 			RawData:      raw,
 		})
 	}
+}
 
-	for serial, name := range connectedUSBDevices {
-		if _, stillConnected := currentDevices[serial]; !stillConnected {
-			delete(connectedUSBDevices, serial)
+func trackNetworkConnections() {
+	if deviceID == "" || isQuarantined {
+		return
+	}
 
-			sendLog(LogEntry{
-				DeviceID:     deviceID,
-				DeviceName:   deviceName,
-				Hostname:     hostname,
-				LogType:      "usb",
-				HardwareType: "usb",
-				Event:        "disconnected",
-				Source:       "windows-agent",
-				Severity:     "info",
-				Message:      "USB disconnected: " + name,
-				Timestamp:    ts,
-				RawData:      map[string]interface{}{"serial_number": serial, "usb_name": name},
-			})
-			logMessage("USB disconnected: " + name)
+	// Security-relevant ports to monitor
+	portsToMonitor := []int{
+		22,   // SSH
+		21,   // FTP
+		23,   // Telnet
+		80,   // HTTP
+		443,  // HTTPS
+		445,  // SMB
+		1433, // SQL Server
+		3306, // MySQL
+		3389, // RDP
+		5432, // PostgreSQL
+		8080, // HTTP Alt
+		8443, // HTTPS Alt
+	}
+
+	// Build port filter for PowerShell
+	portFilter := make([]string, len(portsToMonitor))
+	for i, port := range portsToMonitor {
+		portFilter[i] = fmt.Sprintf("$_.RemotePort -eq %d", port)
+	}
+	portCondition := strings.Join(portFilter, " -or ")
+
+	// PowerShell command to get network connections
+	cmd := exec.Command("powershell", "-Command",
+		fmt.Sprintf(
+			"Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | "+
+				"Where-Object { (%s) -and $_.RemoteAddress -notlike '127.*' -and $_.RemoteAddress -ne '::1' } | "+
+				"Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess | "+
+				"ConvertTo-Json -Compress",
+			portCondition))
+
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+
+	var connections []map[string]interface{}
+	if json.Unmarshal(out, &connections) != nil {
+		var single map[string]interface{}
+		if json.Unmarshal(out, &single) == nil {
+			connections = []map[string]interface{}{single}
+		} else {
+			return
 		}
+	}
+
+	hostname := getHostname()
+	ts := time.Now().UTC().Format(time.RFC3339)
+
+	// Browser processes to exclude
+	browserProcesses := []string{
+		"chrome.exe",
+		"firefox.exe",
+		"msedge.exe",
+		"iexplore.exe",
+		"brave.exe",
+		"opera.exe",
+		"safari.exe",
+	}
+
+	for _, conn := range connections {
+		localAddr, _ := conn["LocalAddress"].(string)
+		localPort, _ := conn["LocalPort"].(float64)
+		remoteAddr, _ := conn["RemoteAddress"].(string)
+		remotePort, _ := conn["RemotePort"].(float64)
+		state, _ := conn["State"].(string)
+		pid, _ := conn["OwningProcess"].(float64)
+
+		// Get process name from PID
+		processName := "unknown"
+		if pid > 0 {
+			pidCmd := exec.Command("powershell", "-Command",
+				fmt.Sprintf("(Get-Process -Id %d -ErrorAction SilentlyContinue).ProcessName", int(pid)))
+			pidOut, err := pidCmd.Output()
+			if err == nil {
+				processName = strings.ToLower(strings.TrimSpace(string(pidOut)))
+			}
+		}
+
+		// Skip browser processes
+		isBrowser := false
+		for _, browser := range browserProcesses {
+			if strings.Contains(processName, strings.TrimSuffix(browser, ".exe")) {
+				isBrowser = true
+				break
+			}
+		}
+		if isBrowser {
+			continue
+		}
+
+		// Determine severity based on port
+		severity := "info"
+		if int(remotePort) == 22 || int(remotePort) == 23 || int(remotePort) == 3389 {
+			severity = "warning" // Remote access protocols
+		} else if int(remotePort) == 1433 || int(remotePort) == 3306 || int(remotePort) == 5432 {
+			severity = "warning" // Database connections
+		}
+
+		rawData := map[string]interface{}{
+			"local_address":    localAddr,
+			"local_port":       int(localPort),
+			"remote_address":   remoteAddr,
+			"remote_port":      int(remotePort),
+			"connection_state": state,
+			"process_id":       int(pid),
+			"process_name":     processName,
+		}
+
+		message := fmt.Sprintf("Network connection: %s (PID %d) → %s:%d",
+			processName, int(pid), remoteAddr, int(remotePort))
+
+		sendLog(LogEntry{
+			DeviceID:   deviceID,
+			DeviceName: deviceName,
+			Hostname:   hostname,
+			LogType:    "network",
+			Source:     "windows-agent",
+			Severity:   severity,
+			Message:    message,
+			Timestamp:  ts,
+			RawData:    rawData,
+		})
 	}
 }
 
@@ -771,6 +799,7 @@ func initializeAgent() {
 	// Main loop
 	for {
 		trackUSBDevices()
+		trackNetworkConnections()
 		sendSystemLogs()
 		updateDeviceStatus()
 		time.Sleep(POLL_INTERVAL)
@@ -816,7 +845,4 @@ func isAdmin() bool {
 	}
 	return false
 }
-
-
-
 
