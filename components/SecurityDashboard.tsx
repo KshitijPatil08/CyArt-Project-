@@ -159,7 +159,7 @@ export default function SecurityDashboard() {
 
   const getUSBLogs = (deviceId: string) => {
     return getDeviceLogs(deviceId).filter(log =>
-      log.log_type === 'hardware' &&
+      (log.log_type === 'hardware' || log.log_type === 'usb') &&
       (log.hardware_type === 'usb' || log.message?.toLowerCase().includes('usb'))
     );
   };
