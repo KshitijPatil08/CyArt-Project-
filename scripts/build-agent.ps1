@@ -46,7 +46,8 @@ try {
 
     # Get needed package
     & go get golang.org/x/sys/windows/svc@latest
-} catch {
+}
+catch {
     Write-Host "Warning: go get failed or not available in PATH. Make sure 'go' is installed." -ForegroundColor Yellow
 }
 
@@ -108,6 +109,22 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
+
+echo Stopping existing services...
+
+REM Check and Stop existing service
+sc query "CyArtAgent" >nul 2>&1
+if %errorLevel% equ 0 (
+    echo Found existing service. Stopping...
+    sc stop "CyArtAgent" >nul 2>&1
+    timeout /t 2 >nul
+    sc delete "CyArtAgent" >nul 2>&1
+)
+
+REM Force kill any lingering processes
+taskkill /F /IM CyArtAgent.exe >nul 2>&1
+timeout /t 1 >nul
+
 echo Installing CyArt Security Agent...
 
 REM Create installation directory
@@ -115,22 +132,17 @@ set "INSTALL_DIR=%ProgramFiles%\CyArtAgent"
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
 REM Copy agent executable (assumes install.bat runs from same folder as exe)
+echo Copying files...
 copy /Y "%~dp0CyArtAgent.exe" "%INSTALL_DIR%\CyArtAgent.exe"
 if %errorLevel% neq 0 (
-    echo ERROR: Failed to copy agent files
+    echo ERROR: Failed to copy agent files. 
+    echo Please manully stop 'CyArtAgent.exe' from Task Manager and retry.
     pause
     exit /b 1
 )
 
 REM Create Windows Service (will overwrite if exists)
 echo Creating Windows Service...
-sc query "CyArtAgent" >nul 2>&1
-if %errorLevel% equ 0 (
-    echo Service exists. Attempting to remove old service...
-    sc stop "CyArtAgent" >nul 2>&1
-    sc delete "CyArtAgent" >nul 2>&1
-    timeout /t 2 >nul
-)
 
 sc create "CyArtAgent" binPath= "\"%INSTALL_DIR%\CyArtAgent.exe\"" start= auto DisplayName= "CyArt Security Agent"
 if %errorLevel% neq 0 (
