@@ -3,40 +3,64 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* Professional enterprise palette - inspired by modern SaaS apps */
+
+  /* Refined blue-gray background for sophistication */
+  --background: oklch(0.96 0.008 250);
+  --foreground: oklch(0.12 0.01 250);
+
+  /* Bright white cards with subtle blue tint for depth */
+  --card: oklch(0.995 0.003 250);
+  --card-foreground: oklch(0.12 0.01 250);
+
+  /* Popovers slightly elevated */
+  --popover: oklch(0.99 0.003 250);
+  --popover-foreground: oklch(0.12 0.01 250);
+
+  /* Deep indigo primary - professional and trustworthy */
+  --primary: oklch(0.42 0.15 265);
+  --primary-foreground: oklch(0.99 0 0);
+
+  /* Cool blue-gray secondary */
+  --secondary: oklch(0.92 0.012 250);
+  --secondary-foreground: oklch(0.25 0.02 250);
+
+  /* Refined muted with blue undertone */
+  --muted: oklch(0.93 0.01 250);
+  --muted-foreground: oklch(0.48 0.015 250);
+
+  /* Subtle blue accent for interactive elements */
+  --accent: oklch(0.90 0.02 250);
+  --accent-foreground: oklch(0.25 0.02 250);
+
+  /* Professional red for destructive actions */
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  /* Strong, defined borders with blue-gray tone */
+  --border: oklch(0.80 0.015 250);
+  --input: oklch(0.88 0.012 250);
+  --ring: oklch(0.50 0.12 265);
+
+  /* Chart colors remain vibrant */
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* Sidebar with refined blue-gray */
+  --sidebar: oklch(0.97 0.008 250);
+  --sidebar-foreground: oklch(0.12 0.01 250);
+  --sidebar-primary: oklch(0.42 0.15 265);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.92 0.012 250);
+  --sidebar-accent-foreground: oklch(0.25 0.02 250);
+  --sidebar-border: oklch(0.80 0.015 250);
+  --sidebar-ring: oklch(0.50 0.12 265);
 }
+
 
 .dark {
   --background: oklch(0.145 0 0);
@@ -118,6 +142,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }

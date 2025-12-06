@@ -471,38 +471,22 @@ func trackNetworkConnections() {
 		return
 	}
 
-	// Security-relevant ports to monitor
-	portsToMonitor := []int{
-		22,   // SSH
-		21,   // FTP
-		23,   // Telnet
-		80,   // HTTP
-		443,  // HTTPS
-		445,  // SMB
-		1433, // SQL Server
-		3306, // MySQL
-		3389, // RDP
-		5432, // PostgreSQL
-		8080, // HTTP Alt
-		8443, // HTTPS Alt
-	}
+	// PowerShell command to get network connections (TCP + UDP)
+	// For UDP, we use Get-NetUDPEndpoint. It doesn't have RemoteAddress/RemotePort usually (connectionless),
+	// so we will fill those with "*" or "0".
+	psScript := `
+		$tcp = Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | 
+			Where-Object { $_.RemoteAddress -notlike '127.*' -and $_.RemoteAddress -ne '::1' } |
+			Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess, @{Name='Protocol';Expression={'TCP'}}
+		
+		$udp = Get-NetUDPEndpoint -ErrorAction SilentlyContinue | 
+			Where-Object { $_.LocalAddress -notlike '127.*' -and $_.LocalAddress -ne '::1' } |
+			Select-Object LocalAddress, LocalPort, @{Name='RemoteAddress';Expression={'*'}}, @{Name='RemotePort';Expression={0}}, @{Name='State';Expression={'Listening'}}, OwningProcess, @{Name='Protocol';Expression={'UDP'}}
 
-	// Build port filter for PowerShell
-	portFilter := make([]string, len(portsToMonitor))
-	for i, port := range portsToMonitor {
-		portFilter[i] = fmt.Sprintf("$_.RemotePort -eq %d", port)
-	}
-	portCondition := strings.Join(portFilter, " -or ")
+		$tcp + $udp | ConvertTo-Json -Compress
+	`
 
-	// PowerShell command to get network connections
-	cmd := exec.Command("powershell", "-Command",
-		fmt.Sprintf(
-			"Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | "+
-				"Where-Object { (%s) -and $_.RemoteAddress -notlike '127.*' -and $_.RemoteAddress -ne '::1' } | "+
-				"Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess | "+
-				"ConvertTo-Json -Compress",
-			portCondition))
-
+	cmd := exec.Command("powershell", "-Command", psScript)
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		return
@@ -521,7 +505,11 @@ func trackNetworkConnections() {
 	hostname := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
-	// Browser processes to exclude
+	// Browser processes to exclude (optional: keep or remove based on "all protocols")
+	// User said "all protocols needs to be there", so we might want to capture browsers too?
+	// The user prompt was "network logs need to be like wireshark... filtering of network logs http...".
+	// Wireshark shows everything. I will COMMENT OUT the exclusion to capture everything as requested.
+	/* 
 	browserProcesses := []string{
 		"chrome.exe",
 		"firefox.exe",
@@ -531,6 +519,7 @@ func trackNetworkConnections() {
 		"opera.exe",
 		"safari.exe",
 	}
+	*/
 
 	for _, conn := range connections {
 		localAddr, _ := conn["LocalAddress"].(string)
@@ -539,6 +528,7 @@ func trackNetworkConnections() {
 		remotePort, _ := conn["RemotePort"].(float64)
 		state, _ := conn["State"].(string)
 		pid, _ := conn["OwningProcess"].(float64)
+		transport, _ := conn["Protocol"].(string) // "TCP" or "UDP" from PowerShell
 
 		// Get process name from PID
 		processName := "unknown"
@@ -552,6 +542,7 @@ func trackNetworkConnections() {
 		}
 
 		// Skip browser processes
+		/*
 		isBrowser := false
 		for _, browser := range browserProcesses {
 			if strings.Contains(processName, strings.TrimSuffix(browser, ".exe")) {
@@ -562,12 +553,26 @@ func trackNetworkConnections() {
 		if isBrowser {
 			continue
 		}
+		*/
 
+		// Filter out listeners (where remote address is unknown/wildcard)
+		// User wants "packets transferring", checking remote ensure a flow exists.
+		if remoteAddr == "*" || remoteAddr == "0.0.0.0" || remoteAddr == "::" || remotePort == 0 {
+			continue
+		}
+
+		// Resolve Protocol
+		targetPort := int(remotePort)
+		if transport == "UDP" || targetPort == 0 {
+			targetPort = int(localPort)
+		}
+		protocol := resolveProtocol(targetPort)
+		
 		// Determine severity based on port
 		severity := "info"
-		if int(remotePort) == 22 || int(remotePort) == 23 || int(remotePort) == 3389 {
+		if targetPort == 22 || targetPort == 23 || targetPort == 3389 {
 			severity = "warning" // Remote access protocols
-		} else if int(remotePort) == 1433 || int(remotePort) == 3306 || int(remotePort) == 5432 {
+		} else if targetPort == 1433 || targetPort == 3306 || targetPort == 5432 {
 			severity = "warning" // Database connections
 		}
 
@@ -579,10 +584,13 @@ func trackNetworkConnections() {
 			"connection_state": state,
 			"process_id":       int(pid),
 			"process_name":     processName,
+			"protocol":         protocol,
+			"transport":        transport,
 		}
 
-		message := fmt.Sprintf("Network connection: %s (PID %d) → %s:%d",
-			processName, int(pid), remoteAddr, int(remotePort))
+		// Wireshark-like format: [Protocol] ProcessName Source -> Destination
+		message := fmt.Sprintf("[%s/%s] %s   %s:%d → %s:%d",
+			transport, protocol, processName, localAddr, int(localPort), remoteAddr, int(remotePort))
 
 		sendLog(LogEntry{
 			DeviceID:   deviceID,
@@ -595,6 +603,73 @@ func trackNetworkConnections() {
 			Timestamp:  ts,
 			RawData:    rawData,
 		})
+	}
+}
+
+func resolveProtocol(port int) string {
+	switch port {
+	case 20, 21:
+		return "FTP"
+	case 22:
+		return "SSH"
+	case 23:
+		return "TELNET"
+	case 25:
+		return "SMTP"
+	case 53:
+		return "DNS"
+	case 67, 68:
+		return "DHCP"
+	case 80:
+		return "HTTP"
+	case 110:
+		return "POP3"
+	case 123:
+		return "NTP"
+	case 137, 138, 139:
+		return "NETBIOS"
+	case 143:
+		return "IMAP"
+	case 161, 162:
+		return "SNMP"
+	case 389:
+		return "LDAP"
+	case 443:
+		return "HTTPS"
+	case 445:
+		return "SMB"
+	case 465:
+		return "SMTPS"
+	case 514:
+		return "SYSLOG"
+	case 587:
+		return "SMTP-SUB"
+	case 636:
+		return "LDAPS"
+	case 993:
+		return "IMAPS"
+	case 995:
+		return "POP3S"
+	case 1433:
+		return "MSSQL"
+	case 3306:
+		return "MYSQL"
+	case 3389:
+		return "RDP"
+	case 5432:
+		return "POSTGRES"
+	case 5900:
+		return "VNC"
+	case 6379:
+		return "REDIS"
+	case 8080:
+		return "HTTP-ALT"
+	case 8443:
+		return "HTTPS-ALT"
+	case 27017:
+		return "MONGODB"
+	default:
+		return fmt.Sprintf("%d", port)
 	}
 }
 
@@ -845,4 +920,7 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
+
 

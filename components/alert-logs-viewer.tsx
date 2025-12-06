@@ -299,17 +299,17 @@ export function AlertLogsViewer() {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case "critical":
-        return "bg-red-500/20 text-red-300"
+        return "bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/30"
       case "high":
-        return "bg-orange-600/20 text-orange-300"
+        return "bg-orange-600/20 text-orange-700 dark:text-orange-300 border border-orange-600/30"
       case "error":
-        return "bg-orange-500/20 text-orange-200"
+        return "bg-orange-500/20 text-orange-700 dark:text-orange-200 border border-orange-500/30"
       case "warning":
-        return "bg-yellow-500/20 text-yellow-200"
+        return "bg-yellow-500/20 text-yellow-700 dark:text-yellow-200 border border-yellow-500/30"
       case "info":
-        return "bg-blue-500/20 text-blue-200"
+        return "bg-blue-500/20 text-blue-700 dark:text-blue-200 border border-blue-500/30"
       default:
-        return "bg-muted text-foreground"
+        return "bg-muted text-foreground border border-border"
     }
   }
 
@@ -356,48 +356,62 @@ export function AlertLogsViewer() {
             label: "Total Logs",
             value: pagination.total,
             icon: Activity,
-            accent: "from-primary/15 to-primary/5 text-primary",
+            accent: "bg-card dark:bg-gradient-to-br dark:from-indigo-500/20 dark:to-indigo-500/5 border-l-indigo-500",
+            iconColor: "text-indigo-600 dark:text-indigo-400",
+            iconBg: "bg-indigo-50 dark:bg-indigo-500/20",
           },
           {
             label: "Critical Logs",
             value: severityCounts.critical,
             icon: AlertCircle,
-            accent: "from-red-500/20 to-red-500/5 text-red-600 dark:text-red-300",
+            accent: "bg-card dark:bg-gradient-to-br dark:from-rose-500/20 dark:to-rose-500/5 border-l-rose-500",
+            iconColor: "text-rose-600 dark:text-rose-400",
+            iconBg: "bg-rose-50 dark:bg-rose-500/20",
           },
           {
             label: "High Severity",
             value: severityCounts.high,
             icon: Siren,
-            accent: "from-orange-600/20 to-orange-600/5 text-orange-700 dark:text-orange-300",
+            accent: "bg-card dark:bg-gradient-to-br dark:from-orange-500/20 dark:to-orange-500/5 border-l-orange-500",
+            iconColor: "text-orange-600 dark:text-orange-400",
+            iconBg: "bg-orange-50 dark:bg-orange-500/20",
           },
           {
             label: "Errors",
             value: severityCounts.error,
             icon: XCircle,
-            accent: "from-orange-500/20 to-orange-500/5 text-orange-600 dark:text-orange-200",
+            accent: "bg-card dark:bg-gradient-to-br dark:from-amber-500/20 dark:to-amber-500/5 border-l-amber-500",
+            iconColor: "text-amber-600 dark:text-amber-400",
+            iconBg: "bg-amber-50 dark:bg-amber-500/20",
           },
           {
             label: "Warnings",
             value: severityCounts.warning,
             icon: Shield,
-            accent: "from-amber-500/20 to-amber-500/5 text-amber-600 dark:text-amber-200",
+            accent: "bg-card dark:bg-gradient-to-br dark:from-yellow-500/20 dark:to-yellow-500/5 border-l-yellow-500",
+            iconColor: "text-yellow-600 dark:text-yellow-400",
+            iconBg: "bg-yellow-50 dark:bg-yellow-500/20",
           },
           {
             label: "Informational",
             value: severityCounts.info,
             icon: Clock,
-            accent: "from-blue-500/20 to-blue-500/5 text-blue-600 dark:text-blue-200",
+            accent: "bg-card dark:bg-gradient-to-br dark:from-blue-500/20 dark:to-blue-500/5 border-l-blue-500",
+            iconColor: "text-blue-600 dark:text-blue-400",
+            iconBg: "bg-blue-50 dark:bg-blue-500/20",
           },
         ]
           .filter((card) => card.label === "Total Logs" || (typeof card.value === "number" && card.value > 0))
           .map((card) => (
-            <Card key={card.label} className={`bg-gradient-to-br ${card.accent} border-border/40 flex-1 min-w-[200px]`}>
-              <CardContent className="py-6 flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{card.label}</p>
-                  <p className="text-2xl font-bold">{card.value}</p>
+            <Card key={card.label} className={`${card.accent} flex-1 min-w-[200px] shadow-sm hover:shadow-md transition-all border-l-4 border border-border/40`}>
+              <CardContent className="py-5 flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="text-sm text-muted-foreground font-medium">{card.label}</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{card.value}</p>
                 </div>
-                <card.icon className="w-8 h-8 opacity-70" />
+                <div className={`${card.iconBg} p-3 rounded-full`}>
+                  <card.icon className={`w-5 h-5 ${card.iconColor}`} />
+                </div>
               </CardContent>
             </Card>
           ))}

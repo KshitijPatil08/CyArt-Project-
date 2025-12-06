@@ -159,7 +159,7 @@ export default function SecurityDashboard() {
 
   const getUSBLogs = (deviceId: string) => {
     return getDeviceLogs(deviceId).filter(log =>
-      (log.log_type === 'usb' || log.log_type === 'hardware') &&
+      log.log_type === 'hardware' &&
       (log.hardware_type === 'usb' || log.message?.toLowerCase().includes('usb'))
     );
   };
@@ -168,30 +168,38 @@ export default function SecurityDashboard() {
     {
       label: 'Total Devices',
       value: devices.length,
-      accent: 'from-primary/15 via-primary/5 to-background',
+      borderColor: 'border-l-indigo-500',
       icon: Monitor,
-      iconColor: 'text-primary',
+      iconColor: 'text-indigo-600 dark:text-indigo-400',
+      iconBg: 'bg-indigo-50 dark:bg-indigo-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
     },
     {
       label: 'Online Devices',
       value: devices.filter(d => d.status === 'online' && !d.is_server).length,
-      accent: 'from-emerald-500/15 via-emerald-500/5 to-background',
+      borderColor: 'border-l-emerald-500',
       icon: Network,
-      iconColor: 'text-emerald-500',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      iconBg: 'bg-emerald-50 dark:bg-emerald-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
     },
     {
       label: 'USB Events',
       value: usbEventCount,
-      accent: 'from-purple-500/15 via-purple-500/5 to-background',
+      borderColor: 'border-l-violet-500',
       icon: Usb,
-      iconColor: 'text-purple-500',
+      iconColor: 'text-violet-600 dark:text-violet-400',
+      iconBg: 'bg-violet-50 dark:bg-violet-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
     },
     {
       label: 'Critical Alerts',
       value: alerts.filter(a => a.severity === 'critical').length,
-      accent: 'from-rose-500/15 via-rose-500/5 to-background',
+      borderColor: 'border-l-rose-500',
       icon: AlertCircle,
-      iconColor: 'text-rose-500',
+      iconColor: 'text-rose-600 dark:text-rose-400',
+      iconBg: 'bg-rose-50 dark:bg-rose-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
     },
   ];
 
@@ -241,21 +249,18 @@ export default function SecurityDashboard() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-5 mb-8">
-          <div className="bg-gradient-to-br from-emerald-500/10 via-transparent to-background border border-emerald-500/30 rounded-xl p-6 shadow-sm relative overflow-hidden">
-            <div className="absolute inset-0 pointer-events-none opacity-10">
-              <div className="absolute -right-10 top-1/2 -translate-y-1/2 w-40 h-40 rounded-full bg-emerald-500 blur-3xl"></div>
-            </div>
-            <div className="relative z-10 space-y-4">
+          <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border/40">
+            <div className="space-y-4">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm uppercase tracking-widest text-muted-foreground">Server Control</p>
-                  <div className="flex items-center gap-3 mt-2">
-                    <div className={`h-10 w-10 rounded-full flex items-center justify-center border ${serverStatus === 'online' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600' : 'bg-rose-500/10 border-rose-500 text-rose-500'}`}>
-                      <Wifi className="w-5 h-5" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Server Control</p>
+                  <div className="flex items-center gap-3">
+                    <div className={`p-3 rounded-full ${serverStatus === 'online' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+                      <Wifi className={`w-5 h-5 ${serverStatus === 'online' ? 'text-emerald-600' : 'text-rose-600'}`} />
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Agent Status</p>
-                      <p className={`text-2xl font-semibold ${serverStatus === 'online' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      <p className="text-xs text-muted-foreground font-medium mb-0.5">Agent Status</p>
+                      <p className={`text-xl font-bold ${serverStatus === 'online' ? 'text-emerald-600' : 'text-rose-600'}`}>
                         {serverStatus === 'online' ? 'Online' : 'Offline'}
                       </p>
                     </div>
@@ -308,37 +313,22 @@ export default function SecurityDashboard() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="rounded-lg bg-background/60 border border-muted/60 p-3">
-                  <p className="text-xs text-muted-foreground">Last Change</p>
-                  <div className="flex items-center gap-2 mt-1 text-sm font-medium">
-                    <Clock className="w-4 h-4 text-muted-foreground" />
-                    {new Date(serverUpdatedAt).toLocaleTimeString()}
-                  </div>
-                </div>
-                <div className="rounded-lg bg-background/60 border border-muted/60 p-3">
-                  <p className="text-xs text-muted-foreground">Server Health</p>
-                  <div className="flex items-center gap-2 mt-1 text-sm font-medium">
-                    <AlertTriangle className={`w-4 h-4 ${serverStatus === 'online' ? 'text-emerald-500' : 'text-rose-500'}`} />
-                    {serverStatus === 'online' ? 'Stable' : 'Degraded'}
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
           {statCards.map((card) => (
             <div
               key={card.label}
-              className={`bg-gradient-to-br ${card.accent} border border-border/40 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow`}
+              className={`bg-card rounded-lg p-5 shadow-sm hover:shadow-md transition-all ${card.darkGradient} border border-border/40`}
             >
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">{card.label}</p>
+                <div className="flex-1">
+                  <p className="text-sm text-muted-foreground mb-1.5 font-medium">{card.label}</p>
                   <p className="text-2xl font-bold text-foreground">{card.value}</p>
                 </div>
-                <card.icon className={`w-8 h-8 ${card.iconColor}`} />
+                <div className={`${card.iconBg} p-3 rounded-full`}>
+                  <card.icon className={`w-5 h-5 ${card.iconColor}`} />
+                </div>
               </div>
             </div>
           ))}
@@ -538,9 +528,9 @@ export default function SecurityDashboard() {
                       ) : (
                         getUSBLogs(selectedDevice.device_id).map((log) => {
                           const isConnected = log.event === 'connected' || log.event === 'insert';
-                          const severityColor = log.severity === 'critical' ? 'text-red-600' :
-                            log.severity === 'high' ? 'text-orange-600' :
-                              log.severity === 'moderate' ? 'text-yellow-600' : 'text-green-600';
+                          const severityColor = log.severity === 'critical' ? 'bg-red-500/15 text-red-700 dark:text-red-400 border border-red-500/30' :
+                            log.severity === 'high' ? 'bg-orange-600/15 text-orange-700 dark:text-orange-400 border border-orange-600/30' :
+                              log.severity === 'moderate' ? 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border border-yellow-500/30' : 'bg-green-500/15 text-green-700 dark:text-green-400 border border-green-500/30';
                           return (
                             <div key={log.id} className="p-4 hover:bg-accent transition-colors">
                               <div className="flex items-start gap-3">
@@ -549,7 +539,7 @@ export default function SecurityDashboard() {
                                   <div className="flex items-center gap-2">
                                     <p className="font-medium capitalize text-foreground">{log.event || 'USB Event'}</p>
                                     {log.severity && (
-                                      <span className={`text-xs px-2 py-0.5 rounded ${severityColor} bg-opacity-10`}>
+                                      <span className={`text-xs px-2 py-0.5 rounded ${severityColor}`}>
                                         {log.severity}
                                       </span>
                                     )}

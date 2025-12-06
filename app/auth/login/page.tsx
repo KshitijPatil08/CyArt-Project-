@@ -29,14 +29,39 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
+      // First, check if account is locked
+      const lockoutCheckResponse = await fetch("/api/auth/check-lockout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, success: false }),
+      })
+
+      const lockoutData = await lockoutCheckResponse.json()
+
+      // If account is locked, show error and don't attempt login
+      if (lockoutData.locked) {
+        setError(lockoutData.message)
+        setLoading(false)
+        return
+      }
+
+      // Attempt login with Supabase
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) {
-        setError(error.message)
+        // Login failed - the lockout check already incremented the counter
+        setError(lockoutData.message || error.message)
       } else {
+        // Login successful - reset the attempt counter
+        await fetch("/api/auth/check-lockout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, success: true }),
+        })
+
         router.push("/")
         router.refresh()
       }
@@ -118,9 +143,9 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full" 
+              <Button
+                type="submit"
+                className="w-full"
                 disabled={loading}
                 size="lg"
               >
@@ -136,8 +161,8 @@ export default function LoginPage() {
 
               <div className="text-sm text-center text-muted-foreground pt-2">
                 Don't have an account?{" "}
-                <Link 
-                  href="/auth/sign-up" 
+                <Link
+                  href="/auth/sign-up"
                   className="text-primary hover:underline font-medium transition-colors"
                 >
                   Sign up

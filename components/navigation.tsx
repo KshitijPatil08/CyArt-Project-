@@ -79,7 +79,7 @@ export function Navigation() {
               <div className="p-2 rounded-lg bg-primary/10">
                 <Monitor className="w-5 h-5 text-primary" />
               </div>
-              <span className="text-xl font-bold">CyArt Security</span>
+              <span className="text-xl font-bold text-foreground">CyArt Security</span>
             </Link>
 
             <div className="hidden md:flex md:gap-1">
