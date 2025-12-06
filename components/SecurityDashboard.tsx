@@ -6,6 +6,7 @@ import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
 import { QuarantineManagement } from './quarantine-management';
 import { SeverityRulesManagement } from './SeverityRulesManagement';
+import { createClient } from '@/lib/supabase/client';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,6 +67,17 @@ export default function SecurityDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  const supabase = createClient();
+
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserRole(user?.user_metadata?.role || 'user');
+    };
+    fetchUserRole();
+  }, []);
 
   const updateServerStatus = (status: ServerStatus) => {
     setServerStatus(status);
@@ -271,6 +283,7 @@ export default function SecurityDashboard() {
                     <Button
                       variant="outline"
                       size="icon"
+                      disabled={userRole !== 'admin'}
                       className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
                         ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
                         : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
@@ -368,33 +381,37 @@ export default function SecurityDashboard() {
               <Network className="w-4 h-4" />
               Network Topology
             </Button>
-            <Button
-              variant={viewMode === 'whitelist' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('whitelist')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              USB Whitelist
-            </Button>
-            <Button
-              variant={viewMode === 'quarantine' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('quarantine')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <ShieldAlert className="w-4 h-4" />
-              Quarantine
-            </Button>
-            <Button
-              variant={viewMode === 'rules' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('rules')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <Settings className="w-4 h-4" />
-              Rules Engine
-            </Button>
+            {userRole === 'admin' && (
+              <>
+                <Button
+                  variant={viewMode === 'whitelist' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setViewMode('whitelist')}
+                  className="gap-2 whitespace-nowrap"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  USB Whitelist
+                </Button>
+                <Button
+                  variant={viewMode === 'quarantine' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setViewMode('quarantine')}
+                  className="gap-2 whitespace-nowrap"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  Quarantine
+                </Button>
+                <Button
+                  variant={viewMode === 'rules' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setViewMode('rules')}
+                  className="gap-2 whitespace-nowrap"
+                >
+                  <Settings className="w-4 h-4" />
+                  Rules Engine
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
