@@ -13,9 +13,9 @@ export async function GET() {
       .select('*')
       .order('last_seen', { ascending: false });
 
-    // RBAC: If not admin, only show devices owned by user
+    // RBAC: If not admin, show devices owned by user OR devices marked as server (for status check)
     if (user?.user_metadata?.role !== 'admin' && user?.email) {
-      query = query.eq('owner', user.email);
+      query = query.or(`owner.eq.${user.email},is_server.eq.true`);
     }
 
     const { data: devices, error } = await query;

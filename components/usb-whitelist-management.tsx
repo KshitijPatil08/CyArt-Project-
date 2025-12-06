@@ -98,14 +98,14 @@ export function USBWhitelistManagement() {
     description: "",
   })
 
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [userDevices, setUserDevices] = useState<string[]>([]) // List of hostnames owned by user
+
   const { toast } = useToast()
   const supabase = createClient()
 
   useEffect(() => {
-    fetchDevices()
-    fetchPendingRequests()
-    fetchLogs()
-
+    checkUserRole()
     // Poll for status updates
     const interval = setInterval(() => {
       fetchLogs()
@@ -114,6 +114,36 @@ export function USBWhitelistManagement() {
     return () => clearInterval(interval)
   }, [])
 
+  // Refetch devices when user devices list changes or on mount
+  useEffect(() => {
+    if (userRole) {
+      fetchDevices()
+      fetchPendingRequests()
+      fetchLogs()
+    }
+  }, [userRole, userDevices])
+
+  const checkUserRole = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const role = user?.user_metadata?.role || 'user'
+    setUserRole(role)
+
+    if (role !== 'admin') {
+      // Fetch user's devices to filter the whitelist
+      try {
+        const res = await fetch("/api/devices/list")
+        const data = await res.json()
+        if (data.devices) {
+          // Store hostnames to match against computer_name in allowed list
+          const hostnames = data.devices.map((d: any) => d.hostname).filter(Boolean)
+          setUserDevices(hostnames)
+        }
+      } catch (e) {
+        console.error("Error fetching user devices for filter", e)
+      }
+    }
+  }
+
   const fetchDevices = async () => {
     try {
       const { data, error } = await supabase
@@ -121,7 +151,20 @@ export function USBWhitelistManagement() {
         .select("*")
         .order("created_at", { ascending: false })
       if (error) throw error
-      setDevices(data || [])
+
+      let filteredData = data || []
+
+      // Client-side filtering for non-admins
+      if (userRole !== 'admin' && userDevices.length > 0) {
+        filteredData = filteredData.filter(d =>
+          d.computer_name && userDevices.includes(d.computer_name)
+        )
+      } else if (userRole !== 'admin' && userDevices.length === 0) {
+        // If user owns no devices, show empty list
+        filteredData = []
+      }
+
+      setDevices(filteredData)
     } catch (error) {
       console.error("Error fetching authorized USB devices:", error)
     } finally {
@@ -335,7 +378,7 @@ export function USBWhitelistManagement() {
           <p className="text-muted-foreground">Manage authorized USB devices and approval requests</p>
         </div>
 
-        {activeTab === "authorized" && (
+        {activeTab === "authorized" && userRole === 'admin' && (
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2">
@@ -423,20 +466,22 @@ export function USBWhitelistManagement() {
         >
           Authorized Devices ({devices.length})
         </button>
-        <button
-          onClick={() => setActiveTab("pending")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeTab === "pending"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:bg-background/50"
-            }`}
-        >
-          Pending Requests
-          {pendingRequests.length > 0 && (
-            <Badge variant="destructive" className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
-              {pendingRequests.length}
-            </Badge>
-          )}
-        </button>
+        {userRole === 'admin' && (
+          <button
+            onClick={() => setActiveTab("pending")}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeTab === "pending"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-background/50"
+              }`}
+          >
+            Pending Requests
+            {pendingRequests.length > 0 && (
+              <Badge variant="destructive" className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
+                {pendingRequests.length}
+              </Badge>
+            )}
+          </button>
+        )}
       </div>
 
       {
@@ -463,7 +508,7 @@ export function USBWhitelistManagement() {
                         <TableHead>Policies</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Created</TableHead>
-                        <TableHead>Actions</TableHead>
+                        {userRole === 'admin' && <TableHead>Actions</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -512,33 +557,35 @@ export function USBWhitelistManagement() {
                           <TableCell className="text-sm">
                             {new Date(device.created_at).toLocaleDateString()}
                           </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditClick(device)}
-                                className="text-blue-600 hover:text-blue-700"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleActive(device.id, device.is_active)}
-                              >
-                                {device.is_active ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-gray-600" />}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDeleteDevice(device.id)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
+                          {userRole === 'admin' && (
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEditClick(device)}
+                                  className="text-blue-600 hover:text-blue-700"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleToggleActive(device.id, device.is_active)}
+                                >
+                                  {device.is_active ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-gray-600" />}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteDevice(device.id)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>

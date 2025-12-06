@@ -217,12 +217,17 @@ export default function SecurityDashboard() {
   ];
 
   const filteredDevices = useMemo(() => (
-    devices.filter(device =>
-      device.device_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      device.hostname.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      device.ip_address.includes(searchQuery)
-    )
-  ), [devices, searchQuery]);
+    devices.filter(device => {
+      // Hide server devices from list for non-admins (they are strictly for status indicator)
+      if (userRole !== 'admin' && device.is_server) return false;
+
+      return (
+        device.device_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        device.hostname.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        device.ip_address.includes(searchQuery)
+      );
+    })
+  ), [devices, searchQuery, userRole]);
 
   useEffect(() => {
     if (!filteredDevices.length) {
@@ -384,36 +389,34 @@ export default function SecurityDashboard() {
                 Network Topology
               </Button>
             )}
+            <Button
+              variant={viewMode === 'whitelist' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('whitelist')}
+              className="gap-2 whitespace-nowrap"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              USB Whitelist
+            </Button>
+            <Button
+              variant={viewMode === 'quarantine' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('quarantine')}
+              className="gap-2 whitespace-nowrap"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              Quarantine
+            </Button>
             {userRole === 'admin' && (
-              <>
-                <Button
-                  variant={viewMode === 'whitelist' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setViewMode('whitelist')}
-                  className="gap-2 whitespace-nowrap"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  USB Whitelist
-                </Button>
-                <Button
-                  variant={viewMode === 'quarantine' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setViewMode('quarantine')}
-                  className="gap-2 whitespace-nowrap"
-                >
-                  <ShieldAlert className="w-4 h-4" />
-                  Quarantine
-                </Button>
-                <Button
-                  variant={viewMode === 'rules' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setViewMode('rules')}
-                  className="gap-2 whitespace-nowrap"
-                >
-                  <Settings className="w-4 h-4" />
-                  Rules Engine
-                </Button>
-              </>
+              <Button
+                variant={viewMode === 'rules' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('rules')}
+                className="gap-2 whitespace-nowrap"
+              >
+                <Settings className="w-4 h-4" />
+                Rules Engine
+              </Button>
             )}
           </div>
         </div>

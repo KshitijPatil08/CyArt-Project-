@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -30,11 +31,19 @@ export function QuarantineManagement() {
     const [deviceSelectorOpen, setDeviceSelectorOpen] = useState(false)
     const [quarantineDialogOpen, setQuarantineDialogOpen] = useState(false)
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
+    const [userRole, setUserRole] = useState<string | null>(null)
     const { toast } = useToast()
+    const supabase = createClient()
 
     useEffect(() => {
+        fetchUserRole()
         fetchQuarantinedDevices()
     }, [])
+
+    const fetchUserRole = async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        setUserRole(user?.user_metadata?.role || 'user')
+    }
 
     const fetchQuarantinedDevices = async () => {
         try {
@@ -93,13 +102,15 @@ export function QuarantineManagement() {
                         View and release devices that have been quarantined from network access
                     </p>
                 </div>
-                <Button
-                    onClick={() => setDeviceSelectorOpen(true)}
-                    className="gap-2"
-                >
-                    <Plus className="w-4 h-4" />
-                    Add Quarantine Device
-                </Button>
+                {userRole === 'admin' && (
+                    <Button
+                        onClick={() => setDeviceSelectorOpen(true)}
+                        className="gap-2"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Add Quarantine Device
+                    </Button>
+                )}
             </div>
 
             <Card>
@@ -131,7 +142,7 @@ export function QuarantineManagement() {
                                         <TableHead>Status</TableHead>
                                         <TableHead>Quarantine Reason</TableHead>
                                         <TableHead>Quarantined At</TableHead>
-                                        <TableHead>Actions</TableHead>
+                                        {userRole === 'admin' && <TableHead>Actions</TableHead>}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -163,17 +174,19 @@ export function QuarantineManagement() {
                                             <TableCell className="text-sm text-muted-foreground">
                                                 {device.quarantined_at ? new Date(device.quarantined_at).toLocaleString() : "-"}
                                             </TableCell>
-                                            <TableCell>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                                    onClick={() => handleReleaseClick(device)}
-                                                >
-                                                    <Unlock className="w-4 h-4" />
-                                                    Release
-                                                </Button>
-                                            </TableCell>
+                                            {userRole === 'admin' && (
+                                                <TableCell>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                        onClick={() => handleReleaseClick(device)}
+                                                    >
+                                                        <Unlock className="w-4 h-4" />
+                                                        Release
+                                                    </Button>
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ))}
                                 </TableBody>
