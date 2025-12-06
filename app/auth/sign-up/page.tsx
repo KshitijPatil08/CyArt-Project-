@@ -16,7 +16,6 @@ export default function SignUpPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [fullName, setFullName] = useState("")
-  const [adminCode, setAdminCode] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -29,15 +28,13 @@ export default function SignUpPage() {
     setLoading(true)
 
     try {
-      const role = adminCode === "CYART_ADMIN_SECRET" ? "admin" : "user"
-
       const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             full_name: fullName,
-            role: role,
+            role: "user",
           },
         },
       })
@@ -139,22 +136,6 @@ export default function SignUpPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Password must be at least 6 characters
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="adminCode">Admin Code (Optional)</Label>
-                <Input
-                  id="adminCode"
-                  type="password"
-                  placeholder="Enter code for admin access"
-                  value={adminCode}
-                  onChange={(e) => setAdminCode(e.target.value)}
-                  disabled={loading}
-                  className="transition-all"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Leave blank for standard user account
                 </p>
               </div>
 

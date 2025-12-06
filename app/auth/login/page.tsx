@@ -46,7 +46,7 @@ export default function LoginPage() {
       }
 
       // Attempt login with Supabase
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
@@ -55,6 +55,14 @@ export default function LoginPage() {
         // Login failed - the lockout check already incremented the counter
         setError(lockoutData.message || error.message)
       } else {
+        // Check if user is admin - admins must use admin portal
+        if (data.user?.user_metadata?.role === 'admin') {
+          await supabase.auth.signOut()
+          setError("Admin accounts must use the Admin Login Portal.")
+          setLoading(false)
+          return
+        }
+
         // Login successful - reset the attempt counter
         await fetch("/api/auth/check-lockout", {
           method: "POST",
