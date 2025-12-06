@@ -36,6 +36,8 @@ var (
 	apiURL        string
 	agentDir      string
 	isQuarantined = false
+	// Rate limiting for network logs: key = "process:remote_ip:port", value = last log time
+	networkLogCache = make(map[string]time.Time)
 )
 
 type DeviceRegistration struct {
@@ -505,21 +507,22 @@ func trackNetworkConnections() {
 	hostname := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
+
 	// Browser processes to exclude (optional: keep or remove based on "all protocols")
-	// User said "all protocols needs to be there", so we might want to capture browsers too?
-	// The user prompt was "network logs need to be like wireshark... filtering of network logs http...".
-	// Wireshark shows everything. I will COMMENT OUT the exclusion to capture everything as requested.
-	/* 
-	browserProcesses := []string{
-		"chrome.exe",
-		"firefox.exe",
-		"msedge.exe",
-		"iexplore.exe",
-		"brave.exe",
-		"opera.exe",
-		"safari.exe",
+	excludedProcesses := []string{
+		// Browsers
+		"chrome", "firefox", "msedge", "iexplore", "brave", "opera", "safari",
+		// Development Tools
+		"language_server_windows_x64", "antigravity", "code", "devenv",
+		// Communication Apps
+		"discord", "slack", "teams", "zoom", "skype",
+		// Productivity Apps
+		"grammarly", "notion", "onenote",
+		// System Processes
+		"svchost", "msmpeng", "searchindexer", "backgroundtaskhost",
+		// Other Common Apps
+		"anydesk", "teamviewer", "msedgewebview2", "cyartagent",
 	}
-	*/
 
 	for _, conn := range connections {
 		localAddr, _ := conn["LocalAddress"].(string)
@@ -541,25 +544,32 @@ func trackNetworkConnections() {
 			}
 		}
 
-		// Skip browser processes
-		/*
-		isBrowser := false
-		for _, browser := range browserProcesses {
-			if strings.Contains(processName, strings.TrimSuffix(browser, ".exe")) {
-				isBrowser = true
+		// Skip excluded processes
+		isExcluded := false
+		for _, excluded := range excludedProcesses {
+			if strings.Contains(processName, excluded) {
+				isExcluded = true
 				break
 			}
 		}
-		if isBrowser {
+		if isExcluded {
 			continue
 		}
-		*/
 
 		// Filter out listeners (where remote address is unknown/wildcard)
 		// User wants "packets transferring", checking remote ensure a flow exists.
 		if remoteAddr == "*" || remoteAddr == "0.0.0.0" || remoteAddr == "::" || remotePort == 0 {
 			continue
 		}
+
+		// Rate limiting: only log same connection once per 5 minutes
+		connKey := fmt.Sprintf("%s:%s:%d", processName, remoteAddr, int(remotePort))
+		if lastLog, exists := networkLogCache[connKey]; exists {
+			if time.Since(lastLog) < 5*time.Minute {
+				continue // Skip - already logged recently
+			}
+		}
+		networkLogCache[connKey] = time.Now()
 
 		// Resolve Protocol
 		targetPort := int(remotePort)
@@ -920,6 +930,7 @@ func isAdmin() bool {
 	}
 	return false
 }
+
 
 
 
