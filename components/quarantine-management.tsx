@@ -65,7 +65,7 @@ export function QuarantineManagement() {
                     device_id: d.device_id || d.id // Ensure device_id is present
                 }))
                 .filter((d: Device) => d.is_quarantined)
-                .filter((d: Device) => userRole === 'admin' || d.owner === userEmail)
+                .filter((d: Device) => userRole === 'admin' || d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim())
 
             setDevices(quarantinedDevices)
             setLoading(false)

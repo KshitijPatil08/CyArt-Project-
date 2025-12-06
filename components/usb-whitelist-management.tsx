@@ -135,8 +135,9 @@ export function USBWhitelistManagement() {
         const data = await res.json()
         if (data.devices) {
           // Store hostnames to match against computer_name in allowed list
+          // Case-insensitive matching for owner email
           const hostnames = data.devices
-            .filter((d: any) => d.owner === user?.email)
+            .filter((d: any) => d.owner?.toLowerCase().trim() === user?.email?.toLowerCase().trim())
             .map((d: any) => d.hostname)
             .filter(Boolean)
           setUserDevices(hostnames)

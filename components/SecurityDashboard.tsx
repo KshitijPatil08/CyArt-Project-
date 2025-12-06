@@ -184,7 +184,7 @@ export default function SecurityDashboard() {
       label: 'Total Devices',
       value: userRole === 'admin'
         ? devices.length
-        : devices.filter(d => d.owner === userEmail && !d.is_server).length,
+        : devices.filter(d => d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim() && !d.is_server).length,
       borderColor: 'border-l-indigo-500',
       icon: Monitor,
       iconColor: 'text-indigo-600 dark:text-indigo-400',
@@ -195,7 +195,7 @@ export default function SecurityDashboard() {
       label: 'Online Devices',
       value: userRole === 'admin'
         ? devices.filter(d => d.status === 'online' && !d.is_server).length
-        : devices.filter(d => d.status === 'online' && !d.is_server && d.owner === userEmail).length,
+        : devices.filter(d => d.status === 'online' && !d.is_server && d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim()).length,
       borderColor: 'border-l-emerald-500',
       icon: Network,
       iconColor: 'text-emerald-600 dark:text-emerald-400',
@@ -204,7 +204,14 @@ export default function SecurityDashboard() {
     },
     {
       label: 'USB Events',
-      value: usbEventCount,
+      value: userRole === 'admin'
+        ? usbEventCount
+        : logs.filter(l => {
+          const device = devices.find(d => d.device_id === l.device_id);
+          return device &&
+            device.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim() &&
+            (l.log_type === 'hardware' || l.log_type === 'usb');
+        }).length,
       borderColor: 'border-l-violet-500',
       icon: Usb,
       iconColor: 'text-violet-600 dark:text-violet-400',
@@ -213,7 +220,14 @@ export default function SecurityDashboard() {
     },
     {
       label: 'Critical Alerts',
-      value: alerts.filter(a => a.severity === 'critical').length,
+      value: userRole === 'admin'
+        ? alerts.filter(a => a.severity === 'critical').length
+        : alerts.filter(a => {
+          const device = devices.find(d => d.device_id === a.device_id);
+          return a.severity === 'critical' &&
+            device &&
+            device.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim();
+        }).length,
       borderColor: 'border-l-rose-500',
       icon: AlertCircle,
       iconColor: 'text-rose-600 dark:text-rose-400',
@@ -232,8 +246,8 @@ export default function SecurityDashboard() {
         // 1. Hide server devices from list (they are strictly for status indicator)
         if (device.is_server) return false;
 
-        // 2. Only show devices owned by the user
-        if (device.owner !== userEmail) return false;
+        // 2. Only show devices owned by the user (case-insensitive)
+        if (device.owner?.toLowerCase().trim() !== userEmail.toLowerCase().trim()) return false;
       }
 
       return (
