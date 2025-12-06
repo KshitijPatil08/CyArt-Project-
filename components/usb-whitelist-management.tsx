@@ -135,7 +135,10 @@ export function USBWhitelistManagement() {
         const data = await res.json()
         if (data.devices) {
           // Store hostnames to match against computer_name in allowed list
-          const hostnames = data.devices.map((d: any) => d.hostname).filter(Boolean)
+          const hostnames = data.devices
+            .filter((d: any) => d.owner === user?.email)
+            .map((d: any) => d.hostname)
+            .filter(Boolean)
           setUserDevices(hostnames)
         }
       } catch (e) {

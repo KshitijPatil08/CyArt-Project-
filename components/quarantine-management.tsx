@@ -22,6 +22,7 @@ interface Device {
     quarantined_by?: string
     status: string
     is_quarantined: boolean
+    owner?: string
 }
 
 export function QuarantineManagement() {
@@ -32,17 +33,24 @@ export function QuarantineManagement() {
     const [quarantineDialogOpen, setQuarantineDialogOpen] = useState(false)
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
     const [userRole, setUserRole] = useState<string | null>(null)
+    const [userEmail, setUserEmail] = useState<string | null>(null)
     const { toast } = useToast()
     const supabase = createClient()
 
     useEffect(() => {
         fetchUserRole()
-        fetchQuarantinedDevices()
     }, [])
+
+    useEffect(() => {
+        if (userRole) {
+            fetchQuarantinedDevices()
+        }
+    }, [userRole, userEmail])
 
     const fetchUserRole = async () => {
         const { data: { user } } = await supabase.auth.getUser()
         setUserRole(user?.user_metadata?.role || 'user')
+        setUserEmail(user?.email || null)
     }
 
     const fetchQuarantinedDevices = async () => {
@@ -57,6 +65,8 @@ export function QuarantineManagement() {
                     device_id: d.device_id || d.id // Ensure device_id is present
                 }))
                 .filter((d: Device) => d.is_quarantined)
+                .filter((d: Device) => userRole === 'admin' || d.owner === userEmail)
+
             setDevices(quarantinedDevices)
             setLoading(false)
         } catch (error) {

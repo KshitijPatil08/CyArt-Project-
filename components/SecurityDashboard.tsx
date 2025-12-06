@@ -68,6 +68,7 @@ export default function SecurityDashboard() {
   const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -75,6 +76,7 @@ export default function SecurityDashboard() {
     const fetchUserRole = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUserRole(user?.user_metadata?.role || 'user');
+      setUserEmail(user?.email || null);
     };
     fetchUserRole();
   }, []);
@@ -180,7 +182,9 @@ export default function SecurityDashboard() {
   const statCards = [
     {
       label: 'Total Devices',
-      value: devices.length,
+      value: userRole === 'admin'
+        ? devices.length
+        : devices.filter(d => d.owner === userEmail && !d.is_server).length,
       borderColor: 'border-l-indigo-500',
       icon: Monitor,
       iconColor: 'text-indigo-600 dark:text-indigo-400',
@@ -189,7 +193,9 @@ export default function SecurityDashboard() {
     },
     {
       label: 'Online Devices',
-      value: devices.filter(d => d.status === 'online' && !d.is_server).length,
+      value: userRole === 'admin'
+        ? devices.filter(d => d.status === 'online' && !d.is_server).length
+        : devices.filter(d => d.status === 'online' && !d.is_server && d.owner === userEmail).length,
       borderColor: 'border-l-emerald-500',
       icon: Network,
       iconColor: 'text-emerald-600 dark:text-emerald-400',
@@ -218,8 +224,17 @@ export default function SecurityDashboard() {
 
   const filteredDevices = useMemo(() => (
     devices.filter(device => {
-      // Hide server devices from list for non-admins (they are strictly for status indicator)
-      if (userRole !== 'admin' && device.is_server) return false;
+      // Standard user:
+      if (userRole !== 'admin') {
+        // Safety check: if user email is not loaded yet, don't show anything to non-admins
+        if (!userEmail) return false;
+
+        // 1. Hide server devices from list (they are strictly for status indicator)
+        if (device.is_server) return false;
+
+        // 2. Only show devices owned by the user
+        if (device.owner !== userEmail) return false;
+      }
 
       return (
         device.device_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -227,7 +242,7 @@ export default function SecurityDashboard() {
         device.ip_address.includes(searchQuery)
       );
     })
-  ), [devices, searchQuery, userRole]);
+  ), [devices, searchQuery, userRole, userEmail]);
 
   useEffect(() => {
     if (!filteredDevices.length) {
