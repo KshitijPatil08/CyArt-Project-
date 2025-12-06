@@ -6,11 +6,19 @@ export async function GET() {
     const supabase = await createClient();
 
     // 1. Fetch all devices
-    const { data: devices, error } = await supabase
+    const { data: { user } } = await supabase.auth.getUser();
+
+    let query = supabase
       .from('devices')
       .select('*')
       .order('last_seen', { ascending: false });
 
+    // RBAC: If not admin, only show devices owned by user
+    if (user?.user_metadata?.role !== 'admin' && user?.email) {
+      query = query.eq('owner', user.email);
+    }
+
+    const { data: devices, error } = await query;
     if (error) throw error;
 
     // 2. Check for offline devices (threshold: 1 minute)

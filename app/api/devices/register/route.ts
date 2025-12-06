@@ -82,16 +82,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { 
-      device_name, 
-      device_type, 
-      owner, 
-      location, 
-      ip_address, 
+    const {
+      device_name,
+      device_type,
+      owner,
+      location,
+      ip_address,
       mac_address,
-      hostname, 
-      os_version, 
-      agent_version 
+      hostname,
+      os_version,
+      agent_version
     } = body
 
     if (!device_name || !device_type) {
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
     // Use maybeSingle() instead of single() to avoid errors when device doesn't exist
     const { data: existingDevice, error: fetchError } = await supabase
       .from("devices")
-      .select("id, readable_id, device_name, status")
+      .select("id, readable_id, device_name, status, owner")
       .eq("hostname", finalHostname)
       .maybeSingle()
 
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
       const updateData: any = {
         device_name,
         device_type,
-        owner,
+        owner: existingDevice.owner || owner,
         location,
         hostname: finalHostname,
         os_version,
@@ -188,11 +188,11 @@ export async function POST(request: NextRequest) {
         severity: "info",
         message: `Device re-registered: ${device_name} (${finalHostname})`,
         timestamp: new Date().toISOString(),
-        raw_data: { 
+        raw_data: {
           action: "re-registration",
           ip_address,
           mac_address,
-          agent_version 
+          agent_version
         }
       }])
 
@@ -266,11 +266,11 @@ export async function POST(request: NextRequest) {
         severity: "info",
         message: `Device registered for the first time: ${device_name} (${finalHostname})`,
         timestamp: new Date().toISOString(),
-        raw_data: { 
+        raw_data: {
           action: "initial-registration",
           ip_address,
           mac_address,
-          agent_version 
+          agent_version
         }
       }])
     }
@@ -282,9 +282,9 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json(
-      { 
-        success: true, 
-        device_id: deviceId, 
+      {
+        success: true,
+        device_id: deviceId,
         readable_id: readableId,
         is_new_device: isNewDevice,
         message: isNewDevice ? "Device registered successfully" : "Device re-registered successfully"
@@ -295,8 +295,8 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("[REGISTRATION] Unexpected error:", error)
     return NextResponse.json(
-      { 
-        error: "Internal server error", 
+      {
+        error: "Internal server error",
         details: error?.message || "Unknown error",
         stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
       },

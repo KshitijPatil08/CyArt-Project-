@@ -372,15 +372,17 @@ export default function SecurityDashboard() {
               <List className="w-4 h-4" />
               List View
             </Button>
-            <Button
-              variant={viewMode === 'topology' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('topology')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <Network className="w-4 h-4" />
-              Network Topology
-            </Button>
+            {userRole === 'admin' && (
+              <Button
+                variant={viewMode === 'topology' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('topology')}
+                className="gap-2 whitespace-nowrap"
+              >
+                <Network className="w-4 h-4" />
+                Network Topology
+              </Button>
+            )}
             {userRole === 'admin' && (
               <>
                 <Button

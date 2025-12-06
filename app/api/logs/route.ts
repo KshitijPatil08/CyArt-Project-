@@ -13,9 +13,16 @@ export async function GET(request: NextRequest) {
     const severity = searchParams.get("severity");
     const usbOnly = searchParams.get("usb_only") === "true";
 
+    const { data: { user } } = await supabase.auth.getUser();
+
     let query = supabase
       .from("logs")
-      .select("*", { count: "exact" });
+      .select("*, devices!inner(owner)", { count: "exact" });
+
+    // RBAC: If not admin, only show logs for user's devices
+    if (user?.user_metadata?.role !== 'admin' && user?.email) {
+      query = query.eq("devices.owner", user.email);
+    }
 
     if (device_id) {
       query = query.eq("device_id", device_id);
