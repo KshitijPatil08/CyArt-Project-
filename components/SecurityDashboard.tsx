@@ -66,7 +66,6 @@ export default function SecurityDashboard() {
   const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine' | 'rules'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
-  const [userDeviceStatus, setUserDeviceStatus] = useState<ServerStatus>('offline'); // For standard users
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -121,26 +120,6 @@ export default function SecurityDashboard() {
       setLoading(false);
     }
   };
-
-  // Separate effect to update user device status when userEmail or devices change
-  useEffect(() => {
-    if (!userEmail || devices.length === 0) {
-      setUserDeviceStatus('offline');
-      return;
-    }
-
-    const userDevices = devices.filter((d: Device) =>
-      !d.is_server &&
-      d.owner?.toLowerCase().trim() === userEmail.toLowerCase().trim()
-    );
-
-    if (userDevices.length > 0) {
-      const isUserDeviceOnline = userDevices.some((d: Device) => d.status === 'online');
-      setUserDeviceStatus(isUserDeviceOnline ? 'online' : 'offline');
-    } else {
-      setUserDeviceStatus('offline');
-    }
-  }, [userEmail, devices]);
 
   const fetchLogs = async () => {
     try {
@@ -395,19 +374,15 @@ export default function SecurityDashboard() {
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                    {userRole === 'admin' ? 'Server Control' : 'Device Control'}
-                  </p>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Server Control</p>
                   <div className="flex items-center gap-3">
-                    <div className={`p-3 rounded-full ${(userRole === 'admin' ? serverStatus : userDeviceStatus) === 'online' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
-                      <Wifi className={`w-5 h-5 ${(userRole === 'admin' ? serverStatus : userDeviceStatus) === 'online' ? 'text-emerald-600' : 'text-rose-600'}`} />
+                    <div className={`p-3 rounded-full ${serverStatus === 'online' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+                      <Wifi className={`w-5 h-5 ${serverStatus === 'online' ? 'text-emerald-600' : 'text-rose-600'}`} />
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground font-medium mb-0.5">
-                        {userRole === 'admin' ? 'Server Status' : 'Agent Status'}
-                      </p>
-                      <p className={`text-xl font-bold ${(userRole === 'admin' ? serverStatus : userDeviceStatus) === 'online' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {(userRole === 'admin' ? serverStatus : userDeviceStatus) === 'online' ? 'Online' : 'Offline'}
+                      <p className="text-xs text-muted-foreground font-medium mb-0.5">Server Status</p>
+                      <p className={`text-xl font-bold ${serverStatus === 'online' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {serverStatus === 'online' ? 'Online' : 'Offline'}
                       </p>
                     </div>
                   </div>
@@ -418,7 +393,7 @@ export default function SecurityDashboard() {
                       variant="outline"
                       size="icon"
                       disabled={userRole !== 'admin'}
-                      className={`h-10 w-10 rounded-full border ${(userRole === 'admin' ? serverStatus : userDeviceStatus) === 'online'
+                      className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
                         ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
                         : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
                         }`}
@@ -426,7 +401,7 @@ export default function SecurityDashboard() {
                       <div className="relative">
                         <Zap className="w-4 h-4" />
                         <span
-                          className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${(userRole === 'admin' ? serverStatus : userDeviceStatus) === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
+                          className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
                             }`}
                         ></span>
                       </div>
