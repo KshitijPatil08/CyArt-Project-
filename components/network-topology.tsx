@@ -185,7 +185,7 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
     const CENTER_X = 0
     const CENTER_Y = 0
 
-    // Place Main Server
+    // Place Main Server (only if it exists)
     if (mainServer) {
       nodes.push({
         id: mainServer.device_id,
@@ -197,20 +197,6 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
           status: mainServer.status,
           deviceType: 'server',
           isQuarantined: mainServer.is_quarantined,
-          userRole: userRole,
-        },
-        zIndex: 100,
-      })
-    } else {
-      nodes.push({
-        id: 'virtual-server',
-        type: 'device',
-        position: { x: CENTER_X, y: CENTER_Y },
-        data: {
-          label: 'Central Server',
-          ipAddress: 'N/A',
-          status: 'online',
-          deviceType: 'server',
           userRole: userRole,
         },
         zIndex: 100,
