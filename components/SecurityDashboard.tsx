@@ -270,8 +270,21 @@ export default function SecurityDashboard() {
         // 1. Hide server devices from list (they are strictly for status indicator)
         if (device.is_server) return false;
 
-        // 2. Only show devices owned by the user (case-insensitive)
-        if (device.owner?.toLowerCase().trim() !== userEmail.toLowerCase().trim()) return false;
+        // 2. Only show devices owned by the user (fuzzy match)
+        const ownerLower = device.owner?.toLowerCase().trim() || '';
+        const emailLower = userEmail.toLowerCase().trim();
+        const username = emailLower.split('@')[0];
+
+        // Match if:
+        // - Exact match
+        // - Owner contains username (e.g. owner="john-pc", email="john@...")
+        // - Email contains owner (e.g. owner="john", email="john.doe@...")
+        const isMatch =
+          ownerLower === emailLower ||
+          ownerLower.includes(username) ||
+          (ownerLower.length > 3 && emailLower.includes(ownerLower));
+
+        if (!isMatch) return false;
       }
 
       return (
@@ -589,48 +602,50 @@ export default function SecurityDashboard() {
                     </div>
                   </div>
 
-                  {/* Whitelisted USBs Section */}
-                  <div className="bg-card border rounded-lg shadow-sm">
-                    <div className="p-4 border-b">
-                      <h2 className="text-lg font-semibold text-foreground">Whitelisted USB Devices</h2>
-                      <p className="text-xs text-muted-foreground">Standard authorized devices for this machine</p>
-                    </div>
-                    <div className="p-0">
-                      {getDeviceWhitelistedUSBs(selectedDevice.hostname).length > 0 ? (
-                        <div className="divide-y">
-                          {getDeviceWhitelistedUSBs(selectedDevice.hostname).map((usb, idx) => (
-                            <div key={usb.id || idx} className="p-4 flex items-center justify-between hover:bg-muted/50 transition-colors">
-                              <div className="flex items-center gap-3">
-                                <div className="p-2 bg-emerald-50 dark:bg-emerald-500/10 rounded-full">
-                                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                                </div>
-                                <div>
-                                  <p className="font-medium text-sm">{usb.device_name}</p>
-                                  <div className="flex gap-2 text-xs text-muted-foreground">
-                                    <span>{usb.vendor_name || 'Unknown Vendor'}</span>
-                                    <span>•</span>
-                                    <code className="bg-muted px-1 rounded">{usb.serial_number}</code>
+                  {/* Whitelisted USBs Section - ONLY FOR STANDARD USERS */}
+                  {userRole !== 'admin' && (
+                    <div className="bg-card border rounded-lg shadow-sm">
+                      <div className="p-4 border-b">
+                        <h2 className="text-lg font-semibold text-foreground">Whitelisted USB Devices</h2>
+                        <p className="text-xs text-muted-foreground">Standard authorized devices for this machine</p>
+                      </div>
+                      <div className="p-0">
+                        {getDeviceWhitelistedUSBs(selectedDevice.hostname).length > 0 ? (
+                          <div className="divide-y">
+                            {getDeviceWhitelistedUSBs(selectedDevice.hostname).map((usb, idx) => (
+                              <div key={usb.id || idx} className="p-4 flex items-center justify-between hover:bg-muted/50 transition-colors">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 bg-emerald-50 dark:bg-emerald-500/10 rounded-full">
+                                    <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-sm">{usb.device_name}</p>
+                                    <div className="flex gap-2 text-xs text-muted-foreground">
+                                      <span>{usb.vendor_name || 'Unknown Vendor'}</span>
+                                      <span>•</span>
+                                      <code className="bg-muted px-1 rounded">{usb.serial_number}</code>
+                                    </div>
                                   </div>
                                 </div>
+                                <div className="text-xs">
+                                  {usb.is_active ? (
+                                    <span className="text-emerald-600 font-medium">Active</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">Inactive</span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="text-xs">
-                                {usb.is_active ? (
-                                  <span className="text-emerald-600 font-medium">Active</span>
-                                ) : (
-                                  <span className="text-muted-foreground">Inactive</span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="p-8 text-center text-muted-foreground">
-                          <ShieldCheck className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                          <p className="text-sm">No whitelisted USB devices found for {selectedDevice.hostname}</p>
-                        </div>
-                      )}
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-8 text-center text-muted-foreground">
+                            <ShieldCheck className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                            <p className="text-sm">No whitelisted USB devices found for {selectedDevice.hostname}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="bg-card border rounded-lg shadow-sm">
                     <div className="p-4 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

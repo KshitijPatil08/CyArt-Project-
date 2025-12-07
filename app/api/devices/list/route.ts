@@ -13,9 +13,17 @@ export async function GET() {
       .select('*')
       .order('last_seen', { ascending: false });
 
-    // RBAC: If not admin, show devices owned by user OR devices marked as server (for status check)
+    // RBAC: If not admin, show devices owned by user (permissive) OR server devices
     if (user?.user_metadata?.role !== 'admin' && user?.email) {
-      query = query.or(`owner.eq.${user.email},is_server.eq.true`);
+      const email = user.email;
+      const username = email.split('@')[0];
+
+      // Match if owner = email, or owner contains username, or owner is contained in email, or device is server
+      // Supabase OR filter syntax: column.operator.value,column.operator.value
+      // We use ilike for case-insensitivity and partial matching
+      // Note: "owner is contained in email" is hard to do in one OR string, 
+      // so we rely on "owner ilike %username%" which covers most cases (kshit-pc contains kshit).
+      query = query.or(`owner.eq.${email},owner.ilike.%${username}%,is_server.eq.true`);
     }
 
     const { data: devices, error } = await query;
