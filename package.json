@@ -36,6 +36,7 @@
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "react-hook-form": "latest",
+    "react-hot-toast": "^2.6.0",
     "reactflow": "^11.11.4",
     "recharts": "latest",
     "tailwind-merge": "^2.5.5",

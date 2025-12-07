@@ -69,6 +69,8 @@ export default function SecurityDashboard() {
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [showAssignOwnerDialog, setShowAssignOwnerDialog] = useState(false);
+  const [assignOwnerEmail, setAssignOwnerEmail] = useState('');
 
   const supabase = createClient();
 
@@ -201,6 +203,41 @@ export default function SecurityDashboard() {
     return authorizedUSBs.filter(usb =>
       usb.computer_name?.toLowerCase() === hostname?.toLowerCase()
     );
+  };
+
+  const handleAssignOwner = async () => {
+    if (!selectedDevice || !assignOwnerEmail) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/devices/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: selectedDevice.device_id,
+          owner_email: assignOwnerEmail
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // Update local state
+        setDevices(devices.map(d =>
+          d.device_id === selectedDevice.device_id
+            ? { ...d, owner: assignOwnerEmail }
+            : d
+        ));
+        setSelectedDevice({ ...selectedDevice, owner: assignOwnerEmail });
+        setShowAssignOwnerDialog(false);
+        setAssignOwnerEmail('');
+        alert('Owner assigned successfully!');
+      } else {
+        alert(`Error: ${data.error || 'Failed to assign owner'}`);
+      }
+    } catch (error) {
+      console.error('Error assigning owner:', error);
+      alert('Failed to assign owner. Please try again.');
+    }
   };
 
   const statCards = [
@@ -600,6 +637,24 @@ export default function SecurityDashboard() {
                         </div>
                       )}
                     </div>
+
+                    {/* Assign Owner Button - ONLY FOR ADMINS */}
+                    {userRole === 'admin' && (
+                      <div className="mt-4">
+                        <Button
+                          onClick={() => {
+                            setAssignOwnerEmail(selectedDevice.owner || '');
+                            setShowAssignOwnerDialog(true);
+                          }}
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                        >
+                          <Settings className="w-4 h-4 mr-2" />
+                          Assign Owner
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Whitelisted USBs Section - ONLY FOR STANDARD USERS */}
@@ -712,6 +767,42 @@ export default function SecurityDashboard() {
           </div>
         )}
       </div>
+
+      {/* Assign Owner Dialog */}
+      {showAssignOwnerDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Assign Device Owner</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Enter the email address of the user who should own this device.
+            </p>
+            <Input
+              type="email"
+              placeholder="user@example.com"
+              value={assignOwnerEmail}
+              onChange={(e) => setAssignOwnerEmail(e.target.value)}
+              className="mb-4"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowAssignOwnerDialog(false);
+                  setAssignOwnerEmail('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAssignOwner}
+                disabled={!assignOwnerEmail}
+              >
+                Assign Owner
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
