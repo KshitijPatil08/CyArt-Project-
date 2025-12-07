@@ -96,9 +96,25 @@ export default function SecurityDashboard() {
     try {
       const res = await fetch(`${API_URL}/api/devices/list`);
       const data = await res.json();
+
+      // Helper function to check if device is truly online
+      // A device is online if status is 'online' AND last_seen is within the last 60 seconds
+      const isDeviceTrulyOnline = (device: Device): boolean => {
+        if (device.status !== 'online') return false;
+        if (!device.last_seen) return false;
+
+        const lastSeenTime = new Date(device.last_seen).getTime();
+        const now = Date.now();
+        const OFFLINE_THRESHOLD_MS = 60 * 1000; // 60 seconds
+
+        return (now - lastSeenTime) < OFFLINE_THRESHOLD_MS;
+      };
+
       const normalizedDevices = (data.devices || []).map((device: any) => ({
         ...device,
         device_id: device.device_id || device.id,
+        // Override status based on last_seen for accurate real-time status
+        status: isDeviceTrulyOnline(device) ? 'online' : 'offline',
       }));
       setDevices(normalizedDevices);
 
