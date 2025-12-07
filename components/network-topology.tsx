@@ -185,7 +185,7 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
     const CENTER_X = 0
     const CENTER_Y = 0
 
-    // Place Main Server
+    // Place Main Server - always show actual server when available
     if (mainServer) {
       nodes.push({
         id: mainServer.device_id,
@@ -201,21 +201,8 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
         },
         zIndex: 100,
       })
-    } else {
-      nodes.push({
-        id: 'virtual-server',
-        type: 'device',
-        position: { x: CENTER_X, y: CENTER_Y },
-        data: {
-          label: 'Central Server',
-          ipAddress: 'N/A',
-          status: 'online',
-          deviceType: 'server',
-          userRole: userRole,
-        },
-        zIndex: 100,
-      })
     }
+    // Note: If no server exists, no central server node is shown
 
     const subnets = Array.from(subnetMap.keys())
     const RADIUS = 450

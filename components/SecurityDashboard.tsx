@@ -370,73 +370,126 @@ export default function SecurityDashboard() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-5 mb-8">
-          <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border/40">
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Server Control</p>
-                  <div className="flex items-center gap-3">
-                    <div className={`p-3 rounded-full ${serverStatus === 'online' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
-                      <Wifi className={`w-5 h-5 ${serverStatus === 'online' ? 'text-emerald-600' : 'text-rose-600'}`} />
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground font-medium mb-0.5">Server Status</p>
-                      <p className={`text-xl font-bold ${serverStatus === 'online' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {serverStatus === 'online' ? 'Online' : 'Offline'}
-                      </p>
+          {/* Status Card - Different for Admin vs Standard User */}
+          {userRole === 'admin' ? (
+            // Admin: Server Status Card
+            <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border/40">
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Server Status</p>
+                    <div className="flex items-center gap-3">
+                      <div className={`p-3 rounded-full ${serverStatus === 'online' ? 'bg-emerald-50 dark:bg-emerald-500/20' : 'bg-rose-50 dark:bg-rose-500/20'}`}>
+                        <Wifi className={`w-5 h-5 ${serverStatus === 'online' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground font-medium mb-0.5">Server</p>
+                        <p className={`text-xl font-bold ${serverStatus === 'online' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {serverStatus === 'online' ? 'Online' : 'Offline'}
+                        </p>
+                      </div>
                     </div>
                   </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
+                          ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
+                          : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
+                          }`}
+                      >
+                        <div className="relative">
+                          <Zap className="w-4 h-4" />
+                          <span
+                            className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
+                              }`}
+                          ></span>
+                        </div>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem
+                        onClick={() => updateServerStatus('online')}
+                        className="gap-3"
+                      >
+                        <div className="h-6 w-6 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center">
+                          <Power className="w-3 h-3 text-emerald-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Online</p>
+                          <p className="text-xs text-muted-foreground">Mark server as healthy</p>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => updateServerStatus('offline')}
+                        className="gap-3"
+                      >
+                        <div className="h-6 w-6 rounded-full bg-rose-500/15 border border-rose-500/40 flex items-center justify-center">
+                          <Power className="w-3 h-3 text-rose-500" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Offline</p>
+                          <p className="text-xs text-muted-foreground">Temporarily suppress activity</p>
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      disabled={userRole !== 'admin'}
-                      className={`h-10 w-10 rounded-full border ${serverStatus === 'online'
-                        ? 'border-emerald-500/60 text-emerald-600 hover:bg-emerald-500/10'
-                        : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/10'
-                        }`}
-                    >
-                      <div className="relative">
-                        <Zap className="w-4 h-4" />
-                        <span
-                          className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
-                            }`}
-                        ></span>
-                      </div>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem
-                      onClick={() => updateServerStatus('online')}
-                      className="gap-3"
-                    >
-                      <div className="h-6 w-6 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center">
-                        <Power className="w-3 h-3 text-emerald-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Online</p>
-                        <p className="text-xs text-muted-foreground">Mark agent as healthy</p>
-                      </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => updateServerStatus('offline')}
-                      className="gap-3"
-                    >
-                      <div className="h-6 w-6 rounded-full bg-rose-500/15 border border-rose-500/40 flex items-center justify-center">
-                        <Power className="w-3 h-3 text-rose-500" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Offline</p>
-                        <p className="text-xs text-muted-foreground">Temporarily suppress activity</p>
-                      </div>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
               </div>
             </div>
-          </div>
+          ) : (
+            // Standard User: Agent Status Card (shows their device status)
+            (() => {
+              const userDevices = devices.filter(d =>
+                !d.is_server && d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim()
+              );
+              const onlineDevices = userDevices.filter(d => d.status === 'online');
+              const agentStatus = onlineDevices.length > 0 ? 'online' : 'offline';
+
+              return (
+                <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border/40">
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Agent Status</p>
+                        <div className="flex items-center gap-3">
+                          <div className={`p-3 rounded-full ${agentStatus === 'online' ? 'bg-emerald-50 dark:bg-emerald-500/20' : 'bg-rose-50 dark:bg-rose-500/20'}`}>
+                            <Monitor className={`w-5 h-5 ${agentStatus === 'online' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`} />
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground font-medium mb-0.5">Your Device</p>
+                            <p className={`text-xl font-bold ${agentStatus === 'online' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {agentStatus === 'online' ? 'Online' : 'Offline'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Status indicator only (no dropdown for standard users) */}
+                      <div className={`h-10 w-10 rounded-full border flex items-center justify-center ${agentStatus === 'online'
+                        ? 'border-emerald-500/60 text-emerald-600'
+                        : 'border-rose-500/60 text-rose-500'
+                        }`}>
+                        <div className="relative">
+                          <Activity className="w-4 h-4" />
+                          <span
+                            className={`absolute -right-1 -bottom-1 h-2 w-2 rounded-full ${agentStatus === 'online' ? 'bg-emerald-500' : 'bg-rose-500'
+                              }`}
+                          ></span>
+                        </div>
+                      </div>
+                    </div>
+                    {userDevices.length > 1 && (
+                      <p className="text-xs text-muted-foreground">
+                        {onlineDevices.length} of {userDevices.length} devices online
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()
+          )}
 
           {statCards.map((card) => (
             <div
@@ -543,7 +596,13 @@ export default function SecurityDashboard() {
               <p className="text-sm text-muted-foreground mb-4">
                 Visual representation of connected devices. Green connections indicate online devices, gray indicates offline.
               </p>
-              <NetworkTopology devices={userRole === 'admin' ? devices : filteredDevices} userRole={userRole || 'user'} />
+              <NetworkTopology
+                devices={userRole === 'admin'
+                  ? devices
+                  : [...filteredDevices, ...devices.filter(d => d.is_server)]
+                }
+                userRole={userRole || 'user'}
+              />
             </div>
           </div>
         ) : (
