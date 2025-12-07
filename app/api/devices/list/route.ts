@@ -17,13 +17,13 @@ export async function GET() {
     if (user?.user_metadata?.role !== 'admin' && user?.email) {
       const email = user.email;
       const username = email.split('@')[0];
+      const shortUser = username.length > 4 ? username.substring(0, 4) : username;
 
-      // Match if owner = email, or owner contains username, or owner is contained in email, or device is server
-      // Supabase OR filter syntax: column.operator.value,column.operator.value
-      // We use ilike for case-insensitivity and partial matching
-      // Note: "owner is contained in email" is hard to do in one OR string, 
-      // so we rely on "owner ilike %username%" which covers most cases (kshit-pc contains kshit).
-      query = query.or(`owner.eq.${email},owner.ilike.%${username}%,is_server.eq.true`);
+      // Match if:
+      // 1. owner = email
+      // 2. owner ilike %username% (e.g. owner="kshitijpatilma-pc")
+      // 3. owner ilike %shortUser% (e.g. owner="kshit", shortUser="kshi") - Covers "kshit" for "kshitijpatilma"
+      query = query.or(`owner.eq.${email},owner.ilike.%${username}%,owner.ilike.%${shortUser}%,is_server.eq.true`);
     }
 
     const { data: devices, error } = await query;
@@ -33,7 +33,7 @@ export async function GET() {
     const now = new Date();
     const offlineThreshold = 1 * 60 * 1000; // 1 minute in milliseconds
 
-    const updatedDevices = devices?.map(device => {
+    const updatedDevices = devices?.map((device: any) => {
       const lastSeen = new Date(device.last_seen).getTime();
       const isOffline = (now.getTime() - lastSeen) > offlineThreshold;
 
@@ -53,13 +53,13 @@ export async function GET() {
 
     // Optional: Background update for persistence (fire and forget)
     // We filter for devices that need updating to avoid unnecessary DB calls
-    const devicesToUpdate = updatedDevices?.filter(d =>
-      d.status === 'offline' && devices.find(old => old.id === d.id)?.status === 'online'
+    const devicesToUpdate = updatedDevices?.filter((d: any) =>
+      d.status === 'offline' && devices.find((old: any) => old.id === d.id)?.status === 'online'
     );
 
     if (devicesToUpdate && devicesToUpdate.length > 0) {
       // We don't await this to keep the response fast
-      const idsToUpdate = devicesToUpdate.map(d => d.id);
+      const idsToUpdate = devicesToUpdate.map((d: any) => d.id);
       supabase
         .from('devices')
         .update({ status: 'offline' })
