@@ -72,6 +72,8 @@ export default function SecurityDashboard() {
 
   const supabase = createClient();
 
+  const [authorizedUSBs, setAuthorizedUSBs] = useState<any[]>([]);
+
   useEffect(() => {
     const fetchUserRole = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -147,17 +149,33 @@ export default function SecurityDashboard() {
     }
   };
 
+  const fetchAuthorizedUSBs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("authorized_usb_devices")
+        .select("*");
+      if (!error && data) {
+        setAuthorizedUSBs(data);
+      }
+    } catch (error) {
+      console.error("Error fetching authorized USBs:", error);
+    }
+  };
+
   useEffect(() => {
     fetchDevices();
     fetchLogs();
     fetchAlerts();
     fetchUsbEventsCount();
+    fetchAuthorizedUSBs();
 
     const interval = setInterval(() => {
       fetchDevices();
       fetchLogs();
       fetchAlerts();
       fetchUsbEventsCount();
+      // authorized USBs don't change that often, but we can poll them too or separate it
+      fetchAuthorizedUSBs();
     }, 10000);
 
     return () => clearInterval(interval);
@@ -176,6 +194,12 @@ export default function SecurityDashboard() {
     return getDeviceLogs(deviceId).filter(log =>
       (log.log_type === 'hardware' || log.log_type === 'usb') &&
       (log.hardware_type === 'usb' || log.message?.toLowerCase().includes('usb'))
+    );
+  };
+
+  const getDeviceWhitelistedUSBs = (hostname: string) => {
+    return authorizedUSBs.filter(usb =>
+      usb.computer_name?.toLowerCase() === hostname?.toLowerCase()
     );
   };
 
@@ -407,17 +431,16 @@ export default function SecurityDashboard() {
               <List className="w-4 h-4" />
               List View
             </Button>
-            {userRole === 'admin' && (
-              <Button
-                variant={viewMode === 'topology' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('topology')}
-                className="gap-2 whitespace-nowrap"
-              >
-                <Network className="w-4 h-4" />
-                Network Topology
-              </Button>
-            )}
+            {/* Show topology for everyone, but filtered inside */}
+            <Button
+              variant={viewMode === 'topology' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('topology')}
+              className="gap-2 whitespace-nowrap"
+            >
+              <Network className="w-4 h-4" />
+              Network Topology
+            </Button>
             <Button
               variant={viewMode === 'whitelist' ? 'default' : 'outline'}
               size="sm"
@@ -470,7 +493,7 @@ export default function SecurityDashboard() {
               <p className="text-sm text-muted-foreground mb-4">
                 Visual representation of connected devices. Green connections indicate online devices, gray indicates offline.
               </p>
-              <NetworkTopology devices={devices} />
+              <NetworkTopology devices={userRole === 'admin' ? devices : filteredDevices} userRole={userRole || 'user'} />
             </div>
           </div>
         ) : (
@@ -544,7 +567,12 @@ export default function SecurityDashboard() {
                       </div>
                       <div>
                         <p className="text-sm text-muted-foreground mb-1">Status</p>
-                        <p className="font-medium text-foreground capitalize">{selectedDevice.status}</p>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${selectedDevice.status === 'online' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>
+                          <p className="font-medium text-foreground capitalize">
+                            {selectedDevice.status === 'online' ? 'Connected to Server' : 'Offline'}
+                          </p>
+                        </div>
                       </div>
                       <div>
                         <p className="text-sm text-muted-foreground mb-1">Location</p>
@@ -556,6 +584,49 @@ export default function SecurityDashboard() {
                             <Server className="w-4 h-4" />
                             <span className="font-medium text-sm">Designated Server</span>
                           </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Whitelisted USBs Section */}
+                  <div className="bg-card border rounded-lg shadow-sm">
+                    <div className="p-4 border-b">
+                      <h2 className="text-lg font-semibold text-foreground">Whitelisted USB Devices</h2>
+                      <p className="text-xs text-muted-foreground">Standard authorized devices for this machine</p>
+                    </div>
+                    <div className="p-0">
+                      {getDeviceWhitelistedUSBs(selectedDevice.hostname).length > 0 ? (
+                        <div className="divide-y">
+                          {getDeviceWhitelistedUSBs(selectedDevice.hostname).map((usb, idx) => (
+                            <div key={usb.id || idx} className="p-4 flex items-center justify-between hover:bg-muted/50 transition-colors">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-emerald-50 dark:bg-emerald-500/10 rounded-full">
+                                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-sm">{usb.device_name}</p>
+                                  <div className="flex gap-2 text-xs text-muted-foreground">
+                                    <span>{usb.vendor_name || 'Unknown Vendor'}</span>
+                                    <span>•</span>
+                                    <code className="bg-muted px-1 rounded">{usb.serial_number}</code>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-xs">
+                                {usb.is_active ? (
+                                  <span className="text-emerald-600 font-medium">Active</span>
+                                ) : (
+                                  <span className="text-muted-foreground">Inactive</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-8 text-center text-muted-foreground">
+                          <ShieldCheck className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                          <p className="text-sm">No whitelisted USB devices found for {selectedDevice.hostname}</p>
                         </div>
                       )}
                     </div>

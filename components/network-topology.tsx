@@ -86,6 +86,7 @@ const DeviceNode = ({ data }: { data: any }) => {
   // Device styling
   const borderColor = data.isQuarantined ? 'border-red-500' : (isOnline ? 'border-green-500' : 'border-gray-500')
   const bgColor = data.isQuarantined ? 'bg-red-950/30' : 'bg-slate-900'
+  const showIp = data.userRole === 'admin'
 
   return (
     <div className={`px-3 py-2 ${bgColor} border ${borderColor} rounded shadow-sm w-[160px] relative`}>
@@ -110,9 +111,11 @@ const DeviceNode = ({ data }: { data: any }) => {
           <h3 className="font-semibold text-xs text-slate-200 truncate" title={data.label}>{data.label}</h3>
         </div>
       </div>
-      <div className="text-[10px] text-slate-400 truncate">
-        {data.ipAddress}
-      </div>
+      {showIp && (
+        <div className="text-[10px] text-slate-400 truncate">
+          {data.ipAddress}
+        </div>
+      )}
     </div>
   )
 }
@@ -150,7 +153,12 @@ const edgeTypes = {
   wired: WiredEdge,
 }
 
-export function NetworkTopology({ devices }: NetworkTopologyProps) {
+interface NetworkTopologyProps {
+  devices: Device[]
+  userRole?: string
+}
+
+export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyProps) {
   const { initialNodes, initialEdges } = useMemo(() => {
     if (devices.length === 0) return { initialNodes: [], initialEdges: [] }
 
@@ -189,6 +197,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           status: mainServer.status,
           deviceType: 'server',
           isQuarantined: mainServer.is_quarantined,
+          userRole: userRole,
         },
         zIndex: 100,
       })
@@ -202,6 +211,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           ipAddress: 'N/A',
           status: 'online',
           deviceType: 'server',
+          userRole: userRole,
         },
         zIndex: 100,
       })
@@ -229,13 +239,25 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
       const groupId = `group-${subnet}`
       const switchId = `switch-${subnet}`
 
+      // Subnet Label Logic
+      // If admin, show actual subnet IP part. If user, show friendly name.
+      // We'll simulate friendly names based on the subnet index or last octet for demo.
+      // In a real app we'd need a mapping table.
+      let subnetLabel = `Subnet ${subnet}.x`
+      if (userRole !== 'admin') {
+        // Simple hashing or mapping to create a consistent Department name
+        const departments = ['HR Department', 'Engineering', 'Sales', 'Finance', 'Marketing', 'Operations']
+        const deptIndex = subnet.split('.').reduce((acc, part) => acc + parseInt(part), 0) % departments.length
+        subnetLabel = departments[deptIndex]
+      }
+
       // Subnet Group Node (Parent)
       nodes.push({
         id: groupId,
         type: 'subnet',
         position: { x: groupBoxX, y: groupBoxY },
         style: { width: subnetWidth, height: subnetHeight },
-        data: { label: `Subnet ${subnet}.x` },
+        data: { label: subnetLabel },
         zIndex: -1,
       })
 
@@ -250,6 +272,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
           label: 'Switch',
           deviceType: 'switch',
           status: 'online',
+          userRole: userRole,
         },
         zIndex: 10,
       })
@@ -290,6 +313,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
             status: agent.status,
             deviceType: agent.device_type || 'unknown',
             isQuarantined: agent.is_quarantined,
+            userRole: userRole,
           },
           zIndex: 60, // Higher than edges
         })
@@ -319,7 +343,7 @@ export function NetworkTopology({ devices }: NetworkTopologyProps) {
     })
 
     return { initialNodes: nodes, initialEdges: edges }
-  }, [devices])
+  }, [devices, userRole])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
