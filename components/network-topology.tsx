@@ -201,8 +201,22 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
         },
         zIndex: 100,
       })
+    } else {
+      // Fallback: Show a placeholder server node if no server is registered
+      nodes.push({
+        id: 'virtual-server',
+        type: 'device',
+        position: { x: CENTER_X, y: CENTER_Y },
+        data: {
+          label: 'Server',
+          ipAddress: '',
+          status: 'offline',
+          deviceType: 'server',
+          userRole: userRole,
+        },
+        zIndex: 100,
+      })
     }
-    // Note: If no server exists, no central server node is shown
 
     const subnets = Array.from(subnetMap.keys())
     const RADIUS = 450
