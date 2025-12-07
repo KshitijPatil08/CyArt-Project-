@@ -324,10 +324,18 @@ export default function SecurityDashboard() {
         if (!isMatch) return false;
       }
 
+      // Search filter (with null-safety)
+      if (!searchQuery) return true;
+
+      const deviceName = (device.device_name || '').toLowerCase();
+      const hostname = (device.hostname || '').toLowerCase();
+      const ipAddress = device.ip_address || '';
+      const searchLower = searchQuery.toLowerCase();
+
       return (
-        device.device_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        device.hostname.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        device.ip_address.includes(searchQuery)
+        deviceName.includes(searchLower) ||
+        hostname.includes(searchLower) ||
+        ipAddress.includes(searchQuery)
       );
     })
   ), [devices, searchQuery, userRole, userEmail]);
