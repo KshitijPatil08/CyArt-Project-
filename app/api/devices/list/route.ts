@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   try {
-    // 1. Authenticate user using standard client (cookie-based)
+    // 1. Authenticate user
     const supabaseWithAuth = await createClient();
     const { data: { user } } = await supabaseWithAuth.auth.getUser();
 
@@ -12,56 +12,59 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 2. Initialize Admin Client (Bypass RLS)
-    const adminClient = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY! || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    console.log("[DEBUG] User:", user.email, "Role:", user.user_metadata?.role);
 
-    let query = adminClient
+    // 2. Initialize Admin Client with error handling
+    let adminClient;
+    try {
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+      if (!supabaseUrl) {
+        throw new Error("NEXT_PUBLIC_SUPABASE_URL is not defined");
+      }
+      if (!serviceRoleKey && !anonKey) {
+        throw new Error("No Supabase key available");
+      }
+
+      console.log("[DEBUG] Service Role Key exists:", !!serviceRoleKey);
+      console.log("[DEBUG] Using key type:", serviceRoleKey ? "SERVICE_ROLE" : "ANON");
+
+      adminClient = createSupabaseClient(
+        supabaseUrl,
+        serviceRoleKey || anonKey!
+      );
+    } catch (initError: any) {
+      console.error("[DEBUG] Failed to initialize Supabase client:", initError);
+      return NextResponse.json({
+        error: "Failed to initialize database client",
+        details: initError.message
+      }, { status: 500 });
+    }
+
+    // 3. Fetch ALL devices (NO FILTERING)
+    const { data: allDevices, error } = await adminClient
       .from('devices')
       .select('*')
       .order('last_seen', { ascending: false });
 
-    // Fetch ALL devices first (server-side only)
-    const { data: allDevices, error } = await query;
     if (error) {
-      console.error("Device fetch error:", error);
-      throw error;
+      console.error("[DEBUG] Device fetch error:", error);
+      return NextResponse.json({
+        error: "Database error",
+        details: error.message,
+        code: error.code
+      }, { status: 500 });
     }
 
-    let devices = allDevices || [];
+    console.log("[DEBUG] Fetched devices count:", allDevices?.length || 0);
 
-    // Filter in memory for Standard Users
-    if (user.user_metadata?.role !== 'admin') {
-      const email = (user.email || '').toLowerCase();
-      const username = email.split('@')[0];
-
-      devices = devices.filter((device: any) => {
-        if (device.is_server) return true; // Always show server status
-
-        const owner = (device.owner || '').toLowerCase().trim();
-        if (!owner) return false;
-
-        // Permissive Matches:
-        // 1. Exact email match
-        // 2. Owner is contained in email (e.g. owner="kshit", email="kshitij...")
-        // 3. Email/Username contains owner (e.g. owner="kshit", username="kshitij...")
-        // 4. Owner contains username (e.g. owner="kshitij-pc")
-        return (
-          owner === email ||
-          email.includes(owner) ||
-          username.includes(owner) ||
-          owner.includes(username)
-        );
-      });
-    }
-
-    // 2. Check for offline devices (threshold: 1 minute)
+    // 4. NO FILTERING - Return all for now
     const now = new Date();
-    const offlineThreshold = 1 * 60 * 1000; // 1 minute in milliseconds
+    const offlineThreshold = 1 * 60 * 1000;
 
-    const updatedDevices = devices.map((device: any) => {
+    const updatedDevices = (allDevices || []).map((device: any) => {
       const lastSeen = new Date(device.last_seen).getTime();
       const isOffline = (now.getTime() - lastSeen) > offlineThreshold;
 
@@ -71,31 +74,16 @@ export async function GET() {
       return device;
     });
 
-    // Optional: Background update for persistence
-    const devicesToUpdate = updatedDevices.filter((d: any) =>
-      d.status === 'offline' && devices.find((old: any) => old.id === d.id)?.status === 'online'
-    );
-
-    if (devicesToUpdate.length > 0) {
-      const idsToUpdate = devicesToUpdate.map((d: any) => d.id);
-      adminClient
-        .from('devices')
-        .update({ status: 'offline' })
-        .in('id', idsToUpdate)
-        .then(({ error }) => {
-          if (error) console.error("Error auto-updating offline status:", error);
-        });
-    }
-
     return NextResponse.json({
       success: true,
       count: updatedDevices.length,
       devices: updatedDevices
     });
   } catch (error: any) {
-    console.error("API Error:", error);
+    console.error("[DEBUG] API Error:", error);
+    console.error("[DEBUG] Stack:", error.stack);
     return NextResponse.json(
-      { error: error.message },
+      { error: error.message || "Internal server error", stack: error.stack },
       { status: 500 }
     );
   }
