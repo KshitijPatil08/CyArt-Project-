@@ -383,6 +383,8 @@ func checkQuarantineStatus() {
 	usbReadOnly = q.UsbReadOnly
 	usbExpiration = q.UsbExpiration
 	currentPolicies = q.UsbPolicies
+
+	logMessage(fmt.Sprintf("Received %d USB policies from server", len(currentPolicies)))
 }
 
 func checkPolicies() {

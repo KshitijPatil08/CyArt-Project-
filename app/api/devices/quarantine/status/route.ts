@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       const { data: usbData, error: usbError } = await supabase
         .from("authorized_usb_devices")
         .select("serial_number, is_active, is_read_only, expiration_date, allowed_start_time, allowed_end_time, max_daily_transfer_mb")
-        .eq("computer_name", deviceWithHostname.hostname)
+        .or(`computer_name.eq.${deviceWithHostname.hostname},computer_name.is.null`)
 
       if (!usbError && usbData) {
         usbPolicies = usbData
