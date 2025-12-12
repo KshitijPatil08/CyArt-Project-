@@ -15,8 +15,99 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
+	"github.com/google/gopacket/pcap"
 	"golang.org/x/sys/windows/svc"
 )
+
+
+
+func captureLLDP() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	// Wait for network to be ready
+	time.Sleep(10 * time.Second)
+	logMessage("Initializing LLDP Capture...")
+
+	devices, err := pcap.FindAllDevs()
+	if err != nil {
+		logMessage("LLDP Error: Could not list interfaces: " + err.Error())
+		return
+	}
+
+	for _, device := range devices {
+		// Ignore loopback
+		if strings.Contains(strings.ToLower(device.Description), "loopback") {
+			continue
+		}
+
+		go func(dev pcap.Interface) {
+			// SNAPLEN=1600, Promiscuous=true, Timeout=30s
+			handle, err := pcap.OpenLive(dev.Name, 1600, true, 30*time.Second)
+			if err != nil {
+				// Often fails on wifi adapters or non-active ones
+				return
+			}
+			defer handle.Close()
+
+			// Filter only LLDP packets (EtherType 0x88cc)
+			if err := handle.SetBPFFilter("ether proto 0x88cc"); err != nil {
+				logMessage("LLDP: Failed to set BPF filter on " + dev.Description)
+				return
+			}
+
+			packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+			for packet := range packetSource.Packets() {
+				lldpLayer := packet.Layer(layers.LayerTypeLinkLayerDiscovery)
+				if lldpLayer != nil {
+					lldp := lldpLayer.(*layers.LinkLayerDiscovery)
+					
+					var chassisID, portID, sysName string
+					
+					for _, tlv := range lldp.Values {
+						switch tlv.Type {
+						case layers.LLDPTLVChassisID:
+							chassisID = string(tlv.Value)
+						case layers.LLDPTLVPortID:
+							portID = string(tlv.Value)
+						case layers.LLDPTLVSysName:
+							sysName = string(tlv.Value)
+						}
+					}
+					
+					info := fmt.Sprintf("Switch: %s | Port: %s | Chassis: %s", sysName, portID, chassisID)
+					if info != lldpNeighborInfo {
+						lldpNeighborInfo = info
+						logMessage("LLDP Discovery: " + info)
+						
+						// Send Log immediately
+						sendLog(LogEntry{
+							DeviceID:     deviceID,
+							DeviceName:   deviceName,
+							Hostname:     getHostname(),
+							LogType:      "network_topology", // Special type
+							HardwareType: "switch",
+							Event:        "lldp_discovery",
+							Source:       "lldp-agent",
+							Severity:     "info",
+							Message:      "LLDP Neighbor Found: " + info,
+							Timestamp:    time.Now().UTC().Format(time.RFC3339),
+							RawData: map[string]interface{}{
+								"switch_name": sysName,
+								"port_id":     portID,
+								"chassis_id":  chassisID,
+								"interface":   dev.Description,
+							},
+						})
+					}
+				}
+			}
+		}(device)
+	}
+}
 
 const (
 	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
@@ -55,6 +146,7 @@ var (
 	
 	// Track connected USBs to detect disconnects
 	lastConnectedUSB = make(map[string]bool)
+	lldpNeighborInfo string
 )
 
 type DeviceRegistration struct {
@@ -143,6 +235,7 @@ func init() {
 	}
 
 	loadDeviceID()
+	go captureLLDP()
 }
 
 func detectServer() string {
