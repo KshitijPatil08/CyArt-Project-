@@ -16,6 +16,23 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
+echo Checking for Npcap...
+if exist "%ProgramFiles%\Npcap" (
+    echo Npcap is already installed.
+) else (
+    echo Npcap not found. Installing...
+    if exist "%~dp0npcap-1.85.exe" (
+        echo Running Npcap installer silently...
+        "%~dp0npcap-1.85.exe" /loopback_support=yes /winpcap_mode=yes /admin_only=no /S
+        if %errorLevel% neq 0 (
+             echo Warning: Npcap installation might have failed.
+        ) else (
+             echo Npcap installed successfully.
+        )
+    ) else (
+        echo Warning: Npcap installer not found in package!
+    )
+)
 
 echo Stopping existing services...
 

@@ -92,8 +92,58 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "✓ Agent compiled successfully: $exePath" -ForegroundColor Green
 
+# ---------------------------------------------------------
+# Npcap Bundling Logic
+# ---------------------------------------------------------
+$npcapInstaller = Get-ChildItem -Path $SCRIPT_DIR -Filter "npcap-*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$npcapName = ""
+
+if ($npcapInstaller) {
+    Write-Host "Found Npcap installer: $($npcapInstaller.Name)" -ForegroundColor Green
+    Copy-Item -Path $npcapInstaller.FullName -Destination (Join-Path $OUTPUT_DIR $npcapInstaller.Name) -Force
+    $npcapName = $npcapInstaller.Name
+}
+else {
+    Write-Host "Warning: Npcap installer (npcap-*.exe) not found in script directory." -ForegroundColor Yellow
+    Write-Host "  The agent requires Npcap for LLDP features." -ForegroundColor Yellow
+    Write-Host "  Please download it from https://npcap.com/#download and place it in: $SCRIPT_DIR" -ForegroundColor Yellow
+}
+
 # Create installer script (install.bat)
-$installerScript = @'
+# We inject the Npcap logic dynamically based on whether we found the installer or not
+$npcapInstallLogic = ""
+if ($npcapName) {
+    $npcapInstallLogic = @"
+echo Checking for Npcap...
+if exist "%ProgramFiles%\Npcap" (
+    echo Npcap is already installed.
+) else (
+    echo Npcap not found. Installing...
+    if exist "%~dp0$npcapName" (
+        echo Running Npcap installer silently...
+        "%~dp0$npcapName" /loopback_support=yes /winpcap_mode=yes /admin_only=no /S
+        if %errorLevel% neq 0 (
+             echo Warning: Npcap installation might have failed.
+        ) else (
+             echo Npcap installed successfully.
+        )
+    ) else (
+        echo Warning: Npcap installer not found in package!
+    )
+)
+"@
+}
+else {
+    $npcapInstallLogic = @"
+echo Checking for Npcap...
+if not exist "%ProgramFiles%\Npcap" (
+    echo WARNING: Npcap is NOT installed. LLDP features will not work.
+    echo Please install Npcap manually to enable network discovery.
+)
+"@
+}
+
+$installerScript = @"
 @echo off
 REM CyArt Security Agent Installer
 REM Version 3.0.0
@@ -112,6 +162,7 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
+$npcapInstallLogic
 
 echo Stopping existing services...
 
@@ -182,7 +233,7 @@ echo.
 echo Logs can be found at: %APPDATA%\CyArtAgent\agent.log
 echo.
 pause
-'@
+"@
 
 $installerScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "install.bat") -Encoding ASCII
 
@@ -230,6 +281,11 @@ $uninstallerScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "uninstall.bat") 
 
 # Copy executable to deployment folder
 Copy-Item -Path $exePath -Destination (Join-Path $OUTPUT_DIR "CyArtAgent.exe") -Force
+
+# Copy Npcap if found found (already copied above, but good for completeness to check)
+if ($npcapInstaller) {
+    Copy-Item -Path $npcapInstaller.FullName -Destination (Join-Path $OUTPUT_DIR $npcapInstaller.Name) -Force
+}
 
 # Create Group Policy deployment script
 $gpoScript = @'

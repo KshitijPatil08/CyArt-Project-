@@ -176,7 +176,7 @@ func scanWifiAccessPoint() {
 }
 
 const (
-	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
+	DEFAULT_API_URL = "http://dummy-server.com" // replaced by build script
 	POLL_INTERVAL             = 3 * time.Second // Faster polling for USB
 	CHECK_QUARANTINE_INTERVAL = 5 * time.Second
 	REGISTRATION_FILE         = "device_id.txt"
@@ -1364,6 +1364,7 @@ func isAdmin() bool {
 	}
 	return false
 }
+
 
 
 
