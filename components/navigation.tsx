@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
+import Image from "next/image"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -87,8 +88,13 @@ export function Navigation() {
           {/* Logo and Desktop Navigation */}
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <Monitor className="w-5 h-5 text-primary" />
+              <div className="relative w-8 h-8">
+                <Image
+                  src="/cyart-logo.png"
+                  alt="CyArt Security"
+                  fill
+                  className="rounded-lg object-contain"
+                />
               </div>
               <span className="text-xl font-bold text-foreground">CyArt Security</span>
             </Link>
