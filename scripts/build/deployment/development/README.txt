@@ -25,7 +25,7 @@ Method 3: SCCM Deployment
 2. Use sccm-install.ps1 as install script
 3. Deploy to target collection
 
-Server URL: https://lily-recrudescent-scantly.ngrok-free.dev
+Server URL:  https://lily-recrudescent-scantly.ngrok-free.dev
 
 System Requirements:
 - Windows 7/Server 2008 R2 or later

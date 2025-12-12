@@ -1,6 +1,7 @@
 ﻿package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -548,7 +549,7 @@ func getConnectedUSBDevices() []string {
 	return serials
 }
 
-var currentPolicies []UsbPolicy // Global variable to store policies
+// currentPolicies is already declared globally at line 53
 
 func trackUSBDataUsage() {
 	// Simple polling of disk usage for Removable disks
@@ -1204,6 +1205,8 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
 
 
 
