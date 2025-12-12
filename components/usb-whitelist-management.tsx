@@ -547,7 +547,9 @@ export function USBWhitelistManagement() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <code className="text-xs bg-muted px-2 py-1 rounded">{device.serial_number}</code>
+                            <code className="text-xs bg-muted px-2 py-1 rounded">
+                              {userRole === 'admin' ? device.serial_number : '••••••••'}
+                            </code>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">

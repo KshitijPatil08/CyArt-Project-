@@ -19,8 +19,8 @@ import (
 
 const (
 	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
-	POLL_INTERVAL             = 30 * time.Second
-	CHECK_QUARANTINE_INTERVAL = 10 * time.Second
+	POLL_INTERVAL             = 3 * time.Second // Faster polling for USB
+	CHECK_QUARANTINE_INTERVAL = 5 * time.Second
 	REGISTRATION_FILE         = "device_id.txt"
 	LOG_FILE                  = "agent.log"
 	CONFIG_FILE               = "agent.config"
@@ -33,7 +33,13 @@ var (
 	deviceName    string
 	owner         string
 	location      string
+	
+	// Base64 Encoded API URL for Obfuscation
+	// "http://localhost:3000" -> "aHR0cDovL2xvY2FsaG9zdDozMDAw"
+	// Current default: https://lily-recrudescent-scantly.ngrok-free.dev
+	encodedAPIURL = "aHR0cHM6Ly9saWx5LXJlY3J1ZGVzY2VudC1zY2FudGx5Lm5ncm9rLWZyZWUuZGV2" 
 	apiURL        string
+	
 	agentDir      string
 	isQuarantined = false
 	// Rate limiting for network logs: key = "process:remote_ip:port", value = last log time
@@ -44,6 +50,10 @@ var (
 	usbReadOnly    bool
 	usbExpiration  string
 	usbUsageMB     float64
+	currentPolicies []UsbPolicy
+	
+	// Track connected USBs to detect disconnects
+	lastConnectedUSB = make(map[string]bool)
 )
 
 type DeviceRegistration struct {
@@ -109,7 +119,28 @@ func init() {
 	owner = getUsername()
 	location = "Office"
 
-	apiURL = loadOrDetectServerURL()
+	// Obfuscation: Decode API URL at runtime
+	decoded, err := base64.StdEncoding.DecodeString(encodedAPIURL)
+	if err != nil {
+		// Fallback if decoding fails
+		apiURL = "http://localhost:3000"
+	} else {
+		apiURL = string(decoded)
+	}
+	// Note: loadOrDetectServerURL might overwrite this if config exists
+	// But we set the default here.
+	
+	// If config exists, it takes precedence. 
+	// If not, we use the decoded URL as the default to check or save.
+	if cfgURL := loadOrDetectServerURL(); cfgURL != "" {
+		apiURL = cfgURL
+	} else {
+		// If loadOrDetect returns empty (shouldn't if valid), or if we want to enforce the decoded one
+		// actually loadOrDetect calls detectServer which usage DEFAULT_API_URL.
+		// We should update DEFAULT_API_URL usage or just set apiURL here.
+		// Let's rely on loadOrDetectServerURL but use apiURL as fallback if needed.
+	}
+
 	loadDeviceID()
 }
 
@@ -628,6 +659,8 @@ func trackUSBDevices() {
 
 	hostname := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
+	
+	currentConnected := make(map[string]bool)
 
 	for _, d := range list {
 		name, _ := d["Name"].(string)
@@ -638,6 +671,8 @@ func trackUSBDevices() {
 			parts := strings.Split(pnp, "\\")
 			serial = parts[len(parts)-1]
 		}
+		
+		currentConnected[serial] = true
 
 		vendor := ""
 		if i := strings.Index(pnp, "VID_"); i >= 0 && i+8 <= len(pnp) {
@@ -657,20 +692,47 @@ func trackUSBDevices() {
 			"pnp_device_id": pnp,
 		}
 
-		sendLog(LogEntry{
-			DeviceID:     deviceID,
-			DeviceName:   deviceName, // Use actual device name, not USB device name
-			Hostname:     hostname,
-			LogType:      "usb",
-			HardwareType: "usb",
-			Event:        "connected",
-			Source:       "windows-agent",
-			Severity:     "info",
-			Message:      "USB connected: " + name,
-			Timestamp:    ts,
-			RawData:      raw,
-		})
+		// Only log if it's a NEW connection
+		if !lastConnectedUSB[serial] {
+			sendLog(LogEntry{
+				DeviceID:     deviceID,
+				DeviceName:   deviceName,
+				Hostname:     hostname,
+				LogType:      "usb",
+				HardwareType: "usb",
+				Event:        "connected",
+				Source:       "windows-agent",
+				Severity:     "info",
+				Message:      "USB connected: " + name,
+				Timestamp:    ts,
+				RawData:      raw,
+			})
+		}
 	}
+
+	// Detect Disconnected Devices
+	for serial := range lastConnectedUSB {
+		if !currentConnected[serial] {
+			// It was connected, now it's not -> Disconnected
+			logMessage(fmt.Sprintf("USB Disconnect detected: %s", serial))
+			
+			sendLog(LogEntry{
+				DeviceID:     deviceID,
+				DeviceName:   deviceName,
+				Hostname:     hostname,
+				LogType:      "usb",
+				HardwareType: "usb",
+				Event:        "disconnected",
+				Source:       "windows-agent",
+				Severity:     "info",
+				Message:      "USB disconnected: " + serial,
+				Timestamp:    ts,
+				RawData:      map[string]interface{}{"serial_number": serial},
+			})
+		}
+	}
+	
+	lastConnectedUSB = currentConnected
 }
 
 func trackNetworkConnections() {
