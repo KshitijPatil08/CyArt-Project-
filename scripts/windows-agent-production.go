@@ -76,14 +76,25 @@ type Config struct {
 	ServerURL string `json:"server_url"`
 }
 
+type UsbPolicy struct {
+	SerialNumber       string  `json:"serial_number"`
+	IsActive           bool    `json:"is_active"`
+	IsReadOnly         bool    `json:"is_read_only"`
+	ExpirationDate     string  `json:"expiration_date"`
+	AllowedStartTime   string  `json:"allowed_start_time"`
+	AllowedEndTime     string  `json:"allowed_end_time"`
+	MaxDailyTransferMB float64 `json:"max_daily_transfer_mb"`
+}
+
 type QuarantineStatus struct {
-	IsQuarantined    bool    `json:"is_quarantined"`
-	QuarantineReason string  `json:"quarantine_reason"`
-	QuarantinedAt    string  `json:"quarantined_at"`
-	QuarantinedBy    string  `json:"quarantined_by"`
-	UsbDataLimitMB   float64 `json:"usb_data_limit_mb"`
-	UsbReadOnly      bool    `json:"usb_read_only"`
-	UsbExpiration    string  `json:"usb_expiration_date"`
+	IsQuarantined    bool        `json:"is_quarantined"`
+	QuarantineReason string      `json:"quarantine_reason"`
+	QuarantinedAt    string      `json:"quarantined_at"`
+	QuarantinedBy    string      `json:"quarantined_by"`
+	UsbDataLimitMB   float64     `json:"usb_data_limit_mb"`
+	UsbReadOnly      bool        `json:"usb_read_only"`
+	UsbExpiration    string      `json:"usb_expiration_date"`
+	UsbPolicies      []UsbPolicy `json:"usb_policies"`
 }
 
 func init() {
@@ -371,33 +382,140 @@ func checkQuarantineStatus() {
 	usbDataLimitMB = q.UsbDataLimitMB
 	usbReadOnly = q.UsbReadOnly
 	usbExpiration = q.UsbExpiration
+	currentPolicies = q.UsbPolicies
 }
 
 func checkPolicies() {
-	// 1. Expiration Check
+	// 1. Get Connected USB Devices
+	connectedSerials := getConnectedUSBDevices()
+
+	shouldBlock := false
+	shouldReadOnly := false
+	
+	// Check Global Policies
 	if usbExpiration != "" {
 		expiry, err := time.Parse(time.RFC3339, usbExpiration)
 		if err == nil && time.Now().After(expiry) {
-			if !isQuarantined {
-				logMessage("⚠️ USB Access Expired")
-				enforceQuarantine("USB Access Policy Expired")
+			shouldBlock = true
+			logMessage("⚠️ Global USB Access Expired")
+		}
+	}
+	if usbReadOnly {
+		shouldReadOnly = true
+	}
+
+	// Check Per-Device Policies
+	for _, serial := range connectedSerials {
+		// Find policy for this serial
+		var policy *UsbPolicy
+		for _, p := range currentPolicies { // We need to store policies globally or pass them
+			if p.SerialNumber == serial {
+				policy = &p
+				break
 			}
-			return
+		}
+
+		if policy != nil {
+			// A. Block Check (IsActive = false means Blocked)
+			if !policy.IsActive {
+				shouldBlock = true
+				logMessage(fmt.Sprintf("⛔ Device %s is DISABLED by policy", serial))
+			}
+
+			// B. Expiration Check
+			if policy.ExpirationDate != "" {
+				// Parse date (YYYY-MM-DD or RFC3339)
+				// The component sends YYYY-MM-DD. Let's try to parse that.
+				expiry, err := time.Parse("2006-01-02", policy.ExpirationDate)
+				if err != nil {
+					expiry, err = time.Parse(time.RFC3339, policy.ExpirationDate)
+				}
+
+				if err == nil {
+					// Check if end of that day has passed? Or just strict date comparison.
+					// Usually expiration means "valid until end of this date".
+					// Let's strictly compare Day.
+					now := time.Now()
+					if now.After(expiry.Add(24 * time.Hour)) { // Expired after the date passed
+						shouldBlock = true // Or ReadOnly? Usually Expired = No Access.
+						logMessage(fmt.Sprintf("⛔ Device %s license EXPIRED", serial))
+					}
+				}
+			}
+
+			// C. Time Window Check
+			if policy.AllowedStartTime != "" && policy.AllowedEndTime != "" {
+				now := time.Now()
+				currentHM := now.Format("15:04")
+				if currentHM < policy.AllowedStartTime || currentHM > policy.AllowedEndTime {
+					shouldBlock = true
+					logMessage(fmt.Sprintf("⛔ Device %s outside allowed hours (%s-%s)", serial, policy.AllowedStartTime, policy.AllowedEndTime))
+				}
+			}
+
+			// D. Read-Only Check
+			if policy.IsReadOnly {
+				shouldReadOnly = true
+				logMessage(fmt.Sprintf("🔒 Device %s enforces Read-Only", serial))
+			}
 		}
 	}
 
-	// 2. Read-Only Enforcement
-	if usbReadOnly {
-		setUSBReadOnly()
+	// Apply Strictest Policy
+	if shouldBlock {
+		blockUSBStorage()
 	} else {
-		setUSBReadWrite()
+		unblockUSBStorage() // Ensure unblocked if allowed
+
+		if shouldReadOnly {
+			setUSBReadOnly()
+		} else {
+			setUSBReadWrite()
+		}
 	}
 
-	// 3. Data Limit Check
+	// Data Usage Tracking (Global for now, or per device if we can map it)
 	if usbDataLimitMB > 0 {
 		trackUSBDataUsage()
 	}
 }
+
+// Helper to get connected USB serials (reusing logic from trackUSBDevices)
+func getConnectedUSBDevices() []string {
+	cmd := exec.Command("powershell", "-Command",
+		"Get-WmiObject Win32_PnPEntity | "+
+			"Where-Object { ($_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*') -and $_.PNPDeviceID -notlike '*ROOT_HUB*' } | "+
+			"Select-Object PNPDeviceID | ConvertTo-Json -Compress")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return []string{}
+	}
+
+	var list []map[string]interface{}
+	// Handle single object vs array JSON return
+	if json.Unmarshal(out, &list) != nil {
+		var single map[string]interface{}
+		if json.Unmarshal(out, &single) == nil {
+			list = []map[string]interface{}{single}
+		}
+	}
+
+	var serials []string
+	for _, d := range list {
+		pnp, _ := d["PNPDeviceID"].(string)
+		if strings.Contains(pnp, "\\") {
+			parts := strings.Split(pnp, "\\")
+			serial := parts[len(parts)-1]
+			// Some serials have &0 at the end (instance ID), strictly speaking it might be part of it.
+			// But usually the real serial is the last part.
+			serials = append(serials, serial)
+		}
+	}
+	return serials
+}
+
+var currentPolicies []UsbPolicy // Global variable to store policies
 
 func trackUSBDataUsage() {
 	// Simple polling of disk usage for Removable disks
@@ -455,25 +573,15 @@ func setUSBReadWrite() {
 }
 
 func enforceQuarantine(reason string) {
-	logMessage("Enforcing quarantine...")
-
-	exec.Command("powershell", "-Command",
-		"Get-NetAdapter | Where-Object {$_.InterfaceDescription -notlike '*Loopback*'} | Disable-NetAdapter -Confirm:$false").Run()
-
+	isQuarantined = true
+	logMessage("🔒 QUARANTINE ENFORCED: " + reason)
 	blockUSBStorage()
-	showQuarantineWarning(reason)
-
-	logMessage("Quarantine enforced")
 }
 
 func releaseQuarantine() {
-	logMessage("Releasing quarantine...")
-
-	exec.Command("powershell", "-Command",
-		"Get-NetAdapter | Enable-NetAdapter -Confirm:$false").Run()
-
+	isQuarantined = false
+	logMessage("✅ Quarantine Released")
 	unblockUSBStorage()
-	logMessage("Quarantine released")
 }
 
 func blockUSBStorage() {
