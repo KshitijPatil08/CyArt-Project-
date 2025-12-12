@@ -46,6 +46,9 @@ try {
 
     # Get needed package
     & go get golang.org/x/sys/windows/svc@latest
+    & go get github.com/google/gopacket
+    & go get github.com/google/gopacket/layers
+    & go get github.com/google/gopacket/pcap
 }
 catch {
     Write-Host "Warning: go get failed or not available in PATH. Make sure 'go' is installed." -ForegroundColor Yellow

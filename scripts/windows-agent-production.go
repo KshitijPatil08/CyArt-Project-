@@ -45,22 +45,27 @@ func captureLLDP() {
 		}
 
 		go func(dev pcap.Interface) {
-			// SNAPLEN=1600, Promiscuous=true, Timeout=30s
+			logMessage("LLDP: Attempting to listen on " + dev.Description)
+			
+			// Promiscuous mode often fails on Wi-Fi on Windows. Try false first if true fails?
+			// Actually, standard is promiscuous=true. But for LLDP (multicast), non-promiscuous might work if multicast is allowed.
 			handle, err := pcap.OpenLive(dev.Name, 1600, true, 30*time.Second)
 			if err != nil {
-				// Often fails on wifi adapters or non-active ones
+				logMessage("LLDP Warning: Failed to open " + dev.Description + ": " + err.Error())
 				return
 			}
 			defer handle.Close()
 
-			// Filter only LLDP packets (EtherType 0x88cc)
 			if err := handle.SetBPFFilter("ether proto 0x88cc"); err != nil {
 				logMessage("LLDP: Failed to set BPF filter on " + dev.Description)
 				return
 			}
+			
+			logMessage("LLDP: Listening on " + dev.Description)
 
 			packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 			for packet := range packetSource.Packets() {
+				// ... existing packet processing ...
 				lldpLayer := packet.Layer(layers.LayerTypeLinkLayerDiscovery)
 				if lldpLayer != nil {
 					lldp := lldpLayer.(*layers.LinkLayerDiscovery)
@@ -79,16 +84,16 @@ func captureLLDP() {
 					}
 					
 					info := fmt.Sprintf("Switch: %s | Port: %s | Chassis: %s", sysName, portID, chassisID)
-					if info != lldpNeighborInfo {
+					// Always log distinct new info
+					if !strings.Contains(lldpNeighborInfo, info) {
 						lldpNeighborInfo = info
 						logMessage("LLDP Discovery: " + info)
 						
-						// Send Log immediately
 						sendLog(LogEntry{
 							DeviceID:     deviceID,
 							DeviceName:   deviceName,
 							Hostname:     getHostname(),
-							LogType:      "network_topology", // Special type
+							LogType:      "network_topology",
 							HardwareType: "switch",
 							Event:        "lldp_discovery",
 							Source:       "lldp-agent",
@@ -106,6 +111,67 @@ func captureLLDP() {
 				}
 			}
 		}(device)
+	}
+
+	// Wi-Fi "LLDP" Fallback (BSSID Discovery)
+	go scanWifiAccessPoint()
+}
+
+func scanWifiAccessPoint() {
+	ticker := time.NewTicker(30 * time.Second)
+	for range ticker.C {
+		cmd := exec.Command("netsh", "wlan", "show", "interfaces")
+		out, err := cmd.Output()
+		if err == nil {
+			output := string(out)
+			var ssid, bssid, signal string
+			lines := strings.Split(output, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "SSID") && !strings.HasPrefix(line, "BSSID") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 { ssid = strings.TrimSpace(parts[1]) }
+				}
+				if strings.HasPrefix(line, "BSSID") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 { 
+						// Reconstruct MAC (it splits on colons)
+						bssid = strings.TrimSpace(strings.Join(parts[1:], ":")) 
+					}
+				}
+				if strings.HasPrefix(line, "Signal") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 { signal = strings.TrimSpace(parts[1]) }
+				}
+			}
+			
+			if bssid != "" {
+				info := fmt.Sprintf("WiFi AP: %s | BSSID: %s | Signal: %s", ssid, bssid, signal)
+				// Basic dedup
+				if !strings.Contains(lldpNeighborInfo, bssid) {
+					lldpNeighborInfo += " | " + info
+					logMessage("WiFi Discovery: " + info)
+					
+					sendLog(LogEntry{
+						DeviceID:     deviceID,
+						DeviceName:   deviceName,
+						Hostname:     getHostname(),
+						LogType:      "network_topology",
+						HardwareType: "wifi_ap",
+						Event:        "wifi_discovery",
+						Source:       "windows-agent",
+						Severity:     "info",
+						Message:      "Connected to AP: " + ssid,
+						Timestamp:    time.Now().UTC().Format(time.RFC3339),
+						RawData: map[string]interface{}{
+							"ssid": ssid,
+							"bssid": bssid, // Acts as the "Port ID" or "Chassis ID" for WiFi
+							"signal": signal,
+						},
+					})
+				}
+			}
+		}
 	}
 }
 
@@ -1298,6 +1364,8 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
 
 
 
