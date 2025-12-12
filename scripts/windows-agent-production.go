@@ -1,6 +1,7 @@
 ﻿package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/gopacket"
@@ -120,8 +123,7 @@ func captureLLDP() {
 func scanWifiAccessPoint() {
 	ticker := time.NewTicker(30 * time.Second)
 	for range ticker.C {
-		cmd := exec.Command("netsh", "wlan", "show", "interfaces")
-		out, err := cmd.Output()
+		out, err := runCommandWithTimeout("netsh", "wlan", "show", "interfaces")
 		if err == nil {
 			output := string(out)
 			var ssid, bssid, signal string
@@ -213,6 +215,9 @@ var (
 	// Track connected USBs to detect disconnects
 	lastConnectedUSB = make(map[string]bool)
 	lldpNeighborInfo string
+
+	// MUTEX for safe concurrent access to policies
+	policyMutex sync.RWMutex
 )
 
 type DeviceRegistration struct {
@@ -339,8 +344,29 @@ func testConnection(url string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
-	return resp.StatusCode == 200 || resp.StatusCode == 401
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return false
+	}
+
+	// SECURITY: Validate response content to prevent spoofing
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	
+	// Valid server should return JSON list of devices or specific status
+	// We can check for a known key like "device_name" or "device_id" or "status"
+	// Or better, just check if it's JSON array "[" or object "{"
+	// Ideally the server should have a health endpoint returning {"server": "cyart"}
+	
+	content := string(body)
+	if strings.Contains(content, "device_id") || strings.Contains(content, "device_name") || strings.HasPrefix(strings.TrimSpace(content), "[") {
+		return true
+	}
+
+	return false
 }
 
 func getLocalIP() string {
@@ -399,23 +425,48 @@ func saveDeviceID(id string) {
 	os.WriteFile(filepath.Join(agentDir, REGISTRATION_FILE), []byte(id), 0644)
 }
 
+
 func logMessage(msg string) {
 	t := time.Now().Format("2006-01-02 15:04:05")
 	line := "[" + t + "] " + msg + "\n"
 	fmt.Print(line)
 
 	path := filepath.Join(agentDir, LOG_FILE)
+	
+	// SECURITY: Log Rotation to prevent Disk DoS
+	info, err := os.Stat(path)
+	if err == nil && info.Size() > 10*1024*1024 { // 10MB Limit
+		oldPath := path + ".old"
+		os.Remove(oldPath) // Remove existing backup
+		os.Rename(path, oldPath) // Rotate
+	}
+
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
 		f.WriteString(line)
 		f.Close()
 	}
 }
+
+// SECURITY: Command Timeout Helper to prevent process hanging
+func runCommandWithTimeout(name string, args ...string) ([]byte, error) {
+	// 10 Second global timeout for any system command
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	// On Windows, forcing hide window if possible (though for internal commands it's less visible)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	
+	return cmd.Output()
+}
+
 func initializeDevice() error {
 	hostname := getHostname()
 	ip := getIPAddress()
 	mac := getMACAddress()
 	osv := getOSVersion()
+
 
 	// Ensure device_name is always the hostname, not a USB device name
 	if deviceName == "" || deviceName == "Unknown" {
@@ -460,22 +511,21 @@ func initializeDevice() error {
 
 func getIPAddress() string {
 	// Use PowerShell to get the primary network adapter IP address
-	cmd := exec.Command("powershell", "-Command",
+	out, err := runCommandWithTimeout("powershell", "-Command",
 		"Get-NetIPAddress -AddressFamily IPv4 | "+
 			"Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | "+
 			"Sort-Object InterfaceIndex | "+
 			"Select-Object -First 1 -ExpandProperty IPAddress")
 
-	out, err := cmd.Output()
 	if err != nil {
 		// Fallback to old method
-		cmd2 := exec.Command("ipconfig")
-		out2, err2 := cmd2.Output()
+		out2, err2 := runCommandWithTimeout("ipconfig")
 		if err2 != nil {
 			return "127.0.0.1"
 		}
 
 		for _, line := range strings.Split(string(out2), "\n") {
+
 			if strings.Contains(line, "IPv4") {
 				parts := strings.Fields(line)
 				if len(parts) > 0 {
@@ -498,13 +548,12 @@ func getIPAddress() string {
 
 func getMACAddress() string {
 	// Use PowerShell to get the primary network adapter MAC address
-	cmd := exec.Command("powershell", "-Command",
+	out, err := runCommandWithTimeout("powershell", "-Command",
 		"Get-NetAdapter | "+
 			"Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notlike '*Loopback*' } | "+
 			"Sort-Object InterfaceIndex | "+
 			"Select-Object -First 1 -ExpandProperty MacAddress")
 
-	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -522,8 +571,7 @@ func getMACAddress() string {
 }
 
 func getOSVersion() string {
-	cmd := exec.Command("systeminfo")
-	out, err := cmd.Output()
+	out, err := runCommandWithTimeout("systeminfo")
 	if err != nil {
 		return "Windows"
 	}
@@ -559,21 +607,36 @@ func checkQuarantineStatus() {
 		return
 	}
 
-	if q.IsQuarantined && !isQuarantined {
+	// Check State Change
+	policyMutex.RLock()
+	currentlyQuarantined := isQuarantined
+	policyMutex.RUnlock()
+
+	if q.IsQuarantined && !currentlyQuarantined {
+		// CHANGE: Safe -> Quarantined
+		policyMutex.Lock()
 		isQuarantined = true
+		policyMutex.Unlock()
+		
 		logMessage("⚠️ QUARANTINE: " + q.QuarantineReason)
 		enforceQuarantine(q.QuarantineReason)
-	} else if !q.IsQuarantined && isQuarantined {
+	} else if !q.IsQuarantined && currentlyQuarantined {
+		// CHANGE: Quarantined -> Safe
+		policyMutex.Lock()
 		isQuarantined = false
+		policyMutex.Unlock()
+
 		logMessage("Quarantine removed")
 		releaseQuarantine()
 	}
 
 	// Update Policies
+	policyMutex.Lock()
 	usbDataLimitMB = q.UsbDataLimitMB
 	usbReadOnly = q.UsbReadOnly
 	usbExpiration = q.UsbExpiration
 	currentPolicies = q.UsbPolicies
+	policyMutex.Unlock()
 
 	logMessage(fmt.Sprintf("Received %d USB policies from server", len(currentPolicies)))
 }
@@ -586,6 +649,7 @@ func checkPolicies() {
 	shouldReadOnly := false
 	
 	// Check Global Policies
+	policyMutex.RLock()
 	if usbExpiration != "" {
 		expiry, err := time.Parse(time.RFC3339, usbExpiration)
 		if err == nil && time.Now().After(expiry) {
@@ -653,6 +717,7 @@ func checkPolicies() {
 			}
 		}
 	}
+	policyMutex.RUnlock()
 
 	// Apply Strictest Policy
 	if shouldBlock {
@@ -675,12 +740,11 @@ func checkPolicies() {
 
 // Helper to get connected USB serials (reusing logic from trackUSBDevices)
 func getConnectedUSBDevices() []string {
-	cmd := exec.Command("powershell", "-Command",
+	out, err := runCommandWithTimeout("powershell", "-Command",
 		"Get-WmiObject Win32_PnPEntity | "+
 			"Where-Object { ($_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*') -and $_.PNPDeviceID -notlike '*ROOT_HUB*' } | "+
 			"Select-Object PNPDeviceID | ConvertTo-Json -Compress")
 
-	out, err := cmd.Output()
 	if err != nil {
 		return []string{}
 	}
@@ -713,14 +777,13 @@ func getConnectedUSBDevices() []string {
 func trackUSBDataUsage() {
 	// Simple polling of disk usage for Removable disks
 	// This uses PowerShell to get Perf Counters for logical disks that are Removable
-	cmd := exec.Command("powershell", "-Command",
+	out, err := runCommandWithTimeout("powershell", "-Command",
 		"$drives = Get-CimInstance Win32_LogicalDisk | Where-Object DriveType -eq 2; "+
 			"if ($drives) { "+
 			"  $counters = $drives | ForEach-Object { '\\LogicalDisk(' + $_.DeviceID + ')\\Disk Write Bytes/sec' }; "+
 			"  (Get-Counter -Counter $counters -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue).CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum "+
 			"} else { 0 }")
 
-	out, err := cmd.Output()
 	if err != nil {
 		return
 	}
@@ -790,21 +853,35 @@ func unblockUSBStorage() {
 }
 
 func showQuarantineWarning(reason string) {
-	msg := fmt.Sprintf("⚠ SECURITY ALERT ⚠\nThis device has been quarantined.\nReason: %s", reason)
+	// Sanitize input to prevent command injection or formatting issues
+	safeReason := strings.ReplaceAll(reason, "\"", "'")
+	safeReason = strings.ReplaceAll(safeReason, "&", "and")
+	safeReason = strings.ReplaceAll(safeReason, "|", "-")
+	safeReason = strings.ReplaceAll(safeReason, "<", "")
+	safeReason = strings.ReplaceAll(safeReason, ">", "")
+
+	msg := fmt.Sprintf("⚠ SECURITY ALERT ⚠\nThis device has been quarantined.\nReason: %s", safeReason)
 	exec.Command("msg", "*", msg).Run()
 }
 
 func trackUSBDevices() {
-	if deviceID == "" || isQuarantined {
+	if deviceID == "" {
 		return
 	}
 
-	cmd := exec.Command("powershell", "-Command",
+	// Thread-Safe Quarantine Check
+	policyMutex.RLock()
+	if isQuarantined {
+		policyMutex.RUnlock()
+		return
+	}
+	policyMutex.RUnlock()
+
+	out, err := runCommandWithTimeout("powershell", "-Command",
 		"Get-WmiObject Win32_PnPEntity | "+
 			"Where-Object { ($_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*') -and $_.PNPDeviceID -notlike '*ROOT_HUB*' } | "+
 			"Select-Object Name, PNPDeviceID | ConvertTo-Json -Compress")
 
-	out, err := cmd.Output()
 	if err != nil {
 		return
 	}
@@ -896,9 +973,17 @@ func trackUSBDevices() {
 }
 
 func trackNetworkConnections() {
-	if deviceID == "" || isQuarantined {
+	if deviceID == "" {
 		return
 	}
+	
+	// Thread-Safe Quarantine Check
+	policyMutex.RLock()
+	if isQuarantined {
+		policyMutex.RUnlock()
+		return
+	}
+	policyMutex.RUnlock()
 
 	// PowerShell command to get network connections (TCP + UDP)
 	// For UDP, we use Get-NetUDPEndpoint. It doesn't have RemoteAddress/RemotePort usually (connectionless),
@@ -915,8 +1000,7 @@ func trackNetworkConnections() {
 		$tcp + $udp | ConvertTo-Json -Compress
 	`
 
-	cmd := exec.Command("powershell", "-Command", psScript)
-	out, err := cmd.Output()
+	out, err := runCommandWithTimeout("powershell", "-Command", psScript)
 	if err != nil || len(out) == 0 {
 		return
 	}
@@ -962,13 +1046,17 @@ func trackNetworkConnections() {
 		// Get process name from PID
 		processName := "unknown"
 		if pid > 0 {
-			pidCmd := exec.Command("powershell", "-Command",
+			pidOut, err := runCommandWithTimeout("powershell", "-Command",
 				fmt.Sprintf("(Get-Process -Id %d -ErrorAction SilentlyContinue).ProcessName", int(pid)))
-			pidOut, err := pidCmd.Output()
 			if err == nil {
 				processName = strings.ToLower(strings.TrimSpace(string(pidOut)))
 			}
 		}
+
+// ... (omitting middle part, assuming replace handles block properly if contiguous but let's be careful)
+// Actually I should split this if lines are not contiguous or if "..." logic fails.
+// Let's do sendSystemLogs separately.
+
 
 		// Skip excluded processes
 		isExcluded := false
@@ -1110,9 +1198,16 @@ func resolveProtocol(port int) string {
 }
 
 func sendSystemLogs() {
-	if deviceID == "" || isQuarantined {
+	if deviceID == "" {
 		return
 	}
+	// Thread-Safe Quarantine Check
+	policyMutex.RLock()
+	if isQuarantined {
+		policyMutex.RUnlock()
+		return
+	}
+	policyMutex.RUnlock()
 
 	host := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
@@ -1128,12 +1223,11 @@ func sendSystemLogs() {
 	}
 
 	for _, source := range logSources {
-		cmd := exec.Command("powershell", "-Command",
+		out, err := runCommandWithTimeout("powershell", "-Command",
 			fmt.Sprintf("Get-EventLog -LogName %s -Newest 10 -ErrorAction SilentlyContinue | "+
 				"Select-Object Message, EventID, EntryType, @{Name='TimeGenerated'; Expression={$_.TimeGenerated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')}}, Source | "+
 				"ConvertTo-Json", source.logName))
 
-		out, err := cmd.Output()
 		if err != nil || len(out) == 0 {
 			continue
 		}
@@ -1224,10 +1318,13 @@ func updateDeviceStatus() {
 		"status":          "online",
 		"security_status": "secure",
 	}
+	
+	policyMutex.RLock()
 	if isQuarantined {
 		s["status"] = "quarantined"
 		s["security_status"] = "critical"
 	}
+	policyMutex.RUnlock()
 
 	data, _ := json.Marshal(s)
 	url := fmt.Sprintf("%s/api/devices/status", apiURL)
@@ -1299,30 +1396,66 @@ func initializeAgent() {
 
 	logMessage("Agent entering background monitoring loop")
 
-	// Quarantine monitor
-	go func() {
-		for {
-			checkQuarantineStatus()
-			time.Sleep(CHECK_QUARANTINE_INTERVAL)
-		}
-	}()
+	// START CONCURRENT ROUTINES
+	// We use a simple channel to keep the main function alive
+	done := make(chan bool)
 
-	// Policy enforcement (Local loop for real-time responsiveness)
-	go func() {
+	// Helper for panic recovery
+	safeGo := func(name string, fn func()) {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logMessage(fmt.Sprintf("CRITICAL ERROR: Routine '%s' panicked: %v", name, r))
+					// Optional: Restart routine? For now, we just log to prevent full crash.
+				}
+			}()
+			fn()
+		}()
+	}
+
+	// 1. USB Policy Enforcement & Device Tracking (CRITICAL: 2s)
+	safeGo("USB_Loop", func() {
 		for {
-			checkPolicies()
+			trackUSBDevices()
+			checkPolicies() // Apply policies immediately after tracking
 			time.Sleep(2 * time.Second)
 		}
-	}()
+	})
 
-	// Main loop
-	for {
-		trackUSBDevices()
-		trackNetworkConnections()
-		sendSystemLogs()
-		updateDeviceStatus()
-		time.Sleep(POLL_INTERVAL)
-	}
+	// 2. Policy Fetching & Quarantine Status (HIGH PRIORITY: 3s)
+	safeGo("Policy_Fetch", func() {
+		for {
+			checkQuarantineStatus()
+			time.Sleep(3 * time.Second)
+		}
+	})
+
+	// 3. Status Updates (MEDIUM PRIORITY: 5s)
+	safeGo("Status_Update", func() {
+		for {
+			updateDeviceStatus()
+			time.Sleep(5 * time.Second)
+		}
+	})
+
+	// 4. Network Monitoring (HEAVY TASK: 15s)
+	safeGo("Network_Monitor", func() {
+		for {
+			trackNetworkConnections()
+			time.Sleep(15 * time.Second)
+		}
+	})
+
+	// 5. Log Collection (HEAVY TASK: 30s)
+	safeGo("Log_Collector", func() {
+		for {
+			sendSystemLogs()
+			time.Sleep(30 * time.Second)
+		}
+	})
+
+	// Block forever
+	<-done
 }
 
 func main() {
@@ -1364,6 +1497,12 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
+
+
+
+
 
 
 

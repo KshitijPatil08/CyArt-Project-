@@ -29,8 +29,17 @@ export default function AdminSignUpPage() {
         setLoading(true)
 
         try {
-            if (adminCode !== "CYART_ADMIN_SECRET") {
-                setError("Invalid Admin Code")
+            // SECURITY: Verify admin code on server
+            const verifyResponse = await fetch("/api/auth/verify-admin-code", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ adminCode }),
+            })
+
+            const verifyData = await verifyResponse.json()
+
+            if (!verifyResponse.ok || !verifyData.valid) {
+                setError(verifyData.message || "Invalid Admin Code")
                 setLoading(false)
                 return
             }

@@ -70,6 +70,16 @@ export async function GET(request: NextRequest) {
             )
         }
 
+        // Authentication Check
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError || !user) {
+            console.error("[DEVICES LIST] Unauthorized access attempt")
+            return NextResponse.json(
+                { error: "Unauthorized: Please log in" },
+                { status: 401, headers: corsHeaders }
+            )
+        }
+
         // Fetch all devices from the database
         const { data: devices, error: fetchError } = await supabase
             .from("devices")

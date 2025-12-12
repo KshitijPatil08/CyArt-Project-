@@ -7,6 +7,11 @@ export async function POST(request: NextRequest) {
         const supabase = await createClient()
         const body = await request.json()
 
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user?.user_metadata?.role !== 'admin') {
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+        }
+
         const { device_id, lock_network = true, lock_usb = true } = body
 
         if (!device_id) {
@@ -76,6 +81,11 @@ export async function DELETE(request: NextRequest) {
     try {
         const supabase = await createClient()
         const body = await request.json()
+
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user?.user_metadata?.role !== 'admin') {
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+        }
 
         const { device_id } = body
 
