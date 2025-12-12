@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
+	DEFAULT_API_URL           = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
 	POLL_INTERVAL             = 30 * time.Second
 	CHECK_QUARANTINE_INTERVAL = 10 * time.Second
 	REGISTRATION_FILE         = "device_id.txt"
@@ -38,6 +38,12 @@ var (
 	isQuarantined = false
 	// Rate limiting for network logs: key = "process:remote_ip:port", value = last log time
 	networkLogCache = make(map[string]time.Time)
+
+	// USB Policy Variables
+	usbDataLimitMB float64
+	usbReadOnly    bool
+	usbExpiration  string
+	usbUsageMB     float64
 )
 
 type DeviceRegistration struct {
@@ -71,10 +77,13 @@ type Config struct {
 }
 
 type QuarantineStatus struct {
-	IsQuarantined    bool   `json:"is_quarantined"`
-	QuarantineReason string `json:"quarantine_reason"`
-	QuarantinedAt    string `json:"quarantined_at"`
-	QuarantinedBy    string `json:"quarantined_by"`
+	IsQuarantined    bool    `json:"is_quarantined"`
+	QuarantineReason string  `json:"quarantine_reason"`
+	QuarantinedAt    string  `json:"quarantined_at"`
+	QuarantinedBy    string  `json:"quarantined_by"`
+	UsbDataLimitMB   float64 `json:"usb_data_limit_mb"`
+	UsbReadOnly      bool    `json:"usb_read_only"`
+	UsbExpiration    string  `json:"usb_expiration_date"`
 }
 
 func init() {
@@ -357,6 +366,92 @@ func checkQuarantineStatus() {
 		logMessage("Quarantine removed")
 		releaseQuarantine()
 	}
+
+	// Update Policies
+	usbDataLimitMB = q.UsbDataLimitMB
+	usbReadOnly = q.UsbReadOnly
+	usbExpiration = q.UsbExpiration
+}
+
+func checkPolicies() {
+	// 1. Expiration Check
+	if usbExpiration != "" {
+		expiry, err := time.Parse(time.RFC3339, usbExpiration)
+		if err == nil && time.Now().After(expiry) {
+			if !isQuarantined {
+				logMessage("⚠️ USB Access Expired")
+				enforceQuarantine("USB Access Policy Expired")
+			}
+			return
+		}
+	}
+
+	// 2. Read-Only Enforcement
+	if usbReadOnly {
+		setUSBReadOnly()
+	} else {
+		setUSBReadWrite()
+	}
+
+	// 3. Data Limit Check
+	if usbDataLimitMB > 0 {
+		trackUSBDataUsage()
+	}
+}
+
+func trackUSBDataUsage() {
+	// Simple polling of disk usage for Removable disks
+	// This uses PowerShell to get Perf Counters for logical disks that are Removable
+	cmd := exec.Command("powershell", "-Command",
+		"$drives = Get-CimInstance Win32_LogicalDisk | Where-Object DriveType -eq 2; "+
+			"if ($drives) { "+
+			"  $counters = $drives | ForEach-Object { '\\LogicalDisk(' + $_.DeviceID + ')\\Disk Write Bytes/sec' }; "+
+			"  (Get-Counter -Counter $counters -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue).CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum "+
+			"} else { 0 }")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	bytesPerSecStr := strings.TrimSpace(string(out))
+	var bytesPerSec float64
+	fmt.Sscanf(bytesPerSecStr, "%f", &bytesPerSec)
+
+	// Add to total usage (Runs every 2 seconds).
+	// We take 1s sample as average for the 2s window.
+	usbUsageMB += (bytesPerSec * 2) / 1024 / 1024
+
+	if usbUsageMB > usbDataLimitMB {
+		logMessage(fmt.Sprintf("⚠️ USB Data Limit Exceeded: %.2f / %.2f MB", usbUsageMB, usbDataLimitMB))
+
+		// Send critical alert
+		sendLog(LogEntry{
+			DeviceID:   deviceID,
+			DeviceName: deviceName,
+			Hostname:   getHostname(),
+			LogType:    "security",
+			Source:     "agent-policy",
+			Severity:   "critical",
+			Message:    "USB Data Limit Exceeded. Blocking USB access.",
+			Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		})
+
+		enforceQuarantine("USB Data Limit Exceeded")
+	}
+}
+
+func setUSBReadOnly() {
+	// HKLM\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies -> WriteProtect = 1
+	exec.Command("reg", "add",
+		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies",
+		"/v", "WriteProtect", "/t", "REG_DWORD", "/d", "1", "/f").Run()
+}
+
+func setUSBReadWrite() {
+	exec.Command("reg", "add",
+		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies",
+		"/v", "WriteProtect", "/t", "REG_DWORD", "/d", "0", "/f").Run()
 }
 
 func enforceQuarantine(reason string) {
@@ -507,7 +602,6 @@ func trackNetworkConnections() {
 	hostname := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
-
 	// Browser processes to exclude (optional: keep or remove based on "all protocols")
 	excludedProcesses := []string{
 		// Browsers
@@ -577,7 +671,7 @@ func trackNetworkConnections() {
 			targetPort = int(localPort)
 		}
 		protocol := resolveProtocol(targetPort)
-		
+
 		// Determine severity based on port
 		severity := "info"
 		if targetPort == 22 || targetPort == 23 || targetPort == 3389 {
@@ -881,6 +975,14 @@ func initializeAgent() {
 		}
 	}()
 
+	// Policy enforcement (Local loop for real-time responsiveness)
+	go func() {
+		for {
+			checkPolicies()
+			time.Sleep(2 * time.Second)
+		}
+	}()
+
 	// Main loop
 	for {
 		trackUSBDevices()
@@ -930,10 +1032,3 @@ func isAdmin() bool {
 	}
 	return false
 }
-
-
-
-
-
-
-

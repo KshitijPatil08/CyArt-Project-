@@ -270,6 +270,7 @@ export function USBWhitelistManagement() {
   }
 
   const handleApproveClick = (request: PendingRequest) => {
+    console.log('[USB] Approve button clicked for:', request.device_name)
     setSelectedRequest(request)
     setApprovalPolicies({
       max_daily_transfer_mb: "",
@@ -279,12 +280,20 @@ export function USBWhitelistManagement() {
       is_read_only: false
     })
     setIsApproveDialogOpen(true)
+    console.log('[USB] Approval dialog should now be open')
   }
 
   const handleConfirmApprove = async () => {
-    if (!selectedRequest) return
+    console.log('[USB] Confirm Approval button clicked')
+    console.log('[USB] Selected request:', selectedRequest)
+
+    if (!selectedRequest) {
+      console.error('[USB] No selected request - returning early')
+      return
+    }
 
     try {
+      console.log('[USB] Sending approval request to API...')
       const response = await fetch("/api/usb/request", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -301,19 +310,25 @@ export function USBWhitelistManagement() {
         })
       })
 
+      console.log('[USB] API response status:', response.status)
       const data = await response.json()
+      console.log('[USB] API response data:', data)
+
       if (!data.success) throw new Error(data.error)
 
+      console.log('[USB] Approval successful, showing toast and refreshing')
       toast({ title: "Approved", description: "Device authorized successfully" })
       setIsApproveDialogOpen(false)
       fetchPendingRequests()
       fetchDevices()
     } catch (error: any) {
+      console.error('[USB] Approval error:', error)
       toast({ title: "Error", description: error.message, variant: "destructive" })
     }
   }
 
   const handleReject = async (id: string) => {
+    console.log('[USB] Reject button clicked for ID:', id)
     try {
       const response = await fetch("/api/usb/request", {
         method: "PUT",
@@ -321,12 +336,15 @@ export function USBWhitelistManagement() {
         body: JSON.stringify({ id, action: "reject" })
       })
 
+      console.log('[USB] Reject API response status:', response.status)
       const data = await response.json()
+      console.log('[USB] Reject API response data:', data)
       if (!data.success) throw new Error(data.error)
 
       toast({ title: "Rejected", description: "Request rejected" })
       fetchPendingRequests()
     } catch (error: any) {
+      console.error('[USB] Reject error:', error)
       toast({ title: "Error", description: error.message, variant: "destructive" })
     }
   }
@@ -576,14 +594,17 @@ export function USBWhitelistManagement() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => handleToggleActive(device.id, device.is_active)}
+                                  className={device.is_active ? "text-red-600 hover:text-red-700" : "text-green-600 hover:text-green-700"}
+                                  title={device.is_active ? "Block Device" : "Unblock Device"}
                                 >
-                                  {device.is_active ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-gray-600" />}
+                                  {device.is_active ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                                 </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => handleDeleteDevice(device.id)}
-                                  className="text-red-600 hover:text-red-700"
+                                  className="text-gray-600 hover:text-gray-700"
+                                  title="Delete from whitelist"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
