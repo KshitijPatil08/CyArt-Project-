@@ -762,8 +762,12 @@ export default function SecurityDashboard() {
                                     <p className="font-medium text-sm">{usb.device_name}</p>
                                     <div className="flex gap-2 text-xs text-muted-foreground">
                                       <span>{usb.vendor_name || 'Unknown Vendor'}</span>
-                                      <span>•</span>
-                                      <code className="bg-muted px-1 rounded">{usb.serial_number}</code>
+                                      {userRole === 'admin' && (
+                                        <>
+                                          <span>•</span>
+                                          <code className="bg-muted px-1 rounded">{usb.serial_number}</code>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </div>

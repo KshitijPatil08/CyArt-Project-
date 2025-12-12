@@ -138,7 +138,7 @@ export function USBWhitelistManagement() {
           // Case-insensitive matching for owner email
           const hostnames = data.devices
             .filter((d: any) => d.owner?.toLowerCase().trim() === user?.email?.toLowerCase().trim())
-            .map((d: any) => d.hostname)
+            .map((d: any) => d.hostname?.toLowerCase())
             .filter(Boolean)
           setUserDevices(hostnames)
         }
@@ -161,7 +161,7 @@ export function USBWhitelistManagement() {
       // Client-side filtering for non-admins
       if (userRole !== 'admin' && userDevices.length > 0) {
         filteredData = filteredData.filter(d =>
-          d.computer_name && userDevices.includes(d.computer_name)
+          d.computer_name && userDevices.includes(d.computer_name.toLowerCase())
         )
       } else if (userRole !== 'admin' && userDevices.length === 0) {
         // If user owns no devices, show empty list
