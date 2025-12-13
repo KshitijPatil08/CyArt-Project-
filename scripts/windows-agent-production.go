@@ -1,6 +1,7 @@
 ﻿package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -964,7 +965,7 @@ func updateUSBConnectionStatus(serialNumber string, status string) {
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/usb/connection-status", getAPIURL())
+	url := fmt.Sprintf("%s/api/usb/connection-status", apiURL)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		return
@@ -1625,3 +1626,4 @@ func isAdmin() bool {
 	}
 	return false
 }
+
