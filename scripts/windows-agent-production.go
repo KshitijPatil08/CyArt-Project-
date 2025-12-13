@@ -949,6 +949,33 @@ func enableUSBDevice(instanceID string) {
 	runCommandWithTimeout("powershell", "-Command", cmd)
 }
 
+// Update USB connection status in database
+func updateUSBConnectionStatus(serialNumber string, status string) {
+	hostname := getHostname()
+	
+	payload := map[string]interface{}{
+		"serial_number":     serialNumber,
+		"connection_status": status,
+		"computer_name":     hostname,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	url := fmt.Sprintf("%s/api/usb/connection-status", getAPIURL())
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	
+	client := &http.Client{Timeout: 5 * time.Second}
+	_, _ = client.Do(req) // Fire and forget - don't block on response
+}
+
 func showQuarantineWarning(reason string) {
 	// Sanitize input to prevent command injection or formatting issues
 	safeReason := strings.ReplaceAll(reason, "\"", "'")
@@ -1041,6 +1068,8 @@ func trackUSBDevices() {
 				Timestamp:    ts,
 				RawData:      raw,
 			})
+			// Update database connection status
+			updateUSBConnectionStatus(serial, "connected")
 		}
 	}
 
@@ -1063,6 +1092,8 @@ func trackUSBDevices() {
 				Timestamp:    ts,
 				RawData:      map[string]interface{}{"serial_number": serial},
 			})
+			// Update database connection status
+			updateUSBConnectionStatus(serial, "disconnected")
 		}
 	}
 	
