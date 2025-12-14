@@ -739,6 +739,18 @@ func checkPolicies() {
 		if readOnlyChanged {
 			logMessage("⚠️ USB Read-Only Mode ENABLED - Please re-insert USB devices for changes to take effect")
 			showPolicyChangeNotification("USB Read-Only Mode Enabled", "Please remove and re-insert your USB devices for the policy to take effect.")
+			
+			// Send log to server
+			sendLog(LogEntry{
+				DeviceID:   deviceID,
+				DeviceName: deviceName,
+				Hostname:   getHostname(),
+				LogType:    "security",
+				Source:     "agent-policy",
+				Severity:   "warning",
+				Message:    "USB Read-Only Mode ENABLED",
+				Timestamp:  time.Now().UTC().Format(time.RFC3339),
+			})
 		}
 	} else {
 		policyMutex.RUnlock()
@@ -746,6 +758,18 @@ func checkPolicies() {
 		if readOnlyChanged {
 			logMessage("✅ USB Read-Write Mode ENABLED - Please re-insert USB devices for changes to take effect")
 			showPolicyChangeNotification("USB Read-Write Mode Enabled", "Please remove and re-insert your USB devices for the policy to take effect.")
+			
+			// Send log to server
+			sendLog(LogEntry{
+				DeviceID:   deviceID,
+				DeviceName: deviceName,
+				Hostname:   getHostname(),
+				LogType:    "security",
+				Source:     "agent-policy",
+				Severity:   "info",
+				Message:    "USB Read-Write Mode ENABLED",
+				Timestamp:  time.Now().UTC().Format(time.RFC3339),
+			})
 		}
 	}
 }
@@ -816,6 +840,19 @@ func setUSBReadWrite() {
 func enforceQuarantine(reason string) {
 	isQuarantined = true
 	logMessage("🔒 QUARANTINE ENFORCED: " + reason)
+	
+	// Send log BEFORE cutting network
+	sendLog(LogEntry{
+		DeviceID:   deviceID,
+		DeviceName: deviceName,
+		Hostname:   getHostname(),
+		LogType:    "security",
+		Source:     "agent-quarantine",
+		Severity:   "critical",
+		Message:    "Device Quarantined: " + reason,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+	})
+	
 	blockUSBStorage()
 	blockNetwork()
 }
@@ -825,6 +862,22 @@ func releaseQuarantine() {
 	logMessage("✅ Quarantine Released")
 	unblockUSBStorage()
 	unblockNetwork()
+	
+	// Send log AFTER restoring network
+	// Give it a moment for network to come up (unblockNetwork has no sleep, but runCommand waits)
+	// We might want a small sleep here to ensure connectivity before sending
+	time.Sleep(5 * time.Second) 
+	
+	sendLog(LogEntry{
+		DeviceID:   deviceID,
+		DeviceName: deviceName,
+		Hostname:   getHostname(),
+		LogType:    "security",
+		Source:     "agent-quarantine",
+		Severity:   "info",
+		Message:    "Device Released from Quarantine",
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func blockUSBStorage() {
