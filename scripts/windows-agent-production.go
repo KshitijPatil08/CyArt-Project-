@@ -223,6 +223,9 @@ var (
 	
 	// Track last read-only state to detect changes
 	lastReadOnlyState = false
+	
+	// Periodic update counter for USB status heartbeat
+	periodicUpdateCounter = 0
 
 	// MUTEX for safe concurrent access to policies
 	policyMutex sync.RWMutex
@@ -595,16 +598,47 @@ func getOSVersion() string {
 	return "Windows"
 }
 
+// ----------------- Offline Quarantine Safety -----------------
+var lastReenableTime time.Time
+
 func checkQuarantineStatus() {
 	if deviceID == "" {
 		return
 	}
 
+	// OFFLINE QUARANTINE LOGIC:
+	// If quarantined, the network is likely DISABLED.
+	// We need to briefly enable it to check for the "Release" command.
+	policyMutex.RLock()
+	quarantined := isQuarantined
+	policyMutex.RUnlock()
+
+	if quarantined {
+		// Check every 2 minutes (TIMELY SCRIPT PREFERENCE)
+		if time.Since(lastReenableTime) < 2*time.Minute {
+			return // Too soon, stay offline
+		}
+
+		logMessage(" Quarantine Heartbeat: Temporarily enabling network to check status...")
+		unblockNetwork()
+		
+		// Wait for DHCP and Connection (Windows can take a few seconds)
+		time.Sleep(15 * time.Second)
+		lastReenableTime = time.Now()
+	}
+
 	url := fmt.Sprintf("%s/api/devices/quarantine/status?device_id=%s", apiURL, deviceID)
 	client := http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
+	
+	// Handle Network Error (likely if unblock failed or no internet)
 	if err != nil {
 		logMessage("Quarantine check error: " + err.Error())
+		// If we were quarantined and opened the gate, ensure we close it on error
+		if quarantined {
+			logMessage(" Check failed. Re-enforcing quarantine.")
+			blockNetwork()
+		}
 		return
 	}
 	defer resp.Body.Close()
@@ -628,6 +662,7 @@ func checkQuarantineStatus() {
 		
 		logMessage("⚠️ QUARANTINE: " + q.QuarantineReason)
 		enforceQuarantine(q.QuarantineReason)
+
 	} else if !q.IsQuarantined && currentlyQuarantined {
 		// CHANGE: Quarantined -> Safe
 		policyMutex.Lock()
@@ -636,6 +671,10 @@ func checkQuarantineStatus() {
 
 		logMessage("Quarantine removed")
 		releaseQuarantine()
+	} else if q.IsQuarantined && currentlyQuarantined {
+		// STILL Quarantined: Re-disable network after our check
+		logMessage("🔒 Device still quarantined. Disabling network.")
+		blockNetwork()
 	}
 
 	// Update Policies
@@ -778,12 +817,14 @@ func enforceQuarantine(reason string) {
 	isQuarantined = true
 	logMessage("🔒 QUARANTINE ENFORCED: " + reason)
 	blockUSBStorage()
+	blockNetwork()
 }
 
 func releaseQuarantine() {
 	isQuarantined = false
 	logMessage("✅ Quarantine Released")
 	unblockUSBStorage()
+	unblockNetwork()
 }
 
 func blockUSBStorage() {
@@ -797,6 +838,31 @@ func unblockUSBStorage() {
 		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR",
 		"/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
 }
+
+func blockNetwork() {
+	logMessage("🔒 Disabling Network Adapters (Drivers)...")
+	
+	// WARNING: disabling the network adapter will cut off the Agent's connection to the server.
+	// The agent will NOT be able to receive a "Release" command remotely unless it has an out-of-band mechanism 
+	// or automatically re-enables it periodically to check (not implemented here).
+	
+	// PowerShell: Get all physical network adapters and disable them
+	psScript := "Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Disable-NetAdapter -Confirm:$false"
+	runCommandWithTimeout("powershell", "-Command", psScript)
+	
+	logMessage("🔒 Network Drivers Disabled. Device is offline.")
+}
+
+func unblockNetwork() {
+	logMessage("🔓 Re-enabling Network Adapters...")
+	
+	// PowerShell: Enable all network adapters
+	psScript := "Get-NetAdapter | Where-Object { $_.Status -eq 'Disabled' } | Enable-NetAdapter -Confirm:$false"
+	runCommandWithTimeout("powershell", "-Command", psScript)
+
+	logMessage("✅ Network Drivers Enabled. Connectivity restoring...")
+}
+
 
 
 // Update USB connection status in database
@@ -823,7 +889,22 @@ func updateUSBConnectionStatus(serialNumber string, status string) {
 	req.Header.Set("Content-Type", "application/json")
 	
 	client := &http.Client{Timeout: 5 * time.Second}
-	_, _ = client.Do(req) // Fire and forget - don't block on response
+	resp, err := client.Do(req)
+	if err != nil {
+		logMessage("Error updating connection status: " + err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		// Truncate body if too long
+		msg := string(body)
+		if len(msg) > 100 {
+			msg = msg[:100] + "..."
+		}
+		logMessage(fmt.Sprintf("Status update failed (Status %d): %s", resp.StatusCode, msg))
+	}
 }
 
 func showQuarantineWarning(reason string) {
@@ -883,6 +964,14 @@ func trackUSBDevices() {
 	hostname := getHostname()
 	ts := time.Now().UTC().Format(time.RFC3339)
 	
+	// Periodic Update Counter
+	// We want to force an update every ~30 seconds (15 cycles * 2s) to ensure DB is in sync
+	periodicUpdateCounter++
+	shouldForceUpdate := periodicUpdateCounter >= 15
+	if shouldForceUpdate {
+		periodicUpdateCounter = 0
+	}
+	
 	currentConnected := make(map[string]bool)
 
 	for _, d := range list {
@@ -893,6 +982,12 @@ func trackUSBDevices() {
 		if strings.Contains(pnp, "\\") {
 			parts := strings.Split(pnp, "\\")
 			serial = parts[len(parts)-1]
+			
+			// CLEANING: Windows often appends &0, &1 to serial numbers in PnP IDs
+			// We strip this suffix to ensure it matches the physical serial number in the DB
+			if idx := strings.Index(serial, "&"); idx > 0 {
+				serial = serial[:idx]
+			}
 		}
 		
 		currentConnected[serial] = true
@@ -915,25 +1010,27 @@ func trackUSBDevices() {
 			"pnp_device_id": pnp,
 		}
 
-		// Only log if it's a NEW connection
-		if !lastConnectedUSB[serial] {
-			sendLog(LogEntry{
-				DeviceID:     deviceID,
-				DeviceName:   deviceName,
-				Hostname:     hostname,
-				LogType:      "usb",
-				HardwareType: "usb",
-				Event:        "connected",
-				Source:       "windows-agent",
-				Severity:     "info",
-				Message:      "USB connected: " + name,
-				Timestamp:    ts,
-				RawData:      raw,
-			})
-			// Update database connection status on NEW connection
-			if !lastConnectedUSB[serial]{
-				updateUSBConnectionStatus(serial, "connected")
+		// Update on NEW connection OR Periodic Heartbeat
+		if !lastConnectedUSB[serial] || shouldForceUpdate {
+			if !lastConnectedUSB[serial] {
+				// Only log strictly new events
+				sendLog(LogEntry{
+					DeviceID:     deviceID,
+					DeviceName:   deviceName,
+					Hostname:     hostname,
+					LogType:      "usb",
+					HardwareType: "usb",
+					Event:        "connected",
+					Source:       "windows-agent",
+					Severity:     "info",
+					Message:      "USB connected: " + name,
+					Timestamp:    ts,
+					RawData:      raw,
+				})
 			}
+			
+			// Update DB status (High reliability)
+			updateUSBConnectionStatus(serial, "connected")
 		}
 	}
 
@@ -1489,5 +1586,9 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
+
+
 
 
