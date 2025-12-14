@@ -220,6 +220,9 @@ var (
 	// Track connected USBs to detect disconnects
 	lastConnectedUSB = make(map[string]bool)
 	lldpNeighborInfo string
+	
+	// Track last read-only state to detect changes
+	lastReadOnlyState = false
 
 	// MUTEX for safe concurrent access to policies
 	policyMutex sync.RWMutex
@@ -685,12 +688,26 @@ func checkPolicies() {
 	}
 
 	// 3. Read-Only Enforcement
+	readOnlyChanged := false
+	if usbReadOnly != lastReadOnlyState {
+		readOnlyChanged = true
+		lastReadOnlyState = usbReadOnly
+	}
+	
 	if usbReadOnly {
 		policyMutex.RUnlock()
 		setUSBReadOnly()
+		if readOnlyChanged {
+			logMessage("⚠️ USB Read-Only Mode ENABLED - Please re-insert USB devices for changes to take effect")
+			showPolicyChangeNotification("USB Read-Only Mode Enabled", "Please remove and re-insert your USB devices for the policy to take effect.")
+		}
 	} else {
 		policyMutex.RUnlock()
 		setUSBReadWrite()
+		if readOnlyChanged {
+			logMessage("✅ USB Read-Write Mode ENABLED - Please re-insert USB devices for changes to take effect")
+			showPolicyChangeNotification("USB Read-Write Mode Enabled", "Please remove and re-insert your USB devices for the policy to take effect.")
+		}
 	}
 }
 
@@ -821,6 +838,18 @@ func showQuarantineWarning(reason string) {
 	exec.Command("msg", "*", msg).Run()
 }
 
+func showPolicyChangeNotification(title string, message string) {
+	// Sanitize inputs
+	safeTitle := strings.ReplaceAll(title, "\"", "'")
+	safeMessage := strings.ReplaceAll(message, "\"", "'")
+	safeMessage = strings.ReplaceAll(safeMessage, "&", "and")
+	safeMessage = strings.ReplaceAll(safeMessage, "|", "-")
+	
+	msg := fmt.Sprintf("🔔 %s\n\n%s", safeTitle, safeMessage)
+	exec.Command("msg", "*", msg).Run()
+}
+
+
 func trackUSBDevices() {
 	if deviceID == "" {
 		return
@@ -901,8 +930,10 @@ func trackUSBDevices() {
 				Timestamp:    ts,
 				RawData:      raw,
 			})
-			// Update database connection status
-			updateUSBConnectionStatus(serial, "connected")
+			// Update database connection status on NEW connection
+			if !lastConnectedUSB[serial]{
+				updateUSBConnectionStatus(serial, "connected")
+			}
 		}
 	}
 
@@ -1458,4 +1489,5 @@ func isAdmin() bool {
 	}
 	return false
 }
+
 
