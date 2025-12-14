@@ -210,12 +210,11 @@ var (
 	usbDataLimitMB float64
 	usbReadOnly    bool
 	usbExpiration  string
+	usbUsageMB     float64
 	
 	// Track usage per serial number: serial -> MB used
-	usbUsageMap = make(map[string]float64) 
-	// Global fallback (legacy)
-	usbUsageMB     float64
-
+	usbUsageMap = make(map[string]float64)
+	
 	currentPolicies []UsbPolicy
 	
 	// Track connected USBs to detect disconnects
@@ -648,253 +647,100 @@ func checkQuarantineStatus() {
 }
 
 func checkPolicies() {
-	// 1. Get Connected USB Devices (Serial -> InstanceID)
-	connectedDevices := getConnectedUSBDevices()
+	// If quarantined, we stop here. Do not attempt to enforce RO or Cycle devices.
+	policyMutex.RLock()
+	if isQuarantined {
+		policyMutex.RUnlock()
+		return
+	}
+	policyMutex.RUnlock()
 
-	globalBlock := false
-	globalReadOnly := false
-	
-	// Check Global Policies
+	// 1. Data Limit Check (HIGHEST PRIORITY - Must happen before anything else)
+	policyMutex.RLock()
+	if usbDataLimitMB > 0 {
+		policyMutex.RUnlock()
+		trackUSBDataUsage()
+	} else {
+		policyMutex.RUnlock()
+	}
+
+	// If quarantined after data limit check, stop
+	policyMutex.RLock()
+	if isQuarantined {
+		policyMutex.RUnlock()
+		return
+	}
+	policyMutex.RUnlock()
+
+	// 2. Expiration Check
 	policyMutex.RLock()
 	if usbExpiration != "" {
 		expiry, err := time.Parse(time.RFC3339, usbExpiration)
 		if err == nil && time.Now().After(expiry) {
-			globalBlock = true
-			logMessage("⚠️ Global USB Access Expired")
+			policyMutex.RUnlock()
+			logMessage("⚠️ USB Access Expired")
+			enforceQuarantine("USB Access Policy Expired")
+			return
 		}
 	}
+
+	// 3. Read-Only Enforcement
 	if usbReadOnly {
-		globalReadOnly = true
-	}
-
-	// Iterate each connected device and determine its fate
-	for serial, instanceID := range connectedDevices {
-		shouldBlockDevice := globalBlock
-		shouldReadOnlyDevice := globalReadOnly
-
-		// Find policy for this serial
-		var policy *UsbPolicy
-		for _, p := range currentPolicies { 
-			if p.SerialNumber == serial {
-				policy = &p
-				break
-			}
-		}
-
-		if policy != nil {
-			// A. Block Check
-			if !policy.IsActive {
-				shouldBlockDevice = true
-				logMessage(fmt.Sprintf(" Device %s (%s) is DISABLED by policy", serial, instanceID))
-			}
-
-			// B. Expiration
-			if policy.ExpirationDate != "" {
-				// Try parsing YYYY-MM-DD then RFC3339
-				expiry, err := time.Parse("2006-01-02", policy.ExpirationDate)
-				if err != nil {
-					expiry, err = time.Parse(time.RFC3339, policy.ExpirationDate)
-				}
-				if err == nil {
-					// Strictly compare Day: valid until end of that day
-					if time.Now().After(expiry.Add(24 * time.Hour)) {
-						shouldBlockDevice = true
-						logMessage(fmt.Sprintf("⛔ Device %s license EXPIRED", serial))
-					}
-				}
-			}
-
-			// C. Time Window
-			if policy.AllowedStartTime != "" && policy.AllowedEndTime != "" {
-				currentHM := time.Now().Format("15:04")
-				if currentHM < policy.AllowedStartTime || currentHM > policy.AllowedEndTime {
-					shouldBlockDevice = true
-					logMessage(fmt.Sprintf("⛔ Device %s outside allowed hours (%s-%s)", serial, policy.AllowedStartTime, policy.AllowedEndTime))
-				}
-			}
-
-			// D. Read-Only
-			if policy.IsReadOnly {
-				shouldReadOnlyDevice = true
-			}
-		}
-
-		// ACTION: Enforce Decision
-		if shouldBlockDevice {
-			disableUSBDevice(instanceID)
-		} else {
-			enableUSBDevice(instanceID) // Ensure it's active if allowed
-		}
-
-		// Accumulate Read-Only state (If ANY device needs RO, we enforce Global RO for safety, 
-		// as Windows Registry WriteProtect is global)
-		if shouldReadOnlyDevice {
-			globalReadOnly = true
-		}
-	}
-	policyMutex.RUnlock()
-
-	// Global Registry Control
-	// We do NOT use blockUSBStorage() anymore (as it disables the Driver for everyone).
-	// We ONLY use setUSBReadOnly() if needed.
-	if globalReadOnly {
+		policyMutex.RUnlock()
 		setUSBReadOnly()
 	} else {
+		policyMutex.RUnlock()
 		setUSBReadWrite()
 	}
-
-	// Data Usage Tracking 
-	if usbDataLimitMB > 0 {
-		trackUSBDataUsage(connectedDevices)
-	}
 }
 
-// Helper to get connected USB serials -> Instance IDs
-func getConnectedUSBDevices() map[string]string {
-	out, err := runCommandWithTimeout("powershell", "-Command",
-		"Get-WmiObject Win32_PnPEntity | "+
-			"Where-Object { ($_.PNPDeviceID -like '*USBSTOR*' -or $_.PNPDeviceID -like '*USB\\VID_*') -and $_.PNPDeviceID -notlike '*ROOT_HUB*' } | "+
-			"Select-Object PNPDeviceID | ConvertTo-Json -Compress")
 
-	if err != nil {
-		return make(map[string]string)
-	}
+func trackUSBDataUsage() {
+	// Simple polling of disk usage for Removable disks
+	// This uses PowerShell to get Perf Counters for logical disks that are Removable
+	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command",
+		"$drives = Get-CimInstance Win32_LogicalDisk | Where-Object DriveType -eq 2; "+
+			"if ($drives) { "+
+			"  $counters = $drives | ForEach-Object { '\\LogicalDisk(' + $_.DeviceID + ')\\Disk Write Bytes/sec' }; "+
+			"  (Get-Counter -Counter $counters -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue).CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum "+
+			"} else { 0 }")
 
-	var list []map[string]interface{}
-	// Handle single object vs array JSON return
-	if json.Unmarshal(out, &list) != nil {
-		var single map[string]interface{}
-		if json.Unmarshal(out, &single) == nil {
-			list = []map[string]interface{}{single}
-		}
-	}
-
-	devices := make(map[string]string)
-	for _, d := range list {
-		pnp, _ := d["PNPDeviceID"].(string)
-		if strings.Contains(pnp, "\\") {
-			parts := strings.Split(pnp, "\\")
-			serial := parts[len(parts)-1]
-			// The serial acts as the key, PnP ID as the value for disabling
-			devices[serial] = pnp
-		}
-	}
-	return devices
-}
-
-// currentPolicies is already declared globally at line 53
-
-func trackUSBDataUsage(connectedDevices map[string]string) {
-	// PowerShell to map Serial -> DriveLetter -> WriteBytes
-	psScript := `
-		$disks = Get-Disk | Where-Object { $_.BusType -eq 'USB' -or $_.BusType -eq 'File Backed Virtual' }
-		$results = @()
-		foreach ($d in $disks) {
-			try {
-				$parts = $d | Get-Partition | Get-Volume -ErrorAction SilentlyContinue
-				if ($parts) {
-					$drive = $parts.DriveLetter
-					if ($drive) {
-						$path = "\LogicalDisk($($drive):)\Disk Write Bytes/sec"
-						$ctr = Get-Counter -Counter $path -MaxSamples 1 -SampleInterval 1 -ErrorAction SilentlyContinue
-						if ($ctr) {
-							$val = $ctr.CounterSamples[0].CookedValue
-							$results += @{ Serial=$d.SerialNumber; BytesPerSec=$val }
-						}
-					}
-				}
-			} catch {}
-		}
-		$results | ConvertTo-Json -Compress
-	`
-
-	out, err := runCommandWithTimeout("powershell", "-Command", psScript)
+	out, err := cmd.Output()
 	if err != nil {
 		return
 	}
 
-	var usageList []map[string]interface{}
-	if json.Unmarshal(out, &usageList) != nil {
-		var single map[string]interface{}
-		if json.Unmarshal(out, &single) == nil {
-			usageList = []map[string]interface{}{single}
-		}
-	}
+	bytesPerSecStr := strings.TrimSpace(string(out))
+	var bytesPerSec float64
+	fmt.Sscanf(bytesPerSecStr, "%f", &bytesPerSec)
 
-	for _, u := range usageList {
-		serial, _ := u["Serial"].(string)
-		bytesPerSec, _ := u["BytesPerSec"].(float64)
+	// Add to total usage (Runs every 2 seconds).
+	// We take 1s sample as average for the 2s window.
+	policyMutex.Lock()
+	usbUsageMB += (bytesPerSec * 2) / 1024 / 1024
+	currentUsage := usbUsageMB
+	currentLimit := usbDataLimitMB
+	policyMutex.Unlock()
 
-		if serial == "" {
-			continue
-		}
-		// Clean serial (sometimes has spaces or nulls)
-		serial = strings.TrimSpace(serial)
+	if currentUsage > currentLimit {
+		logMessage(fmt.Sprintf("⚠️ USB Data Limit Exceeded: %.2f / %.2f MB", currentUsage, currentLimit))
 
-		// Update Map
+		// Send critical alert
+		sendLog(LogEntry{
+			DeviceID:   deviceID,
+			DeviceName: deviceName,
+			Hostname:   getHostname(),
+			LogType:    "security",
+			Source:     "agent-policy",
+			Severity:   "critical",
+			Message:    "USB Data Limit Exceeded. Blocking USB access.",
+			Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		})
+
+		enforceQuarantine("USB Data Limit Exceeded")
 		policyMutex.Lock()
-		usbUsageMap[serial] += (bytesPerSec * 2) / 1024 / 1024 // MB (approx 2s interval)
-		currentUsage := usbUsageMap[serial]
+		isQuarantined = true
 		policyMutex.Unlock()
-
-		// Get InstanceID for blocking
-		// Note: Serial from Get-Disk might differ slightly from PnP (e.g. no &0). 
-		// We try to match by containment or exact.
-		var instanceID string
-		for s, id := range connectedDevices {
-			if strings.Contains(s, serial) || strings.Contains(serial, s) {
-				instanceID = id
-				break
-			}
-		}
-
-		if instanceID == "" {
-			continue
-		}
-
-		// Check Limits
-		blocked := false
-		
-		// 1. Per-Device Limit
-		var deviceLimit float64
-		policyMutex.RLock()
-		for _, p := range currentPolicies {
-			if p.SerialNumber == serial && p.MaxDailyTransferMB > 0 {
-				deviceLimit = p.MaxDailyTransferMB
-				break
-			}
-		}
-		policyMutex.RUnlock()
-
-		if deviceLimit > 0 && currentUsage >= deviceLimit {
-			msg := fmt.Sprintf("⚠️ Device %s Data Limit Exceeded: %.2f / %.2f MB", serial, currentUsage, deviceLimit)
-			logMessage(msg)
-			
-			// Send Alert
-			sendLog(LogEntry{
-				DeviceID:     deviceID,
-				DeviceName:   deviceName,
-				Hostname:     getHostname(),
-				LogType:      "security",
-				HardwareType: "usb",
-				Event:        "blocked",
-				Source:       "agent-policy",
-				Severity:     "warning",
-				Message:      msg + " - DEVICE BLOCKED",
-				Timestamp:    time.Now().UTC().Format(time.RFC3339),
-				RawData:      map[string]interface{}{"serial": serial, "usage_mb": currentUsage, "limit_mb": deviceLimit},
-			})
-
-			disableUSBDevice(instanceID)
-			blocked = true
-		}
-
-		// 2. Global Limit (if set)
-		if !blocked && usbDataLimitMB > 0 && currentUsage >= usbDataLimitMB {
-			logMessage(fmt.Sprintf("⚠️ Global USB Data Limit Exceeded by %s: %.2f / %.2f MB", serial, currentUsage, usbDataLimitMB))
-			disableUSBDevice(instanceID)
-			// We rely on the generic 'Global Limit' log or individual log above
-		}
 	}
 }
 
@@ -935,20 +781,6 @@ func unblockUSBStorage() {
 		"/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
 }
 
-// NEW: Granular Device Control
-// Disables a specific PnP Device by Instance ID (surgical block)
-func disableUSBDevice(instanceID string) {
-	logMessage("⛔ Disabling Device: " + instanceID)
-	// Requires Admin. "Confirm:$false" prevents prompt.
-	cmd := fmt.Sprintf("Disable-PnpDevice -InstanceId '%s' -Confirm:$false -ErrorAction SilentlyContinue", instanceID)
-	runCommandWithTimeout("powershell", "-Command", cmd)
-}
-
-func enableUSBDevice(instanceID string) {
-	logMessage("✅ Enabling Device: " + instanceID)
-	cmd := fmt.Sprintf("Enable-PnpDevice -InstanceId '%s' -Confirm:$false -ErrorAction SilentlyContinue", instanceID)
-	runCommandWithTimeout("powershell", "-Command", cmd)
-}
 
 // Update USB connection status in database
 func updateUSBConnectionStatus(serialNumber string, status string) {
