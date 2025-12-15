@@ -24,20 +24,34 @@ export async function POST(request: Request) {
             )
         }
 
-        // First, try to find the device by serial_number only
-        const { data: existingDevices, error: fetchError } = await supabase
+        // 1. Fetch all authorized devices to perform substring matching
+        const { data: allDevices, error: fetchError } = await supabase
             .from('authorized_usb_devices')
             .select('*')
-            .eq('serial_number', serial_number)
 
         if (fetchError) {
-            console.error('Error fetching USB device:', fetchError)
+            console.error('Error fetching USB devices:', fetchError)
             return NextResponse.json({ error: fetchError.message }, { status: 500 })
         }
 
+        // 2. Find the matching device using bi-directional substring check
+        // We match if:
+        // A) The received serial (long) CONTAINS the DB serial (short/partial)
+        // B) The DB serial (long) CONTAINS the received serial (short) - unlikely but safe
+        // This handles cases where user registers "123" but device reports "000123" or vice versa.
+        let matchingDevice = null
+        if (allDevices) {
+            matchingDevice = allDevices.find(device =>
+                (device.serial_number && serial_number.includes(device.serial_number)) ||
+                (device.serial_number && device.serial_number.includes(serial_number))
+            )
+        }
+
         // If device exists, update it
-        if (existingDevices && existingDevices.length > 0) {
-            // Update all matching devices (in case there are multiple entries)
+        if (matchingDevice) {
+            const targetSerial = matchingDevice.serial_number
+
+            // Update the matched device using its ACTUAL database serial number
             const { error: updateError } = await supabase
                 .from('authorized_usb_devices')
                 .update({
@@ -46,7 +60,7 @@ export async function POST(request: Request) {
                     last_seen_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 })
-                .eq('serial_number', serial_number)
+                .eq('serial_number', targetSerial)
 
             if (updateError) {
                 console.error('Error updating USB connection status:', updateError)
@@ -55,8 +69,8 @@ export async function POST(request: Request) {
 
             return NextResponse.json({
                 success: true,
-                message: `Connection status updated to ${connection_status}`,
-                updated_count: existingDevices.length
+                message: `Connection status updated to ${connection_status} (Matched: ${targetSerial})`,
+                updated_count: 1
             })
         }
 
