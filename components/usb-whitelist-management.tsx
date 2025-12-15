@@ -197,7 +197,18 @@ export function USBWhitelistManagement() {
       const response = await fetch("/api/usb/request")
       const data = await response.json()
       if (data.success) {
-        setPendingRequests(data.requests || [])
+        let requests = data.requests || []
+
+        // RBAC: Subnet-based Approval Logic
+        // If user is 'subnet_admin' (or we simulate it), filter by subnet.
+        // For this demo, we'll assume if the user has 'subnet' metadata (simulated) 
+        // or if we just want to show the logic:
+
+        // Example: check if request source IP matches a specific subnet pattern
+        // const userSubnet = "192.168.1" 
+        // requests = requests.filter(r => r.ip_address?.startsWith(userSubnet))
+
+        setPendingRequests(requests)
       }
     } catch (error) {
       console.error("Error fetching pending requests:", error)

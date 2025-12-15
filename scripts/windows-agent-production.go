@@ -230,6 +230,9 @@ var (
 
 	// MUTEX for safe concurrent access to policies
 	policyMutex sync.RWMutex
+
+	// Unverified Software Cache to avoid repeated logging
+	softwareAuditCache = make(map[string]bool)
 )
 
 type DeviceRegistration struct {
@@ -1400,6 +1403,8 @@ func trackNetworkConnections() {
 		if remoteAddr == "*" || remoteAddr == "0.0.0.0" || remoteAddr == "::" || remotePort == 0 {
 			continue
 		}
+			continue
+		}
 
 		// Rate limiting: only log same connection once per 5 minutes
 		connKey := fmt.Sprintf("%s:%s:%d", processName, remoteAddr, int(remotePort))
@@ -1698,6 +1703,151 @@ loop:
 }
 
 // initializeAgent runs the agent main loop (background)
+
+func auditDownloads() {
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		return
+	}
+	downloadsPath := filepath.Join(userProfile, "Downloads")
+	
+	files, err := os.ReadDir(downloadsPath)
+	if err != nil {
+		return
+	}
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		
+		name := file.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".exe" && ext != ".msi" && ext != ".dll" {
+			continue
+		}
+
+		// Skip if already audited
+		if softwareAuditCache[name] {
+			continue
+		}
+
+		fullPath := filepath.Join(downloadsPath, name)
+		
+		// PowerShell to check Authenticode Signature
+		psScript := fmt.Sprintf(`
+			$sig = Get-AuthenticodeSignature -FilePath "%s"
+			$signer = $sig.SignerCertificate.Subject
+			$status = $sig.Status
+			$year = "Unknown"
+			if ($sig.TimeStamperCertificate) {
+				$year = $sig.TimeStamperCertificate.NotBefore.Year
+			} elseif ($sig.SignerCertificate) {
+				$year = $sig.SignerCertificate.NotBefore.Year
+			}
+			@{Signer=$signer; Status=$status; Year=$year} | ConvertTo-Json -Compress
+		`, fullPath)
+
+		out, err := runCommandWithTimeout("powershell", "-Command", psScript)
+		if err == nil {
+			var result map[string]interface{}
+			json.Unmarshal(out, &result)
+			
+			status, _ := result["Status"].(string)
+			year, _ := result["Year"].(interface{}) // Could be number or string
+			signer, _ := result["Signer"].(string)
+
+			isUnverified := status != "Valid"
+			
+			// Log audit result
+			if isUnverified {
+				logMessage(fmt.Sprintf("⚠ Unverified Software: %s (Status: %s, Year: %v)", name, status, year))
+				sendLog(LogEntry{
+					DeviceID:   deviceID,
+					DeviceName: deviceName,
+					Hostname:   getHostname(),
+					LogType:    "application", // As requested "application log type"
+					Event:      "unverified_software",
+					Source:     "agent-audit",
+					Severity:   "warning",
+					Message:    fmt.Sprintf("Unverified Download Detected: %s", name),
+					Timestamp:  time.Now().UTC().Format(time.RFC3339),
+					RawData: map[string]interface{}{
+						"filename": name,
+						"status":   status,
+						"year":     year,
+						"signer":   signer,
+					},
+				})
+			} else {
+				// Valid software
+				logMessage(fmt.Sprintf("✅ Verified Software: %s (Year: %v)", name, year))
+			}
+			
+			// Mark as audited
+			softwareAuditCache[name] = true
+		}
+	}
+}
+
+func trackUSBDataUsage() {
+	// 1. Get List of Removable Drives (USB mass storage)
+	// We need to map Drive Letter -> Serial Number to attribute usage correctly.
+	// This is complex in Windows. Simplification: Attribute to ALL connected USBs evenly OR use total.
+	
+	// Better approach: Get Disk Bytes/sec for ALL disks, filter for Removable.
+	// PowerShell: Get-WmiObject Win32_PerfFormattedData_PerfDisk_LogicalDisk | Where Name -ne "_Total" ...
+	
+	psScript := `
+		Get-WmiObject Win32_PerfFormattedData_PerfDisk_LogicalDisk | 
+		Where-Object { $_.Name -ne "_Total" -and $_.Name -ne "C:" -and $_.Name -ne "HarddiskVolume*" } | 
+		Select-Object Name, DiskBytesPerSec, DiskReadBytesPerSec, DiskWriteBytesPerSec | 
+		ConvertTo-Json -Compress
+	`
+	
+	out, err := runCommandWithTimeout("powershell", "-Command", psScript)
+	if err != nil {
+		return
+	}
+
+	var disks []map[string]interface{}
+	if json.Unmarshal(out, &disks) != nil {
+		var single map[string]interface{}
+		if json.Unmarshal(out, &single) == nil {
+			disks = []map[string]interface{}{single}
+		}
+	}
+
+	// Assuming 5 seconds interval
+	intervalSeconds := 5.0
+
+	for _, disk := range disks {
+		// potential drive letter e.g. "D:"
+		name, _ := disk["Name"].(string)
+		bytesPerSec, _ := disk["DiskBytesPerSec"].(float64)
+		
+		if bytesPerSec > 0 {
+			mbTransferred := (bytesPerSec * intervalSeconds) / (1024 * 1024)
+			
+			// Add to Global Usage (Simplified)
+			policyMutex.Lock()
+			usbUsageMB += mbTransferred
+			
+			// Also update map (if we could map Drive -> Serial, we would do it here. 
+			// For now, assume any activity on non-C: is USB if USB is connected)
+			for serial, connected := range lastConnectedUSB {
+				if connected {
+					usbUsageMap[serial] += mbTransferred
+				}
+			}
+			policyMutex.Unlock()
+			
+			if mbTransferred > 1.0 { // Log significant chunks (e.g. > 1MB in 5s)
+				logMessage(fmt.Sprintf("Data Transfer on %s: %.2f MB", name, mbTransferred))
+			}
+		}
+	}
+}
 func initializeAgent() {
 	logMessage(fmt.Sprintf("Starting CyArt Security Agent v%s...", VERSION))
 	logMessage(fmt.Sprintf("Server URL: %s", apiURL))
@@ -1775,7 +1925,16 @@ func initializeAgent() {
 	safeGo("Log_Collector", func() {
 		for {
 			sendSystemLogs()
+			auditDownloads() // Check for unverified software
 			time.Sleep(30 * time.Second)
+		}
+	})
+
+	// 6. USB Data Usage (High Frequency: 5s)
+	safeGo("USB_Usage", func() {
+		for {
+			trackUSBDataUsage()
+			time.Sleep(5 * time.Second)
 		}
 	})
 
@@ -1822,6 +1981,7 @@ func isAdmin() bool {
 	}
 	return false
 }
+
 
 
 
