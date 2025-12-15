@@ -335,6 +335,40 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
       }
     })
 
+    // 2.5. Integrate Discovered Infrastructure (SNMP/SSDP)
+    // If we found a Switch or AP via SNMP, use it as valid infrastructure for that subnet
+    discoveredDevices.forEach(dd => {
+      const isInfra = dd.type === 'switch' || dd.type === 'wireless-ap' || dd.type === 'router' || dd.type === 'firewall'
+
+      if (isInfra) {
+        // Use IP or timestamp as ID if mac is missing
+        const infraId = `disc-${dd.ip.replace(/\./g, '-')}`
+
+        if (!infrastructureMap.has(infraId)) {
+          infrastructureMap.set(infraId, {
+            id: infraId,
+            type: 'device',
+            position: { x: 0, y: 0 },
+            data: {
+              label: dd.hostname !== 'Unknown' ? dd.hostname : `Discovered ${dd.type}`,
+              deviceType: dd.type === 'wireless-ap' ? 'wifi_ap' : 'switch',
+              details: dd.vendor !== 'Unknown' ? dd.vendor : 'SNMP Discovered',
+              status: 'online',
+              userRole: userRole,
+            },
+            zIndex: 10,
+          })
+
+          // Heuristic: Assign this infra to its subnet
+          // We can't know for sure which agents connect to it without LLDP, 
+          // but we can map the subnet to this infra ID so we prefer it over the Server.
+          const subnet = dd.ip.split('.').slice(0, 3).join('.')
+          // We'll use a special map to track "Default Infra for Subnet"
+          // implementation detail: strictly speaking we need a new map or we iterate later
+        }
+      }
+    })
+
     // 3. Group Agents by Subnet (Fallback for those without LLDP/WiFi logs)
     const agents = devices.filter(d => !servers.includes(d))
     const subnetMap = new Map<string, Device[]>()
@@ -411,6 +445,21 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
         if (conn) subnetInfraNodes.add(conn)
       })
 
+      // If no LLDP infra found, look for Discovered Infra in this subnet
+      if (subnetInfraNodes.size === 0) {
+        infrastructureMap.forEach((node, id) => {
+          // Check if this node is in the current subnet
+          // We stored it in infrastructureMap but didn't explicitly link it to subnet yet
+          if (id.startsWith('disc-')) {
+            const originalIp = id.replace('disc-', '').replace(/-/g, '.')
+            const nodeSubnet = originalIp.split('.').slice(0, 3).join('.')
+            if (nodeSubnet === subnet) {
+              subnetInfraNodes.add(id)
+            }
+          }
+        })
+      }
+
       // Fallback Switch if no infra discovered for this subnet
       let fallbackSwitchId = `switch-${subnet}`
       let useFallbackSwitch = subnetInfraNodes.size === 0
@@ -436,36 +485,7 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
       // 2. Add Infrastructure Nodes (Real or Fallback)
       const placedInfraIds: string[] = []
 
-      if (useFallbackSwitch) {
-        // Legacy Hardcoded Switch (Discovery Failed)
-        nodes.push({
-          id: fallbackSwitchId,
-          type: 'device',
-          position: { x: (subnetWidth / 2) - 60, y: 40 },
-          parentNode: groupId,
-          extent: 'parent',
-          data: {
-            label: 'Switch (Unmanaged)',
-            deviceType: 'switch',
-            status: 'online',
-            userRole: userRole,
-            details: 'No LLDP Data',
-          },
-          zIndex: 10,
-        })
-        placedInfraIds.push(fallbackSwitchId)
-
-        // Connect to Server
-        edges.push({
-          id: `link-${mainServerId}-${fallbackSwitchId}`,
-          source: mainServerId,
-          target: fallbackSwitchId,
-          type: 'smoothstep',
-          animated: true,
-          style: { stroke: '#0ea5e9', strokeWidth: 3 },
-          zIndex: 50,
-        })
-      } else {
+      if (!useFallbackSwitch) {
         // Place Real Discovered Infra Nodes
         let infraIndex = 0
         const infraCount = subnetInfraNodes.size
@@ -529,24 +549,28 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
         // Determine which node to connect to
 
         // Determine which node to connect to
+        // Determine which node to connect to
         let targetId = deviceConnections.get(agent.device_id)
         if (!targetId || !subnetInfraNodes.has(targetId)) {
-          targetId = useFallbackSwitch ? fallbackSwitchId : placedInfraIds[0] // Default to first available
+          // If no specific infra target, connect logic
+          targetId = useFallbackSwitch ? mainServerId : placedInfraIds[0]
         }
 
         const isOnline = agent.status === 'online'
         const infraNode = infrastructureMap.get(targetId!)
         const isWireless = infraNode?.data.deviceType === 'wifi_ap'
+        const isDirectToServer = targetId === mainServerId
 
         edges.push({
           id: `link-${targetId}-${agent.device_id}`,
           source: targetId || 'virtual-server',
           target: agent.device_id,
-          type: isWireless ? 'wireless' : 'wired', // Use custom edge types
+          type: isWireless ? 'wireless' : (isDirectToServer ? 'default' : 'wired'),
           animated: isOnline,
           style: {
             stroke: isOnline ? (isWireless ? '#a855f7' : '#22c55e') : '#64748b',
-            strokeWidth: 2,
+            strokeWidth: isDirectToServer ? 1 : 2,
+            strokeDasharray: isDirectToServer ? '5,5' : undefined
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -578,6 +602,10 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
       discoveredDevices.forEach((dd, i) => {
         // Avoid duplicates if matched with managed agent
         if (placedIps.has(dd.ip)) return
+
+        // Also avoid if it was recognized as Infrastructure and placed in the main graph
+        const possibleInfraId = `disc-${dd.ip.replace(/\./g, '-')}`
+        if (infrastructureMap.has(possibleInfraId)) return
 
         const nodeId = `discovered-${dd.ip}`
         nodes.push({
