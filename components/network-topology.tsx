@@ -17,8 +17,11 @@ import ReactFlow, {
   Handle,
   Position,
 } from 'reactflow'
-import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network, Wifi, ShieldAlert } from 'lucide-react'
+import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network, Wifi, ShieldAlert, Search, Loader2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 
 interface Device {
   device_id: string
@@ -207,6 +210,34 @@ const edgeTypes = {
 
 export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyProps) {
   const [topologyLogs, setTopologyLogs] = useState<TopologyLog[]>([])
+  const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([])
+  const [isScanning, setIsScanning] = useState(false)
+  const [scanSubnet, setScanSubnet] = useState('192.168.1.0/24')
+
+  const handleScan = async (protocol: 'snmp' | 'ssdp') => {
+    setIsScanning(true)
+    try {
+      const res = await fetch('/api/network/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subnet: scanSubnet, protocol })
+      })
+      const data = await res.json()
+      if (data.devices) {
+        setDiscoveredDevices(prev => {
+          // Merge unique devices by IP
+          const newDevices = data.devices.filter((d: any) => !prev.some(p => p.ip === d.ip))
+          return [...prev, ...newDevices]
+        })
+      } else if (data.message) {
+        alert(data.message)
+      }
+    } catch (e) {
+      console.error("Scan failed", e)
+    } finally {
+      setIsScanning(false)
+    }
+  }
 
   // Fetch Topology Logs on Mount
   useEffect(() => {
@@ -230,10 +261,20 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
   }, [])
 
   const { initialNodes, initialEdges } = useMemo(() => {
-    if (devices.length === 0) return { initialNodes: [], initialEdges: [] }
+    // Determine if we should render discovered devices or just standard devices
+    // Logic: If discovered devices exist, render them too.
+
+    // We need to merge standard `devices` and `discoveredDevices`
+    // Standard devices have rich metadata. Discovered devices just have IP/Type.
+
+    // Combine for node generation
+    // ... (rest of the logic needs to account for discoveredDevices)
 
     const nodes: Node[] = []
     const edges: Edge[] = []
+
+    // --- HELPER to check if IP already placed ---
+    const placedIps = new Set<string>()
 
     // 1. Identify Main Server
     const servers = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
@@ -483,6 +524,9 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
           },
           zIndex: 60,
         })
+        placedIps.add(agent.ip_address)
+
+        // Determine which node to connect to
 
         // Determine which node to connect to
         let targetId = deviceConnections.get(agent.device_id)
@@ -515,8 +559,47 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
       })
     })
 
+
+
+    // 4. Place Discovered Devices (SNMP/SSDP) - Separate Group or Floating
+    if (discoveredDevices.length > 0) {
+      const DISCOVERY_GROUP_X = CENTER_X + RADIUS + 400
+      const DISCOVERY_GROUP_Y = CENTER_Y
+
+      nodes.push({
+        id: 'group-discovery',
+        type: 'subnet',
+        position: { x: DISCOVERY_GROUP_X - 150, y: DISCOVERY_GROUP_Y - 200 },
+        style: { width: 400, height: Math.max(400, discoveredDevices.length * 60) },
+        data: { label: 'Discovered (Unmanaged)' },
+        zIndex: -1,
+      })
+
+      discoveredDevices.forEach((dd, i) => {
+        // Avoid duplicates if matched with managed agent
+        if (placedIps.has(dd.ip)) return
+
+        const nodeId = `discovered-${dd.ip}`
+        nodes.push({
+          id: nodeId,
+          type: 'device',
+          position: { x: 20, y: 60 + (i * 80) },
+          parentNode: 'group-discovery',
+          data: {
+            label: dd.hostname !== 'Unknown' ? dd.hostname : dd.ip,
+            ipAddress: dd.ip,
+            status: 'online',
+            deviceType: dd.type || 'unknown',
+            userRole: userRole,
+            details: dd.vendor,
+            isQuarantined: false
+          }
+        })
+      })
+    }
+
     return { initialNodes: nodes, initialEdges: edges }
-  }, [devices, userRole, topologyLogs])
+  }, [devices, userRole, topologyLogs, discoveredDevices])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -586,6 +669,50 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
             </div>
           </div>
         </div>
+
+        {/* Discovery Controls Overlay */}
+        {userRole === 'admin' && (
+          <div className="absolute top-4 right-4 p-4 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-lg shadow-xl w-80">
+            <h4 className="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+              <Search className="w-4 h-4 text-sky-500" /> Network Discovery
+            </h4>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Target Subnet</label>
+                <Input
+                  value={scanSubnet}
+                  onChange={(e) => setScanSubnet(e.target.value)}
+                  className="h-8 bg-slate-950 border-slate-700 text-xs"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleScan('snmp')}
+                  disabled={isScanning}
+                  className="flex-1 text-xs h-8 border-slate-700 hover:bg-slate-800 hover:text-sky-400"
+                >
+                  {isScanning ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : 'SNMP'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleScan('ssdp')}
+                  disabled={isScanning}
+                  className="flex-1 text-xs h-8 border-slate-700 hover:bg-slate-800 hover:text-purple-400"
+                >
+                  {isScanning ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : 'SSDP'}
+                </Button>
+              </div>
+              {discoveredDevices.length > 0 && (
+                <div className="text-xs text-green-400 font-medium pt-1 text-center">
+                  {discoveredDevices.length} unmanaged devices found
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </ReactFlow>
     </div>
   )

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap, ShieldAlert, Lock } from 'lucide-react';
 import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
+
 import { QuarantineManagement } from './quarantine-management';
 import { SeverityRulesManagement } from './SeverityRulesManagement';
 import { createClient } from '@/lib/supabase/client';
@@ -596,6 +597,7 @@ export default function SecurityDashboard() {
                 <Settings className="w-4 h-4" />
                 Rules Engine
               </Button>
+
             )}
           </div>
         </div>
@@ -858,40 +860,42 @@ export default function SecurityDashboard() {
       </div>
 
       {/* Assign Owner Dialog */}
-      {showAssignOwnerDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-foreground mb-4">Assign Device Owner</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Enter the email address of the user who should own this device.
-            </p>
-            <Input
-              type="email"
-              placeholder="user@example.com"
-              value={assignOwnerEmail}
-              onChange={(e) => setAssignOwnerEmail(e.target.value)}
-              className="mb-4"
-            />
-            <div className="flex gap-2 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowAssignOwnerDialog(false);
-                  setAssignOwnerEmail('');
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleAssignOwner}
-                disabled={!assignOwnerEmail}
-              >
-                Assign Owner
-              </Button>
+      {
+        showAssignOwnerDialog && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-card border rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-semibold text-foreground mb-4">Assign Device Owner</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Enter the email address of the user who should own this device.
+              </p>
+              <Input
+                type="email"
+                placeholder="user@example.com"
+                value={assignOwnerEmail}
+                onChange={(e) => setAssignOwnerEmail(e.target.value)}
+                className="mb-4"
+              />
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowAssignOwnerDialog(false);
+                    setAssignOwnerEmail('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleAssignOwner}
+                  disabled={!assignOwnerEmail}
+                >
+                  Assign Owner
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }
