@@ -179,6 +179,184 @@ func scanWifiAccessPoint() {
 	}
 }
 
+// ----------------- Gateway Detection (Router/Firewall) -----------------
+func detectGateway() {
+	// Parse 'ipconfig' or 'route print' to get Default Gateway
+	// Simple approach: Use 'route print 0.0.0.0'
+	out, err := runCommandWithTimeout("route", "print", "0.0.0.0")
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		// Standard output line: 0.0.0.0  0.0.0.0  192.168.1.1  192.168.1.100  25
+		if len(fields) > 4 && fields[0] == "0.0.0.0" && fields[1] == "0.0.0.0" {
+			gatewayIP := fields[2]
+			
+			// Try to resolve MAC via ARP
+			gatewayMAC := resolveARP(gatewayIP)
+			
+			info := fmt.Sprintf("Gateway: %s | MAC: %s", gatewayIP, gatewayMAC)
+			if !strings.Contains(lldpNeighborInfo, gatewayIP) {
+				lldpNeighborInfo += " | " + info
+				logMessage("Gateway Discovery: " + info)
+
+				sendLog(LogEntry{
+					DeviceID:     deviceID,
+					DeviceName:   deviceName,
+					Hostname:     getHostname(),
+					LogType:      "network_topology",
+					HardwareType: "router", // Default Gateway is usually the Router/FW
+					Event:        "gateway_discovery",
+					Source:       "windows-agent",
+					Severity:     "info",
+					Message:      "Connected to Gateway: " + gatewayIP,
+					Timestamp:    time.Now().UTC().Format(time.RFC3339),
+					RawData: map[string]interface{}{
+						"ip": gatewayIP,
+						"mac": gatewayMAC,
+						"switch_name": "Gateway", // Fallback for topology parser
+						"port_id": "Uplink",
+					},
+				})
+			}
+		}
+	}
+}
+
+func resolveARP(ip string) string {
+	out, err := runCommandWithTimeout("arp", "-a", ip)
+	if err != nil {
+		return "Unknown"
+	}
+	// Output: 192.168.1.1  14-cc-20-xx-xx-xx  dynamic
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, ip) {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				return normalizeMAC(fields[1])
+			}
+		}
+	}
+	return "Unknown"
+}
+
+func normalizeMAC(mac string) string {
+	mac = strings.ReplaceAll(mac, "-", ":")
+	return strings.ToUpper(mac)
+}
+
+// ----------------- SSDP Discovery (UPnP) -----------------
+func performSSDPDiscovery() {
+	ssdpAddr, err := net.ResolveUDPAddr("udp", "239.255.255.250:1900")
+	if err != nil {
+		logMessage("SSDP Error: " + err.Error())
+		return
+	}
+
+	conn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		logMessage("SSDP Listen Error: " + err.Error())
+		return
+	}
+	defer conn.Close()
+
+	// M-SEARCH Packet
+	msg := "M-SEARCH * HTTP/1.1\r\n" +
+		"HOST: 239.255.255.250:1900\r\n" +
+		"MAN: \"ssdp:discover\"\r\n" +
+		"MX: 1\r\n" +
+		"ST: ssdp:all\r\n" +
+		"\r\n"
+
+	_, err = conn.WriteTo([]byte(msg), ssdpAddr)
+	if err != nil {
+		return
+	}
+
+	// Listen for responses for 5 seconds
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 2048)
+
+	discovered := make(map[string]bool)
+
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			break 
+		}
+
+		resp := string(buf[:n])
+		lines := strings.Split(resp, "\r\n")
+		
+		var server, location, usn, st string
+		for _, line := range lines {
+			lower := strings.ToLower(line)
+			if strings.HasPrefix(lower, "server:") {
+				server = strings.TrimSpace(line[7:])
+			} else if strings.HasPrefix(lower, "location:") {
+				location = strings.TrimSpace(line[9:])
+			} else if strings.HasPrefix(lower, "usn:") {
+				usn = strings.TrimSpace(line[4:])
+			} else if strings.HasPrefix(lower, "st:") {
+				st = strings.TrimSpace(line[3:])
+			}
+		}
+
+		// Filter for network infrastructure devices (granular)
+		lowerServer := strings.ToLower(server)
+		lowerST := strings.ToLower(st)
+		
+		var hwType string
+		if strings.Contains(lowerST, "gateway") || strings.Contains(lowerST, "igd") {
+			hwType = "router"
+		} else if strings.Contains(lowerST, "repeater") || strings.Contains(lowerServer, "extender") {
+			hwType = "repeater"
+		} else if strings.Contains(lowerServer, "switch") {
+			hwType = "switch"
+		} else if (strings.Contains(lowerServer, "linux") || strings.Contains(lowerServer, "router")) && hwType == "" {
+			hwType = "router" // Fallback
+		}
+
+		if hwType != "" {
+			id := usn
+			if id == "" { id = location }
+			
+			if id != "" && !discovered[id] {
+				discovered[id] = true
+				
+				info := fmt.Sprintf("UPnP Device: %s | Type: %s | ST: %s", server, hwType, st)
+				if !strings.Contains(lldpNeighborInfo, server) { // Dedup with global log
+					logMessage("SSDP Discovery: " + info)
+					
+					// Log to Server
+					sendLog(LogEntry{
+						DeviceID:     deviceID,
+						DeviceName:   deviceName,
+						Hostname:     getHostname(),
+						LogType:      "network_topology",
+						HardwareType: hwType,
+						Event:        "ssdp_discovery",
+						Source:       "windows-agent",
+						Severity:     "info",
+						Message:      "Discovered Device: " + server,
+						Timestamp:    time.Now().UTC().Format(time.RFC3339),
+						RawData: map[string]interface{}{
+							"switch_name": server, 
+							"port_id": "UPnP",
+							"chassis_id": id,
+							"details": st,
+						},
+					})
+				}
+			}
+		}
+	}
+}
+
 const (
 	DEFAULT_API_URL = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
 	POLL_INTERVAL             = 3 * time.Second // Faster polling for USB
@@ -322,6 +500,22 @@ func init() {
 
 	loadDeviceID()
 	go captureLLDP()
+	
+	// Start Gateway Discovery (Once per minute)
+	go func() {
+		for {
+			detectGateway()
+			time.Sleep(60 * time.Second)
+		}
+	}()
+
+	// Start SSDP Discovery (Every 30 seconds)
+	go func() {
+		for {
+			performSSDPDiscovery()
+			time.Sleep(30 * time.Second)
+		}
+	}()
 }
 
 func detectServer() string {
@@ -1403,8 +1597,7 @@ func trackNetworkConnections() {
 		if remoteAddr == "*" || remoteAddr == "0.0.0.0" || remoteAddr == "::" || remotePort == 0 {
 			continue
 		}
-			continue
-		}
+
 
 		// Rate limiting: only log same connection once per 5 minutes
 		connKey := fmt.Sprintf("%s:%s:%d", processName, remoteAddr, int(remotePort))
@@ -1790,64 +1983,7 @@ func auditDownloads() {
 	}
 }
 
-func trackUSBDataUsage() {
-	// 1. Get List of Removable Drives (USB mass storage)
-	// We need to map Drive Letter -> Serial Number to attribute usage correctly.
-	// This is complex in Windows. Simplification: Attribute to ALL connected USBs evenly OR use total.
-	
-	// Better approach: Get Disk Bytes/sec for ALL disks, filter for Removable.
-	// PowerShell: Get-WmiObject Win32_PerfFormattedData_PerfDisk_LogicalDisk | Where Name -ne "_Total" ...
-	
-	psScript := `
-		Get-WmiObject Win32_PerfFormattedData_PerfDisk_LogicalDisk | 
-		Where-Object { $_.Name -ne "_Total" -and $_.Name -ne "C:" -and $_.Name -ne "HarddiskVolume*" } | 
-		Select-Object Name, DiskBytesPerSec, DiskReadBytesPerSec, DiskWriteBytesPerSec | 
-		ConvertTo-Json -Compress
-	`
-	
-	out, err := runCommandWithTimeout("powershell", "-Command", psScript)
-	if err != nil {
-		return
-	}
 
-	var disks []map[string]interface{}
-	if json.Unmarshal(out, &disks) != nil {
-		var single map[string]interface{}
-		if json.Unmarshal(out, &single) == nil {
-			disks = []map[string]interface{}{single}
-		}
-	}
-
-	// Assuming 5 seconds interval
-	intervalSeconds := 5.0
-
-	for _, disk := range disks {
-		// potential drive letter e.g. "D:"
-		name, _ := disk["Name"].(string)
-		bytesPerSec, _ := disk["DiskBytesPerSec"].(float64)
-		
-		if bytesPerSec > 0 {
-			mbTransferred := (bytesPerSec * intervalSeconds) / (1024 * 1024)
-			
-			// Add to Global Usage (Simplified)
-			policyMutex.Lock()
-			usbUsageMB += mbTransferred
-			
-			// Also update map (if we could map Drive -> Serial, we would do it here. 
-			// For now, assume any activity on non-C: is USB if USB is connected)
-			for serial, connected := range lastConnectedUSB {
-				if connected {
-					usbUsageMap[serial] += mbTransferred
-				}
-			}
-			policyMutex.Unlock()
-			
-			if mbTransferred > 1.0 { // Log significant chunks (e.g. > 1MB in 5s)
-				logMessage(fmt.Sprintf("Data Transfer on %s: %.2f MB", name, mbTransferred))
-			}
-		}
-	}
-}
 func initializeAgent() {
 	logMessage(fmt.Sprintf("Starting CyArt Security Agent v%s...", VERSION))
 	logMessage(fmt.Sprintf("Server URL: %s", apiURL))
@@ -1981,6 +2117,13 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
+
+
+
+
+
 
 
 

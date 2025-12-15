@@ -46,6 +46,8 @@ interface TopologyLog {
     ssid?: string
     bssid?: string
     signal?: string
+    mac?: string
+    ip?: string
   }
 }
 
@@ -243,7 +245,7 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
   useEffect(() => {
     const fetchTopology = async () => {
       try {
-        const res = await fetch("/api/logs?log_type=network_topology&limit=50")
+        const res = await fetch("/api/logs?log_type=network_topology&limit=200")
         const data = await res.json()
         if (data.logs) {
           // Parse raw data if it's stringified
@@ -309,6 +311,11 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
           infraLabel = log.raw_data.switch_name || 'Switch'
           infraType = 'switch'
           infraDetails = 'Port: ' + (log.raw_data.port_id || 'Unknown Port')
+        } else if (log.hardware_type === 'router' || log.hardware_type === 'firewall' || log.hardware_type === 'repeater') {
+          infraId = `gw-${log.raw_data.mac?.replace(/:/g, '') || log.raw_data.ip?.replace(/\./g, '-') || 'unknown'}`
+          infraLabel = log.raw_data.switch_name || 'Gateway' // We reused switch_name in Go agent
+          infraType = log.hardware_type // 'router' handled by icon helper
+          infraDetails = 'IP: ' + log.raw_data.ip
         }
 
         if (infraId) {
