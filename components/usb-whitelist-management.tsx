@@ -225,10 +225,8 @@ export function USBWhitelistManagement() {
       }
     }
 
-    // 1. TRUST DATABASE STATUS (This is now real-time updated by Agent)
-    if (device.connection_status) {
-      return device.connection_status
-    }
+    // 1. Logs Inference (Reverted as requested)
+    // The user prefers log-based status over DB status for now.
 
     // 2. Fallback to Log Inference (Legacy)
     const deviceLogs = logs.filter(log =>
