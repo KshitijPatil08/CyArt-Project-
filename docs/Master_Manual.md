@@ -46,7 +46,7 @@
 ### 2.3 The Utilities
 *   `scripts/build-agent.ps1` - **The Factory**. Compiles the Agent logic into an `.exe`.
 *   `scripts/register-server.sh` - Registers the backend server itself as a node.
-*   `scripts/usb_request_gui.ps1` - User Interface for requesting USB unlocks.
+*   `scripts/usb_request_gui.ps1` - User Interface for requesting USB access from the admin.
 
 ---
 ---

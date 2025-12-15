@@ -65,8 +65,10 @@ if (-not (Test-Path $srcFile)) {
 Write-Host "Configuring server URL in source..." -ForegroundColor Yellow
 $agentCode = Get-Content $srcFile -Raw
 # Use regex replace that is robust to whitespace
-$pattern = 'DEFAULT_API_URL\s*=\s*".*?"'
-$replacement = "DEFAULT_API_URL = `"$SERVER_URL`""
+# Use regex replace that is robust to whitespace
+$encodedServerUrl = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($SERVER_URL))
+$pattern = 'encodedAPIURL\s*=\s*".*?"'
+$replacement = "encodedAPIURL = `"$encodedServerUrl`""
 $newCode = [regex]::Replace($agentCode, $pattern, $replacement)
 Set-Content -Path $srcFile -Value $newCode -Encoding UTF8
 

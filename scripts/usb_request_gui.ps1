@@ -2,7 +2,8 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$script:API_URL = "https://v0-project1-r9.vercel.app/api/usb/request" # UPDATE THIS
+$encodedUrl = "aHR0cHM6Ly92MC1wcm9qZWN0MS1yOS52ZXJjZWwuYXBwL2FwaS91c2IvcmVxdWVzdA=="
+$script:API_URL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encodedUrl))
 
 # Get Machine ID for tracking
 try {
@@ -11,7 +12,8 @@ try {
         $script:MACHINE_ID = "UNKNOWN-MACHINE-ID"
     }
     $script:MACHINE_ID = $script:MACHINE_ID.Trim()
-} catch {
+}
+catch {
     $script:MACHINE_ID = "UNKNOWN-MACHINE-ID"
 }
 
@@ -133,7 +135,8 @@ function Load-USBDevices {
         $statusBox.Text += "Found $($usbDevices.Count) USB device(s). Select one to submit a request.`r`n"
         $submitButton.Enabled = $true
         
-    } catch {
+    }
+    catch {
         $statusBox.Text += "ERROR: Failed to scan devices. $($_.Exception.Message)`r`n"
         $submitButton.Enabled = $false
     }
@@ -141,85 +144,88 @@ function Load-USBDevices {
 
 # Submit button click handler
 $submitButton.Add_Click({
-    if ($dataGrid.SelectedRows.Count -eq 0) {
-        [System.Windows.Forms.MessageBox]::Show("Please select a USB device first.", "No Selection", "OK", "Warning")
-        return
-    }
-    
-    $selectedRow = $dataGrid.SelectedRows[0]
-    $selectedDevice = $selectedRow.Tag
-    
-    $statusBox.Text = "Processing request for: $($selectedDevice.FriendlyName)...`r`n"
-    $statusBox.ForeColor = [System.Drawing.Color]::Black
-    $submitButton.Enabled = $false
-    $form.Refresh()
-    
-    try {
-        $serialNumber = "UNKNOWN"
-        if ($selectedDevice.InstanceId -match "\\([^\\]+)$") {
-            $serialNumber = $matches[1].Split('&')[0]
+        if ($dataGrid.SelectedRows.Count -eq 0) {
+            [System.Windows.Forms.MessageBox]::Show("Please select a USB device first.", "No Selection", "OK", "Warning")
+            return
         }
-        
-        $vendorId = ""
-        $productId = ""
-        if ($selectedDevice.InstanceId -match "VID_([0-9A-F]{4})&PID_([0-9A-F]{4})") {
-            $vendorId = $matches[1]
-            $productId = $matches[2]
-        }
-        
-        $payload = @{
-            serial_number = $serialNumber
-            device_name   = $selectedDevice.FriendlyName
-            vendor_name   = $selectedDevice.Manufacturer
-            vendor_id     = $vendorId
-            product_id    = $productId
-            device_class  = $selectedDevice.Class
-            hardware_id   = ($selectedDevice.HardwareID -join ",")
-            device_id     = $script:MACHINE_ID
-            computer_name = $env:COMPUTERNAME
-            description   = "Request from GUI Agent"
-        }
-        
-        $statusBox.Text += "`r`nDevice Details:`r`n"
-        $statusBox.Text += "  Serial: $serialNumber`r`n"
-        $statusBox.Text += "  VID/PID: $vendorId/$productId`r`n"
-        $statusBox.Text += "  Machine ID: $script:MACHINE_ID`r`n"
-        $statusBox.Text += "`r`nSubmitting to server...`r`n"
+    
+        $selectedRow = $dataGrid.SelectedRows[0]
+        $selectedDevice = $selectedRow.Tag
+    
+        $statusBox.Text = "Processing request for: $($selectedDevice.FriendlyName)...`r`n"
+        $statusBox.ForeColor = [System.Drawing.Color]::Black
+        $submitButton.Enabled = $false
         $form.Refresh()
+    
+        try {
+            $serialNumber = "UNKNOWN"
+            if ($selectedDevice.InstanceId -match "\\([^\\]+)$") {
+                $serialNumber = $matches[1].Split('&')[0]
+            }
         
-        $jsonPayload = $payload | ConvertTo-Json
-        $response = Invoke-RestMethod -Uri $script:API_URL -Method Post -Body $jsonPayload -ContentType "application/json"
+            $vendorId = ""
+            $productId = ""
+            if ($selectedDevice.InstanceId -match "VID_([0-9A-F]{4})&PID_([0-9A-F]{4})") {
+                $vendorId = $matches[1]
+                $productId = $matches[2]
+            }
         
-        if ($response.success) {
-            $statusBox.Text += "`r`n✓ SUCCESS! Request submitted successfully!`r`n"
-            $statusBox.ForeColor = [System.Drawing.Color]::Green
-            [System.Windows.Forms.MessageBox]::Show("Request submitted successfully!", "Success", "OK", "Information")
-        } else {
-            $statusBox.Text += "`r`n✗ ERROR: Server returned error`r`n"
-            $statusBox.Text += "$($response.error)`r`n"
-            $statusBox.ForeColor = [System.Drawing.Color]::Red
-            [System.Windows.Forms.MessageBox]::Show("Server error: $($response.error)", "Error", "OK", "Error")
+            $payload = @{
+                serial_number = $serialNumber
+                device_name   = $selectedDevice.FriendlyName
+                vendor_name   = $selectedDevice.Manufacturer
+                vendor_id     = $vendorId
+                product_id    = $productId
+                device_class  = $selectedDevice.Class
+                hardware_id   = ($selectedDevice.HardwareID -join ",")
+                device_id     = $script:MACHINE_ID
+                computer_name = $env:COMPUTERNAME
+                description   = "Request from GUI Agent"
+            }
+        
+            $statusBox.Text += "`r`nDevice Details:`r`n"
+            $statusBox.Text += "  Serial: $serialNumber`r`n"
+            $statusBox.Text += "  VID/PID: $vendorId/$productId`r`n"
+            $statusBox.Text += "  Machine ID: $script:MACHINE_ID`r`n"
+            $statusBox.Text += "`r`nSubmitting to server...`r`n"
+            $form.Refresh()
+        
+            $jsonPayload = $payload | ConvertTo-Json
+            $response = Invoke-RestMethod -Uri $script:API_URL -Method Post -Body $jsonPayload -ContentType "application/json"
+        
+            if ($response.success) {
+                $statusBox.Text += "`r`n[+] SUCCESS! Request submitted successfully!`r`n"
+                $statusBox.ForeColor = [System.Drawing.Color]::Green
+                [System.Windows.Forms.MessageBox]::Show("Request submitted successfully!", "Success", "OK", "Information")
+            }
+            else {
+                $statusBox.Text += "`r`n[-] ERROR: Server returned error`r`n"
+                $statusBox.Text += "$($response.error)`r`n"
+                $statusBox.ForeColor = [System.Drawing.Color]::Red
+                [System.Windows.Forms.MessageBox]::Show("Server error: $($response.error)", "Error", "OK", "Error")
+            }
+        
         }
-        
-    } catch {
-        $statusBox.Text += "`r`n✗ ERROR: Failed to connect to server`r`n"
-        $statusBox.Text += "$($_.Exception.Message)`r`n"
-        $statusBox.ForeColor = [System.Drawing.Color]::Red
-        [System.Windows.Forms.MessageBox]::Show("Failed to connect to server: $($_.Exception.Message)", "Connection Error", "OK", "Error")
-    } finally {
-        $submitButton.Enabled = $true
-    }
-})
+        catch {
+            $statusBox.Text += "`r`n[-] ERROR: Failed to connect to server`r`n"
+            $statusBox.Text += "$($_.Exception.Message)`r`n"
+            $statusBox.ForeColor = [System.Drawing.Color]::Red
+            [System.Windows.Forms.MessageBox]::Show("Failed to connect to server: $($_.Exception.Message)", "Connection Error", "OK", "Error")
+        }
+        finally {
+            $submitButton.Enabled = $true
+        }
+    })
 
 # Refresh button click handler
 $refreshButton.Add_Click({
-    Load-USBDevices
-})
+        Load-USBDevices
+    })
 
 # Close button click handler
 $closeButton.Add_Click({
-    $form.Close()
-})
+        $form.Close()
+    })
 
 # Load devices on startup
 Load-USBDevices

@@ -346,7 +346,8 @@ func detectServer() string {
 		}
 	}
 
-	return DEFAULT_API_URL
+	decoded, _ := base64.StdEncoding.DecodeString(encodedAPIURL)
+	return string(decoded)
 }
 
 func testConnection(url string) bool {
@@ -689,89 +690,152 @@ func checkQuarantineStatus() {
 }
 
 func checkPolicies() {
-	// If quarantined, we stop here. Do not attempt to enforce RO or Cycle devices.
+	// Thread-Safe State Access
 	policyMutex.RLock()
-	if isQuarantined {
-		policyMutex.RUnlock()
-		return
-	}
-	policyMutex.RUnlock()
-
-	// 1. Data Limit Check (HIGHEST PRIORITY - Must happen before anything else)
-	policyMutex.RLock()
-	if usbDataLimitMB > 0 {
-		policyMutex.RUnlock()
-		trackUSBDataUsage()
-	} else {
-		policyMutex.RUnlock()
-	}
-
-	// If quarantined after data limit check, stop
-	policyMutex.RLock()
-	if isQuarantined {
-		policyMutex.RUnlock()
-		return
-	}
-	policyMutex.RUnlock()
-
-	// 2. Expiration Check
-	policyMutex.RLock()
-	if usbExpiration != "" {
-		expiry, err := time.Parse(time.RFC3339, usbExpiration)
-		if err == nil && time.Now().After(expiry) {
-			policyMutex.RUnlock()
-			logMessage("⚠️ USB Access Expired")
-			enforceQuarantine("USB Access Policy Expired")
-			return
-		}
-	}
-
-	// 3. Read-Only Enforcement
-	readOnlyChanged := false
-	if usbReadOnly != lastReadOnlyState {
-		readOnlyChanged = true
-		lastReadOnlyState = usbReadOnly
-	}
+	quarantined := isQuarantined
+	policies := currentPolicies
+	currentGlobalUsage := usbUsageMB
 	
-	if usbReadOnly {
-		policyMutex.RUnlock()
-		setUSBReadOnly()
-		if readOnlyChanged {
-			logMessage("⚠️ USB Read-Only Mode ENABLED - Please re-insert USB devices for changes to take effect")
-			showPolicyChangeNotification("USB Read-Only Mode Enabled", "Please remove and re-insert your USB devices for the policy to take effect.")
-			
-			// Send log to server
-			sendLog(LogEntry{
-				DeviceID:   deviceID,
-				DeviceName: deviceName,
-				Hostname:   getHostname(),
-				LogType:    "security",
-				Source:     "agent-policy",
-				Severity:   "warning",
-				Message:    "USB Read-Only Mode ENABLED",
-				Timestamp:  time.Now().UTC().Format(time.RFC3339),
-			})
-		}
-	} else {
-		policyMutex.RUnlock()
-		setUSBReadWrite()
-		if readOnlyChanged {
-			logMessage("✅ USB Read-Write Mode ENABLED - Please re-insert USB devices for changes to take effect")
-			showPolicyChangeNotification("USB Read-Write Mode Enabled", "Please remove and re-insert your USB devices for the policy to take effect.")
-			
-			// Send log to server
-			sendLog(LogEntry{
-				DeviceID:   deviceID,
-				DeviceName: deviceName,
-				Hostname:   getHostname(),
-				LogType:    "security",
-				Source:     "agent-policy",
-				Severity:   "info",
-				Message:    "USB Read-Write Mode ENABLED",
-				Timestamp:  time.Now().UTC().Format(time.RFC3339),
-			})
+	// Get connected serials safely
+	connectedSerials := make([]string, 0, len(lastConnectedUSB))
+	for serial, connected := range lastConnectedUSB {
+		if connected {
+			connectedSerials = append(connectedSerials, serial)
 		}
 	}
+	policyMutex.RUnlock()
+
+	if quarantined {
+		return // Logic handled by quarantine checker
+	}
+
+	shouldBlock := false
+	blockReason := ""
+	shouldReadOnly := false
+
+	// Check Connected Devices against Policies
+	for _, serial := range connectedSerials {
+		// Find policy for this serial
+		var policy *UsbPolicy
+		for i := range policies {
+			if policies[i].SerialNumber == serial {
+				policy = &policies[i]
+				break
+			}
+		}
+
+		// Default: Unrestricted if no policy found
+		if policy == nil {
+			continue
+		}
+
+		// 1. Check Active Status (Block if disabled)
+		if !policy.IsActive {
+			shouldBlock = true
+			blockReason = fmt.Sprintf("Device %s is Disabled by Policy", serial)
+			break
+		}
+
+		// 2. Check Expiration
+		if policy.ExpirationDate != "" {
+			// Parse YYYY-MM-DD
+			expiry, err := time.Parse("2006-01-02", policy.ExpirationDate)
+			if err == nil {
+				// Access allowed UNTIL the end of the day (Add 24h)
+				if time.Now().After(expiry.Add(24 * time.Hour)) {
+					shouldBlock = true
+					blockReason = fmt.Sprintf("Device %s Policy Expired on %s", serial, policy.ExpirationDate)
+					break
+				}
+			}
+		}
+
+		// 3. Check Data Limit (Fail-Secure Global Check)
+		if policy.MaxDailyTransferMB > 0 && currentGlobalUsage > policy.MaxDailyTransferMB {
+			shouldBlock = true
+			blockReason = fmt.Sprintf("Device %s exceeded Data Limit (%.2f / %.2f MB)", serial, currentGlobalUsage, policy.MaxDailyTransferMB)
+			break
+		}
+
+		// 4. Check Time Window
+		if policy.AllowedStartTime != "" && policy.AllowedEndTime != "" {
+			if !isInTimeWindow(policy.AllowedStartTime, policy.AllowedEndTime) {
+				shouldBlock = true
+				blockReason = fmt.Sprintf("Device %s access denied at this time (%s-%s)", serial, policy.AllowedStartTime, policy.AllowedEndTime)
+				break
+			}
+		}
+
+		// 5. Check Read-Only (Set flag, but keep checking for Blocks)
+		if policy.IsReadOnly {
+			shouldReadOnly = true
+		}
+	}
+
+	// ENFORCEMENT HIERARCHY
+	if shouldBlock {
+		logMessage("⛔ BLOCKING USB: " + blockReason)
+		blockUSBStorage()
+		showQuarantineWarning(blockReason)
+		
+		// Send Security Log
+		sendLog(LogEntry{
+			DeviceID:   deviceID,
+			DeviceName: deviceName,
+			Hostname:   getHostname(),
+			LogType:    "security",
+			Source:     "agent-policy",
+			Severity:   "high",
+			Message:    "USB Blocked: " + blockReason,
+			Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		})
+
+	} else if shouldReadOnly {
+		// Enforce Read-Only (Global)
+		policyMutex.RLock()
+		wasRO := lastReadOnlyState
+		policyMutex.RUnlock()
+
+		if !wasRO {
+			logMessage("🔒 Enforcing Read-Only Policy (Global Trigger)")
+			setUSBReadOnly()
+			policyMutex.Lock()
+			lastReadOnlyState = true
+			policyMutex.Unlock()
+			
+			showPolicyChangeNotification("USB Read-Only Mode", "Write protection enabled by active policy.")
+		}
+		// Ensure Storage is UNBLOCKED (Readable)
+		unblockUSBStorage()
+
+	} else {
+		// Allow Read/Write
+		policyMutex.RLock()
+		wasRO := lastReadOnlyState
+		policyMutex.RUnlock()
+
+		if wasRO {
+			logMessage("🔓 Restoring Read-Write Access")
+			setUSBReadWrite()
+			policyMutex.Lock()
+			lastReadOnlyState = false
+			policyMutex.Unlock()
+			
+			showPolicyChangeNotification("USB Mode Restored", "Read-Write access restored.")
+		}
+		// Ensure Storage is UNBLOCKED
+		unblockUSBStorage()
+	}
+}
+
+func isInTimeWindow(start, end string) bool {
+	currentHM := time.Now().Format("15:04") // HH:MM 24h format
+	// Handle cross-midnight? Simplest case: Start < End
+	if start <= end {
+		return currentHM >= start && currentHM <= end
+	}
+	// Cross-midnight: Start > End (e.g. 22:00 to 06:00)
+	return currentHM >= start || currentHM <= end
 }
 
 
@@ -825,16 +889,35 @@ func trackUSBDataUsage() {
 }
 
 func setUSBReadOnly() {
+	// Use PowerShell to ensure the key exists and set the value
 	// HKLM\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies -> WriteProtect = 1
-	exec.Command("reg", "add",
-		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies",
-		"/v", "WriteProtect", "/t", "REG_DWORD", "/d", "1", "/f").Run()
+	psCmd := `
+		$path = "HKLM:\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies"
+		if (!(Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
+		Set-ItemProperty -Path $path -Name "WriteProtect" -Value 1 -Type DWord -Force
+	`
+	out, err := runCommandWithTimeout("powershell", "-Command", psCmd)
+	if err != nil {
+		logMessage("❌ CRITICAL ERROR: Failed to enable USB Read-Only! Check Admin Privileges. Error: " + err.Error() + " | Output: " + string(out))
+	} else {
+		logMessage("🔒 System Registry Updated: USB Write Protection Enabled (WriteProtect=1)")
+	}
 }
 
 func setUSBReadWrite() {
-	exec.Command("reg", "add",
-		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies",
-		"/v", "WriteProtect", "/t", "REG_DWORD", "/d", "0", "/f").Run()
+	// HKLM\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies -> WriteProtect = 0
+	psCmd := `
+		$path = "HKLM:\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies"
+		if (Test-Path $path) {
+			Set-ItemProperty -Path $path -Name "WriteProtect" -Value 0 -Type DWord -Force
+		}
+	`
+	out, err := runCommandWithTimeout("powershell", "-Command", psCmd)
+	if err != nil {
+		logMessage("❌ CRITICAL ERROR: Failed to disable USB Read-Only! Error: " + err.Error() + " | Output: " + string(out))
+	} else {
+		logMessage("✅ System Registry Updated: USB Write Protection Disabled (WriteProtect=0)")
+	}
 }
 
 func enforceQuarantine(reason string) {
@@ -923,6 +1006,7 @@ func updateUSBConnectionStatus(serialNumber string, status string) {
 	hostname := getHostname()
 	
 	payload := map[string]interface{}{
+		"device_id":         deviceID,
 		"serial_number":     serialNumber,
 		"connection_status": status,
 		"computer_name":     hostname,
@@ -1639,6 +1723,10 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
+
+
 
 
 
