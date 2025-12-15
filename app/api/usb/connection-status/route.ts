@@ -43,6 +43,7 @@ export async function POST(request: Request) {
                 .update({
                     connection_status,
                     computer_name, // Update computer_name in case it changed
+                    last_seen_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 })
                 .eq('serial_number', serial_number)
