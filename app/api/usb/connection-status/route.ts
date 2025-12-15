@@ -34,16 +34,16 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: fetchError.message }, { status: 500 })
         }
 
-        // 2. Find the matching device using bi-directional substring check
+        // 2. Find the matching device using bi-directional STARTS WITH check
         // We match if:
-        // A) The received serial (long) CONTAINS the DB serial (short/partial)
-        // B) The DB serial (long) CONTAINS the received serial (short) - unlikely but safe
-        // This handles cases where user registers "123" but device reports "000123" or vice versa.
+        // A) The received serial (long) STARTS WITH the DB serial (short/partial)
+        // B) The DB serial (long) STARTS WITH the received serial (short)
+        // This enforces "left to right" matching as requested.
         let matchingDevice = null
         if (allDevices) {
             matchingDevice = allDevices.find(device =>
-                (device.serial_number && serial_number.includes(device.serial_number)) ||
-                (device.serial_number && device.serial_number.includes(serial_number))
+                (device.serial_number && serial_number.startsWith(device.serial_number)) ||
+                (device.serial_number && device.serial_number.startsWith(serial_number))
             )
         }
 

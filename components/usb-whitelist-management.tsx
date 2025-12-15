@@ -39,6 +39,7 @@ interface AuthorizedUSB {
   allowed_end_time?: string
   expiration_date?: string
   is_read_only?: boolean
+  connection_status?: string
 }
 
 interface PendingRequest {
@@ -214,34 +215,36 @@ export function USBWhitelistManagement() {
     }
   }
 
-  const getConnectionStatus = (serialNumber: string, computerName?: string) => {
-    // CRITICAL: If agent is offline, USB cannot be connected
-    // Check if the agent (computer) is online
-    if (computerName) {
-      const agentDevice = agentDevices.find(d => d.hostname?.toLowerCase() === computerName.toLowerCase())
+  const getConnectionStatus = (device: AuthorizedUSB) => {
+    // 0. CHECK AGENT STATUS
+    // If agent is offline, the USB is effectively disconnected/unreachable
+    if (device.computer_name) {
+      const agentDevice = agentDevices.find(d => d.hostname?.toLowerCase() === device.computer_name?.toLowerCase())
       if (agentDevice && agentDevice.status === 'offline') {
-        return 'disconnected' // Agent offline = USB disconnected
+        return 'disconnected'
       }
     }
 
-    // Find the most recent log for this serial number
+    // 1. TRUST DATABASE STATUS (This is now real-time updated by Agent)
+    if (device.connection_status) {
+      return device.connection_status
+    }
+
+    // 2. Fallback to Log Inference (Legacy)
     const deviceLogs = logs.filter(log =>
-      (log.raw_data?.serial_number === serialNumber) ||
-      (log.message && log.message.includes(serialNumber))
+      (log.raw_data?.serial_number === device.serial_number) ||
+      (log.message && log.message.includes(device.serial_number))
     ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
     if (deviceLogs.length === 0) return "disconnected"
 
     const lastLog = deviceLogs[0]
-
-    // Check if log is stale (older than 5 minutes)
     const logAge = Date.now() - new Date(lastLog.timestamp).getTime()
     const FIVE_MINUTES = 5 * 60 * 1000
     if (logAge > FIVE_MINUTES) {
-      return 'disconnected' // Stale log = assume disconnected
+      return 'disconnected'
     }
 
-    // Trust the last state: if last was 'connected', it's connected. If 'disconnected', it's disconnected.
     return lastLog.event === 'connected' ? 'connected' : 'disconnected'
   }
 
@@ -596,10 +599,10 @@ export function USBWhitelistManagement() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {/* Connection Status */}
-                              <Badge variant={getConnectionStatus(device.serial_number, device.computer_name) === 'connected' ? "default" : "secondary"}
-                                className={getConnectionStatus(device.serial_number, device.computer_name) === 'connected' ? "bg-green-500 hover:bg-green-600" : ""}
+                              <Badge variant={getConnectionStatus(device) === 'connected' ? "default" : "secondary"}
+                                className={getConnectionStatus(device) === 'connected' ? "bg-green-500 hover:bg-green-600" : ""}
                               >
-                                {getConnectionStatus(device.serial_number, device.computer_name) === 'connected' ? "Connected" : "Disconnected"}
+                                {getConnectionStatus(device) === 'connected' ? "Connected" : "Disconnected"}
                               </Badge>
 
                               {/* Authorization Status */}

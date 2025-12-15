@@ -2,6 +2,7 @@
 
 import (
 	"bytes"
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -839,53 +840,111 @@ func isInTimeWindow(start, end string) bool {
 }
 
 
+var usbMonitorCmd *exec.Cmd
+
 func trackUSBDataUsage() {
-	// Simple polling of disk usage for Removable disks
-	// This uses PowerShell to get Perf Counters for logical disks that are Removable
-	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command",
-		"$drives = Get-CimInstance Win32_LogicalDisk | Where-Object DriveType -eq 2; "+
-			"if ($drives) { "+
-			"  $counters = $drives | ForEach-Object { '\\LogicalDisk(' + $_.DeviceID + ')\\Disk Write Bytes/sec' }; "+
-			"  (Get-Counter -Counter $counters -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue).CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum "+
-			"} else { 0 }")
-
-	out, err := cmd.Output()
-	if err != nil {
-		return
+	// This function is now a supervisor for the persistent File Watcher
+	// If the watcher is not running, start it.
+	if usbMonitorCmd != nil && usbMonitorCmd.ProcessState == nil {
+		return // Already running
 	}
+	
+	go startUSBFileMonitor()
+}
 
-	bytesPerSecStr := strings.TrimSpace(string(out))
-	var bytesPerSec float64
-	fmt.Sscanf(bytesPerSecStr, "%f", &bytesPerSec)
-
-	// Add to total usage (Runs every 2 seconds).
-	// We take 1s sample as average for the 2s window.
-	policyMutex.Lock()
-	usbUsageMB += (bytesPerSec * 2) / 1024 / 1024
-	currentUsage := usbUsageMB
-	currentLimit := usbDataLimitMB
-	policyMutex.Unlock()
-
-	if currentUsage > currentLimit {
-		logMessage(fmt.Sprintf("⚠️ USB Data Limit Exceeded: %.2f / %.2f MB", currentUsage, currentLimit))
-
-		// Send critical alert
-		sendLog(LogEntry{
-			DeviceID:   deviceID,
-			DeviceName: deviceName,
-			Hostname:   getHostname(),
-			LogType:    "security",
-			Source:     "agent-policy",
-			Severity:   "critical",
-			Message:    "USB Data Limit Exceeded. Blocking USB access.",
-			Timestamp:  time.Now().UTC().Format(time.RFC3339),
-		})
-
-		enforceQuarantine("USB Data Limit Exceeded")
-		policyMutex.Lock()
-		isQuarantined = true
-		policyMutex.Unlock()
+func startUSBFileMonitor() {
+	// PowerShell checks for ALL Removable/External drives and watches for file creation/modification
+	// It outputs JSON: {"action":"Pending","size":123,"name":"foo.txt"}
+	psScript := `
+		$watchers = @{}
+		
+		function Update-Watchers {
+			# Find all USB/Removable drives
+			$drives = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 2 -or ($_.DriveType -eq 3 -and $_.ProviderName -eq $null) }
+			foreach ($d in $drives) {
+				$root = $d.DeviceID + "\"
+				if (-not $watchers.ContainsKey($root)) {
+					try {
+						$w = New-Object System.IO.FileSystemWatcher
+						$w.Path = $root
+						$w.IncludeSubdirectories = $true
+						$w.EnableRaisingEvents = $true
+						
+						$action = {
+							$path = $Event.SourceEventArgs.FullPath
+							$change = $Event.SourceEventArgs.ChangeType
+							$size = 0
+							try { $size = (Get-Item $path).Length } catch {}
+							
+							$json = @{ action = "$change"; name = $path; size = $size } | ConvertTo-Json -Compress
+							Write-Host "EVENT:$json"
+						}
+						
+						Register-ObjectEvent $w "Created" -Action $action | Out-Null
+						Register-ObjectEvent $w "Changed" -Action $action | Out-Null
+						$watchers[$root] = $w
+						Write-Host "WATCHING:$root"
+					} catch {}
+				}
+			}
+		}
+		
+		while ($true) {
+			Update-Watchers
+			Start-Sleep -Seconds 5
+		}
+	`
+	
+	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psScript)
+	usbMonitorCmd = cmd
+	
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Start()
+	
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "EVENT:") {
+			jsonStr := strings.TrimPrefix(line, "EVENT:")
+			var event map[string]interface{}
+			if json.Unmarshal([]byte(jsonStr), &event) == nil {
+				name, _ := event["name"].(string)
+				size, _ := event["size"].(float64) // Bytes
+				
+				// Log File Transfer
+				logMessage(fmt.Sprintf("📂 File Activity: %s (%.2f MB)", name, size/1024/1024))
+				
+				// Update Usage
+				policyMutex.Lock()
+				// Only count new bytes? Simplification: Just add the reported file size (rough estimate for "copy")
+				// Real file copy triggers multiple "Changed" events. We might overcount, but fail-safe for security.
+				// Better: Count only "Created" or large "Changed" delta?
+				// For security, overcounting is better than undercounting.
+				usbUsageMB += (size / 1024 / 1024)
+				currentUsage := usbUsageMB
+				currentLimit := usbDataLimitMB
+				policyMutex.Unlock()
+				
+				if currentUsage > currentLimit {
+					logMessage(fmt.Sprintf("⚠️ Data Limit Exceeded: %.2f / %.2f MB", currentUsage, currentLimit))
+					enforceQuarantine("USB Data Limit Exceeded")
+				}
+				
+				// Send Log
+				sendLog(LogEntry{
+					DeviceID:   deviceID,
+					DeviceName: deviceName,
+					Hostname:   getHostname(),
+					LogType:    "usb", // Show in USB Events count
+					Source:     "agent-file-monitor",
+					Severity:   "info",
+					Message:    fmt.Sprintf("File Transfer: %s (%.2f MB)", name, size/1024/1024),
+					Timestamp:  time.Now().UTC().Format(time.RFC3339),
+				})
+			}
+		}
 	}
+	cmd.Wait()
 }
 
 func setUSBReadOnly() {
@@ -895,6 +954,13 @@ func setUSBReadOnly() {
 		$path = "HKLM:\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies"
 		if (!(Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
 		Set-ItemProperty -Path $path -Name "WriteProtect" -Value 1 -Type DWord -Force
+		
+		# FORCE REFRESH: Cycle USB Mass Storage Devices to apply the registry change
+		Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -like "*USB*" -and $_.Status -eq "OK" } | ForEach-Object {
+			Disable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false
+			Start-Sleep -Seconds 1
+			Enable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false
+		}
 	`
 	out, err := runCommandWithTimeout("powershell", "-Command", psCmd)
 	if err != nil {
@@ -964,15 +1030,25 @@ func releaseQuarantine() {
 }
 
 func blockUSBStorage() {
+	// 1. Disable USBSTOR Service to prevent future mounts
 	exec.Command("reg", "add",
 		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR",
 		"/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
+
+	// 2. DISCONNECT: Force Disable currently connected USB Storage Devices
+	psCmd := `Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -like "*USB*" -and $_.Status -eq "OK" } | Disable-PnpDevice -Confirm:$false`
+	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psCmd).Run()
 }
 
 func unblockUSBStorage() {
+	// 1. Enable USBSTOR Service
 	exec.Command("reg", "add",
 		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR",
 		"/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
+
+	// 2. RECONNECT: Enable previously disabled USB Storage Devices
+	psCmd := `Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -like "*USB*" -and $_.Status -ne "OK" } | Enable-PnpDevice -Confirm:$false`
+	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psCmd).Run()
 }
 
 func blockNetwork() {
@@ -1746,6 +1822,10 @@ func isAdmin() bool {
 	}
 	return false
 }
+
+
+
+
 
 
 
