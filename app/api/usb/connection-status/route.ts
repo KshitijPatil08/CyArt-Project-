@@ -1,11 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 
 // POST /api/usb/connection-status
 // Update connection status for authorized USB devices
 export async function POST(request: Request) {
     try {
-        const supabase = await createClient()
+        const supabase = createAdminClient()
         const body = await request.json()
         const { serial_number, connection_status, computer_name } = body
 

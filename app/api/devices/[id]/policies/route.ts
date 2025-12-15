@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 
 // PATCH /api/devices/[id]/policies
@@ -76,14 +77,10 @@ export async function GET(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const supabase = await createClient()
         const { id } = await params
 
-        // Check authentication
-        const { data: { user }, error: authError } = await supabase.auth.getUser()
-        if (authError || !user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
+        // Use Admin Client to allow Agents (Service) to fetch policies without User Session
+        const supabase = createAdminClient()
 
         const { data, error } = await supabase
             .from('devices')
