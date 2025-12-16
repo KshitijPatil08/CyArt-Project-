@@ -675,7 +675,7 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
         maxZoom={4}
       >
         <Background color="#1e293b" gap={20} size={1} />
-        <Controls className="!bg-slate-900 !border-slate-800 !fill-slate-400" />
+        <Controls position="top-left" className="!bg-slate-900 !border-slate-800 !fill-slate-400" />
         <MiniMap
           nodeColor={(node) => {
             if (node.type === 'subnet') return '#0f172a'

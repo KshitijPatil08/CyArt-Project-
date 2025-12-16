@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap, ShieldAlert, Lock } from 'lucide-react';
 import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
-
 import { QuarantineManagement } from './quarantine-management';
 import { SeverityRulesManagement } from './SeverityRulesManagement';
 import { createClient } from '@/lib/supabase/client';

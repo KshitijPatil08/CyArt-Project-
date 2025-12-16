@@ -124,8 +124,7 @@ func captureLLDP() {
 }
 
 func scanWifiAccessPoint() {
-	ticker := time.NewTicker(30 * time.Second)
-	for range ticker.C {
+	scanFunc := func() {
 		out, err := runCommandWithTimeout("netsh", "wlan", "show", "interfaces")
 		if err == nil {
 			output := string(out)
@@ -175,11 +174,16 @@ func scanWifiAccessPoint() {
 						},
 					})
 				}
-			} else {
-				// Debug log for user visibility (can be removed in prod)
-				// logMessage("WiFi Scan: No active connection found.") 
 			}
 		}
+	}
+
+	logMessage("Triggering initial Wi-Fi scan...")
+	scanFunc()
+
+	ticker := time.NewTicker(30 * time.Second)
+	for range ticker.C {
+		scanFunc()
 	}
 }
 
@@ -2082,11 +2086,13 @@ func initializeAgent() {
 		}
 	})
 
-	// 7. Network Topology Discovery (Very Slow: 5 min)
+	// 7. Network Topology Discovery (Background)
 	safeGo("Network_Discovery", func() {
+		logMessage("Triggering initial network topology scan...")
+		scanNetworkTopology() // Run immediately
 		for {
-			scanNetworkTopology()
 			time.Sleep(5 * time.Minute)
+			scanNetworkTopology()
 		}
 	})
 
@@ -2313,4 +2319,6 @@ func processSNMPTarget(ip string) {
 		},
 	})
 }
+
+
 
