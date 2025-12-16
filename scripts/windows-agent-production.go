@@ -132,17 +132,22 @@ func scanWifiAccessPoint() {
 			lines := strings.Split(output, "\n")
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "SSID") && !strings.HasPrefix(line, "BSSID") {
-					parts := strings.Split(line, ":")
-					if len(parts) > 1 { ssid = strings.TrimSpace(parts[1]) }
-				}
-				if strings.HasPrefix(line, "BSSID") {
+				// Check BSSID first (as "BSSID" contains "SSID")
+				if strings.Contains(line, "BSSID") {
 					parts := strings.Split(line, ":")
 					if len(parts) > 1 { 
 						// Reconstruct MAC (it splits on colons)
 						bssid = strings.TrimSpace(strings.Join(parts[1:], ":")) 
 					}
+					continue
 				}
+				
+				// Check SSID (ensure it's not the BSSID line)
+				if strings.Contains(line, "SSID") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 { ssid = strings.TrimSpace(parts[1]) }
+				}
+				
 				if strings.HasPrefix(line, "Signal") {
 					parts := strings.Split(line, ":")
 					if len(parts) > 1 { signal = strings.TrimSpace(parts[1]) }
@@ -2319,6 +2324,7 @@ func processSNMPTarget(ip string) {
 		},
 	})
 }
+
 
 
 

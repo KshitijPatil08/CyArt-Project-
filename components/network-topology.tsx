@@ -700,6 +700,12 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
               <Wifi className="w-4 h-4 text-purple-500" /> <span className="text-xs text-slate-300">Access Point (WiFi)</span>
             </div>
             <div className="flex items-center gap-2">
+              <Router className="w-4 h-4 text-orange-500" /> <span className="text-xs text-slate-300">Router/Gateway</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-500" /> <span className="text-xs text-slate-300">Firewall</span>
+            </div>
+            <div className="flex items-center gap-2">
               <div className="w-4 h-0.5 border-t-2 border-slate-500 border-dashed" /> <span className="text-xs text-slate-300">Wireless Link</span>
             </div>
           </div>
