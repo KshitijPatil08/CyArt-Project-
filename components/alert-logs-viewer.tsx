@@ -325,6 +325,8 @@ export function AlertLogsViewer() {
         return "bg-green-500/10 border-green-500/40"
       case "network":
         return "bg-indigo-500/10 border-indigo-500/40"
+      case "network_topology":
+        return "bg-cyan-500/10 border-cyan-500/40"
       default:
         return "bg-muted/30 border-border"
     }
@@ -469,6 +471,7 @@ export function AlertLogsViewer() {
                   <SelectItem value="system">System</SelectItem>
                   <SelectItem value="application">Application</SelectItem>
                   <SelectItem value="network">Network</SelectItem>
+                  <SelectItem value="network_topology">Topology</SelectItem>
                 </SelectContent>
               </Select>
             </div>

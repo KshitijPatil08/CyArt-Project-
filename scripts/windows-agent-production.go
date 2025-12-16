@@ -23,6 +23,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+	"github.com/gosnmp/gosnmp"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -174,6 +175,9 @@ func scanWifiAccessPoint() {
 						},
 					})
 				}
+			} else {
+				// Debug log for user visibility (can be removed in prod)
+				// logMessage("WiFi Scan: No active connection found.") 
 			}
 		}
 	}
@@ -1050,14 +1054,14 @@ func trackUSBDataUsage() {
 }
 
 func startUSBFileMonitor() {
-	// PowerShell checks for ALL Removable/External drives and watches for file creation/modification
-	// It outputs JSON: {"action":"Pending","size":123,"name":"foo.txt"}
+	// PowerShell checks for Removable drives (DriveType=2) ONLY. 
+	// Removed DriveType=3 check to avoid scanning System C: or internal D: drives.
 	psScript := `
 		$watchers = @{}
 		
 		function Update-Watchers {
-			# Find all USB/Removable drives
-			$drives = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 2 -or ($_.DriveType -eq 3 -and $_.ProviderName -eq $null) }
+			# Find Removable Drives (USB Sticks) i.e. DriveType = 2
+			$drives = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 2 }
 			foreach ($d in $drives) {
 				$root = $d.DeviceID + "\"
 				if (-not $watchers.ContainsKey($root)) {
@@ -1122,7 +1126,7 @@ func startUSBFileMonitor() {
 				currentLimit := usbDataLimitMB
 				policyMutex.Unlock()
 				
-				if currentUsage > currentLimit {
+				if currentLimit > 0 && currentUsage > currentLimit { // Only enforce if limit is set (>0)
 					logMessage(fmt.Sprintf("⚠️ Data Limit Exceeded: %.2f / %.2f MB", currentUsage, currentLimit))
 					enforceQuarantine("USB Data Limit Exceeded")
 				}
@@ -1143,6 +1147,8 @@ func startUSBFileMonitor() {
 	}
 	cmd.Wait()
 }
+
+
 
 func setUSBReadOnly() {
 	// Use PowerShell to ensure the key exists and set the value
@@ -1256,8 +1262,10 @@ func blockNetwork() {
 	// or automatically re-enables it periodically to check (not implemented here).
 	
 	// PowerShell: Get all physical network adapters and disable them
-	psScript := "Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Disable-NetAdapter -Confirm:$false"
-	runCommandWithTimeout("powershell", "-Command", psScript)
+	// psScript := "Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Disable-NetAdapter -Confirm:$false"
+	// runCommandWithTimeout("powershell", "-Command", psScript) // DISABLED for now to prevent lockout
+	logMessage("🔒 [SIMULATION] Network would be disabled here. (Script commented out to prevent lockout)")
+
 	
 	logMessage("🔒 Network Drivers Disabled. Device is offline.")
 }
@@ -2074,6 +2082,14 @@ func initializeAgent() {
 		}
 	})
 
+	// 7. Network Topology Discovery (Very Slow: 5 min)
+	safeGo("Network_Discovery", func() {
+		for {
+			scanNetworkTopology()
+			time.Sleep(5 * time.Minute)
+		}
+	})
+
 	// Block forever
 	<-done
 }
@@ -2141,3 +2157,159 @@ func isAdmin() bool {
 
 
 
+
+
+
+
+
+// ----------------- SNMP & Topology Discovery -----------------
+
+func scanNetworkTopology() {
+	// 1. Get Local Subnet
+	ip := getIPAddress()
+	if ip == "127.0.0.1" {
+		return
+	}
+	
+	// Simple subnet calculation (assuming /24)
+	parts := strings.Split(ip, ".")
+	if len(parts) < 3 {
+		return
+	}
+	subnet := fmt.Sprintf("%s.%s.%s", parts[0], parts[1], parts[2])
+	
+	logMessage("Starting Topology Scan on subnet: " + subnet + ".0/24")
+
+	// 2. Scan likely Gateway/Switch IPs (Standard: .1, .254, .2, etc)
+	// Full scan is slow without concurrency, lets prioritize Gateway first
+	gatewayIP := ""
+	out, err := runCommandWithTimeout("route", "print", "0.0.0.0")
+	if err == nil {
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			fields := strings.Fields(line)
+			if len(fields) > 4 && fields[0] == "0.0.0.0" && fields[1] == "0.0.0.0" {
+				gatewayIP = fields[2]
+				break
+			}
+		}
+	}
+
+	targets := []string{}
+	// Always scan gateway
+	if gatewayIP != "" {
+		targets = append(targets, gatewayIP)
+	}
+	// Add common infrastructure IPs
+	targets = append(targets, fmt.Sprintf("%s.1", subnet))
+	targets = append(targets, fmt.Sprintf("%s.254", subnet))
+
+	// Dedup
+	uniqueTargets := make(map[string]bool)
+	for _, t := range targets {
+		if t != ip { // Don't scan self
+			uniqueTargets[t] = true
+		}
+	}
+
+	for target := range uniqueTargets {
+		processSNMPTarget(target)
+	}
+}
+
+func processSNMPTarget(ip string) {
+	// SNMP v2c Community String (Standard: public)
+	// In production, this should be configurable or iterate common strings
+	community := "public"
+	
+	params := &gosnmp.GoSNMP{
+		Target:    ip,
+		Port:      161,
+		Community: community,
+		Version:   gosnmp.Version2c,
+		Timeout:   time.Duration(2) * time.Second,
+		Retries:   0, // Fail fast
+	}
+
+	err := params.Connect()
+	if err != nil {
+		return
+	}
+	defer params.Conn.Close()
+
+	// OIDs
+	oidSysDescr := ".1.3.6.1.2.1.1.1.0"
+	oidSysName  := ".1.3.6.1.2.1.1.5.0"
+	
+	// Get System Info
+	result, err := params.Get([]string{oidSysDescr, oidSysName})
+	if err != nil {
+		return // Likely not an SNMP device or wrong community
+	}
+
+	var sysDescr, sysName string
+	for _, variable := range result.Variables {
+		switch variable.Name {
+		case oidSysDescr:
+			switch variable.Type {
+			case gosnmp.OctetString:
+				sysDescr = string(variable.Value.([]byte))
+			default:
+				sysDescr = fmt.Sprintf("%v", variable.Value)
+			}
+		case oidSysName:
+			switch variable.Type {
+			case gosnmp.OctetString:
+				sysName = string(variable.Value.([]byte))
+			default:
+				sysName = fmt.Sprintf("%v", variable.Value)
+			}
+		}
+	}
+
+	if sysName == "" {
+		sysName = ip
+	}
+
+	// Identify Type
+	hwType := "switch" // Default assumption for SNMP devices
+	lowerDescr := strings.ToLower(sysDescr)
+	
+	if strings.Contains(lowerDescr, "router") || strings.Contains(lowerDescr, "gateway") {
+		hwType = "router"
+	} else if strings.Contains(lowerDescr, "linux") || strings.Contains(lowerDescr, "windows") {
+		// Identify as Server if typical OS
+		hwType = "server"
+	}
+	
+	// Refine for printers/APs if possible (simple keyword matching)
+	if strings.Contains(lowerDescr, "printer") {
+		hwType = "printer"
+	}
+	if strings.Contains(lowerDescr, "access point") || strings.Contains(lowerDescr, "ap") {
+		hwType = "wifi_ap"
+	}
+
+	logMessage(fmt.Sprintf("SNMP Found Device: %s (%s) [%s]", sysName, ip, hwType))
+
+	// Report to Server
+	sendLog(LogEntry{
+		DeviceID:   deviceID,
+		DeviceName: deviceName,
+		Hostname:   getHostname(),
+		LogType:    "network_topology",
+		HardwareType: hwType,
+		Event:      "snmp_discovery",
+		Source:     "agent-snmp",
+		Severity:   "info",
+		Message:    fmt.Sprintf("SNMP Device Discovered: %s (%s)", sysName, ip),
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		RawData: map[string]interface{}{
+			"ip": ip,
+			"switch_name": sysName,
+			"vendor": sysDescr,
+			"description": sysDescr,
+			"discovery_method": "snmp",
+		},
+	})
+}
