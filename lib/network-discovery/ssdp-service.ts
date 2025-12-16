@@ -35,14 +35,27 @@ export class SSDPDiscoveryService {
                 this.socket.send(message, 0, message.length, SSDP_PORT, SSDP_ADDR);
             });
 
-            setTimeout(() => {
+            // Robust Cleanup Handler
+            const cleanup = () => {
                 try {
+                    this.socket.removeAllListeners(); // Prevent future events
                     this.socket.close();
                 } catch (e) {
                     // Ignore if already closed
                 }
+            };
+
+            setTimeout(() => {
+                cleanup();
                 resolve(Array.from(this.devices.values()));
             }, duration);
+
+            // Handle socket errors to prevent crash
+            this.socket.on('error', (err) => {
+                console.error("SSDP Socket Error:", err);
+                cleanup();
+                resolve(Array.from(this.devices.values())); // Return what we have
+            });
         });
     }
 
@@ -52,14 +65,18 @@ export class SSDPDiscoveryService {
         const stMatch = response.match(/ST: (.+)/i);
         const usnMatch = response.match(/USN: (.+)/i);
 
-        // Dedup by IP
-        if (!this.devices.has(ip)) {
-            this.devices.set(ip, {
+        const usn = usnMatch?.[1]?.trim();
+        // Use USN as primary key (more reliable than IP during DHCP churn)
+        const deviceKey = usn || ip;
+
+        // Dedup
+        if (!this.devices.has(deviceKey)) {
+            this.devices.set(deviceKey, {
                 ip,
                 location: locationMatch?.[1]?.trim() || 'Unknown',
                 server: serverMatch?.[1]?.trim() || 'Unknown',
                 serviceType: stMatch?.[1]?.trim() || 'Unknown',
-                usn: usnMatch?.[1]?.trim() || 'Unknown',
+                usn: usn || 'Unknown',
                 type: 'wireless-ap', // Default assumption for SSDP/UPnP devices in this context
                 vendor: this.guessVendor(serverMatch?.[1] || ''),
                 status: 'online',

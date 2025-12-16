@@ -23,6 +23,45 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 
+// --- Custom Error Boundary to prevent crashes ---
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode, fallback: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: any) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Topology Error:", error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback
+    }
+    return this.props.children
+  }
+}
+
+function TopologyErrorFallback() {
+  return (
+    <Card className="p-12 text-center bg-slate-900 border-red-800">
+      <ShieldAlert className="w-16 h-16 mx-auto mb-4 text-red-500" />
+      <h3 className="text-lg font-medium mb-2 text-slate-200">Topology Visualization Error</h3>
+      <p className="text-slate-400 text-sm mb-4">Something went wrong while rendering the network graph.</p>
+      <Button onClick={() => window.location.reload()} variant="outline" className="border-red-800 hover:bg-red-950">
+        Reload Dashboard
+      </Button>
+    </Card>
+  )
+}
+
 interface Device {
   device_id: string
   device_name: string
@@ -210,31 +249,47 @@ const edgeTypes = {
   wireless: WirelessEdge,
 }
 
-export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyProps) {
+export function NetworkTopology(props: NetworkTopologyProps) {
+  return (
+    <ErrorBoundary fallback={<TopologyErrorFallback />}>
+      <NetworkTopologyInternal {...props} />
+    </ErrorBoundary>
+  )
+}
+
+function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopologyProps) {
   const [topologyLogs, setTopologyLogs] = useState<TopologyLog[]>([])
   const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-
-  // Fetch Topology Logs on Mount
-  useEffect(() => {
-    const fetchTopology = async () => {
-      try {
-        const res = await fetch("/api/logs?log_type=network_topology&limit=200")
-        const data = await res.json()
-        if (data.logs) {
-          // Parse raw data if it's stringified
-          const parsedLogs = data.logs.map((log: any) => ({
-            ...log,
-            raw_data: typeof log.raw_data === 'string' ? JSON.parse(log.raw_data) : log.raw_data
-          }))
-          setTopologyLogs(parsedLogs)
-        }
-      } catch (e) {
-        console.error("Failed to fetch topology logs", e)
+  // Fetch Topology Logs on Mount with useCallback
+  const fetchTopology = useCallback(async () => {
+    try {
+      // Don't set loading on every refresh, only initial if desired or handled elsewhere
+      // setIsLoading(true) 
+      const res = await fetch("/api/logs?log_type=network_topology&limit=200")
+      const data = await res.json()
+      if (data.logs) {
+        // Parse raw data if it's stringified
+        const parsedLogs = data.logs.map((log: any) => ({
+          ...log,
+          raw_data: typeof log.raw_data === 'string' ? JSON.parse(log.raw_data) : log.raw_data
+        }))
+        setTopologyLogs(parsedLogs)
       }
+    } catch (e) {
+      console.error("Failed to fetch topology logs", e)
+    } finally {
+      setIsLoading(false)
     }
-    fetchTopology()
   }, [])
+
+  useEffect(() => {
+    fetchTopology()
+    // Auto-refresh every 15 seconds
+    const interval = setInterval(fetchTopology, 15000)
+    return () => clearInterval(interval)
+  }, [fetchTopology])
 
   const { initialNodes, initialEdges } = useMemo(() => {
     // Determine if we should render discovered devices or just standard devices
@@ -622,6 +677,16 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
     setNodes(initialNodes)
     setEdges(initialEdges)
   }, [initialNodes, initialEdges, setNodes, setEdges])
+
+  if (isLoading && topologyLogs.length === 0 && devices.length === 0) {
+    return (
+      <Card className="p-12 text-center bg-slate-900 border-slate-800 flex flex-col items-center justify-center h-[600px]">
+        <Loader2 className="w-12 h-12 mb-4 animate-spin text-blue-500" />
+        <h3 className="text-lg font-medium mb-2 text-slate-200">Mapping Network...</h3>
+        <p className="text-slate-400">Discovering devices and analyzing topology.</p>
+      </Card>
+    )
+  }
 
   if (devices.length === 0) {
     return (

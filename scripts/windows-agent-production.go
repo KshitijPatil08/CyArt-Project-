@@ -58,6 +58,7 @@ func captureLLDP() {
 			handle, err := pcap.OpenLive(dev.Name, 1600, true, 30*time.Second)
 			if err != nil {
 				logMessage("LLDP Warning: Failed to open " + dev.Description + ": " + err.Error())
+				errTracker.Track("LLDP_Capture_Open", err)
 				return
 			}
 			defer handle.Close()
@@ -179,7 +180,11 @@ func scanWifiAccessPoint() {
 						},
 					})
 				}
+			} else {
+				logMessage(fmt.Sprintf("WiFi Scan: Parsed SSID='%s' BSSID='%s' Signal='%s'. Skipping as empty or no BSSID.", ssid, bssid, signal))
 			}
+		} else {
+			logMessage("WiFi Scan Error: " + err.Error())
 		}
 	}
 
@@ -387,9 +392,8 @@ var (
 	owner         string
 	location      string
 	
-	// Base64 Encoded API URL for Obfuscation
+	// Base64 Encoded API URL for Obfuscation - DEPRECATED / FALLBACK ONLY
 	// "http://localhost:3000" -> "aHR0cDovL2xvY2FsaG9zdDozMDAw"
-	// Current default: https://lily-recrudescent-scantly.ngrok-free.dev
 	encodedAPIURL = "aHR0cHM6Ly9saWx5LXJlY3J1ZGVzY2VudC1zY2FudGx5Lm5ncm9rLWZyZWUuZGV2" 
 	apiURL        string
 	
@@ -406,6 +410,18 @@ var (
 	
 	// Track usage per serial number: serial -> MB used
 	usbUsageMap = make(map[string]float64)
+	
+	// File Tracker to prevent overcounting USB data
+	// Path -> FileInfo
+	type FileInfo struct {
+		LastSize int64
+		LastMod  time.Time
+	}
+	fileTrackerMU sync.Mutex
+	fileTracker   = make(map[string]FileInfo)
+
+	currentPolicies []UsbPolicy
+
 	
 	currentPolicies []UsbPolicy
 	
@@ -424,7 +440,100 @@ var (
 
 	// Unverified Software Cache to avoid repeated logging
 	softwareAuditCache = make(map[string]bool)
+
+	// Error Tracker
+	type ErrorTracker struct {
+		mu     sync.Mutex
+		errors map[string]int
+	}
+	errTracker = &ErrorTracker{errors: make(map[string]int)}
 )
+
+func (et *ErrorTracker) Track(component string, err error) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	key := fmt.Sprintf("%s:%s", component, err.Error())
+	et.errors[key]++
+
+	// Report to server after 5 consecutive failures
+	if et.errors[key] >= 5 {
+		sendLog(LogEntry{
+			LogType:  "system",
+			Severity: "error",
+			Message:  fmt.Sprintf("%s failed 5 times: %v", component, err),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Source: "windows-agent",
+			DeviceID: deviceID,
+			DeviceName: deviceName,
+			Hostname: getHostname(),
+		})
+		et.errors[key] = 0 // Reset
+	}
+}
+
+func (et *ErrorTracker) GetCount(duration time.Duration) int {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+	count := 0
+	for _, v := range et.errors {
+		count += v
+	}
+	return count
+}
+
+// File Tracker for USB Deduplication
+type FileTracker struct {
+	mu    sync.Mutex
+	files map[string]FileInfo
+}
+
+type FileInfo struct {
+	LastSize int64
+	LastMod  time.Time
+}
+
+var fileTracker = &FileTracker{files: make(map[string]FileInfo)}
+
+func (ft *FileTracker) ProcessEvent(path string, size int64) int64 {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+
+	info, exists := ft.files[path]
+
+	if !exists {
+		// New file - count full size
+		ft.files[path] = FileInfo{LastSize: size, LastMod: time.Now()}
+		return size
+	}
+
+	// Existing file - count delta only
+	delta := size - info.LastSize
+	if delta > 0 {
+		ft.files[path] = FileInfo{LastSize: size, LastMod: time.Now()}
+		return delta
+	}
+
+	// If size decreased or same, update reference but no data usage increase
+	if size != info.LastSize {
+		ft.files[path] = FileInfo{LastSize: size, LastMod: time.Now()}
+	}
+
+	return 0
+}
+
+// Cleanup old entries periodically
+func (ft *FileTracker) Cleanup() {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+
+	cutoff := time.Now().Add(-1 * time.Hour)
+	for path, info := range ft.files {
+		if info.LastMod.Before(cutoff) {
+			delete(ft.files, path)
+		}
+	}
+}
 
 type DeviceRegistration struct {
 	DeviceName   string `json:"device_name"`
@@ -479,11 +588,16 @@ type QuarantineStatus struct {
 
 func init() {
 	if runtime.GOOS == "windows" {
-		agentDir = filepath.Join(os.Getenv("APPDATA"), "CyArtAgent")
+		// Use ProgramData for Service compatibility
+		agentDir = filepath.Join("C:\\ProgramData", "CyArtAgent")
 	} else {
 		agentDir = filepath.Join(os.Getenv("HOME"), ".cyart-agent")
 	}
 	os.MkdirAll(agentDir, 0755)
+	fmt.Println("----------------------------------------------------------------")
+	fmt.Printf("CYART AGENT INITIALIZED\n")
+	fmt.Printf("Agent Directory: %s\n", agentDir)
+	fmt.Println("----------------------------------------------------------------")
 
 	deviceName = getHostname()
 	owner = getUsername()
@@ -497,28 +611,27 @@ func init() {
 	} else {
 		apiURL = string(decoded)
 	}
-	// Note: loadOrDetectServerURL might overwrite this if config exists
-	// But we set the default here.
-	
-	// If config exists, it takes precedence. 
-	// If not, we use the decoded URL as the default to check or save.
+	// Load Config or Env takes precedence
 	if cfgURL := loadOrDetectServerURL(); cfgURL != "" {
 		apiURL = cfgURL
+	} else if envURL := os.Getenv("CYART_API_URL"); envURL != "" {
+		apiURL = envURL
+		logMessage("Loaded API URL from Environment: " + apiURL)
 	} else {
-		// If loadOrDetect returns empty (shouldn't if valid), or if we want to enforce the decoded one
-		// actually loadOrDetect calls detectServer which usage DEFAULT_API_URL.
-		// We should update DEFAULT_API_URL usage or just set apiURL here.
-		// Let's rely on loadOrDetectServerURL but use apiURL as fallback if needed.
+		// Fallback to decoded default
+		logMessage("Using default obfuscated API URL")
 	}
 
 	loadDeviceID()
 	go captureLLDP()
 	
 	// Start Gateway Discovery (Once per minute)
+	// Start Gateway Discovery (Run immediately then ticker)
+	go detectGateway()
 	go func() {
 		for {
-			detectGateway()
 			time.Sleep(60 * time.Second)
+			detectGateway()
 		}
 	}()
 
@@ -1126,14 +1239,22 @@ func startUSBFileMonitor() {
 				
 				// Update Usage
 				policyMutex.Lock()
-				// Only count new bytes? Simplification: Just add the reported file size (rough estimate for "copy")
-				// Real file copy triggers multiple "Changed" events. We might overcount, but fail-safe for security.
-				// Better: Count only "Created" or large "Changed" delta?
-				// For security, overcounting is better than undercounting.
-				usbUsageMB += (size / 1024 / 1024)
+				
+				// Deduplicate and track delta
+				deltaBytes := fileTracker.ProcessEvent(name, int64(size))
+				deltaMB := float64(deltaBytes) / 1024.0 / 1024.0
+				
+				// Only add positive deltas
+				if deltaMB > 0 {
+					usbUsageMB += deltaMB
+				}
+				
 				currentUsage := usbUsageMB
 				currentLimit := usbDataLimitMB
 				policyMutex.Unlock()
+				
+				// Cleanup old tracking data periodically
+				fileTracker.Cleanup()
 				
 				if currentLimit > 0 && currentUsage > currentLimit { // Only enforce if limit is set (>0)
 					logMessage(fmt.Sprintf("⚠️ Data Limit Exceeded: %.2f / %.2f MB", currentUsage, currentLimit))
@@ -1266,17 +1387,60 @@ func unblockUSBStorage() {
 func blockNetwork() {
 	logMessage("🔒 Disabling Network Adapters (Drivers)...")
 	
-	// WARNING: disabling the network adapter will cut off the Agent's connection to the server.
-	// The agent will NOT be able to receive a "Release" command remotely unless it has an out-of-band mechanism 
-	// or automatically re-enables it periodically to check (not implemented here).
+	// FAIL-SAFE: Create a Scheduled Task to re-enable network after 5 minutes
+	// This prevents permanent lockout if the agent crashes or server is unreachable.
+	createReenableTask()
 	
 	// PowerShell: Get all physical network adapters and disable them
-	// psScript := "Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Disable-NetAdapter -Confirm:$false"
-	// runCommandWithTimeout("powershell", "-Command", psScript) // DISABLED for now to prevent lockout
-	logMessage("🔒 [SIMULATION] Network would be disabled here. (Script commented out to prevent lockout)")
-
+	// Excluding Loopback and likely virtual adapters if possible, but "Physical" content is key
+	psScript := `
+		Get-NetAdapter | Where-Object { 
+			$_.Status -eq 'Up' -and 
+			$_.InterfaceDescription -notlike '*Loopback*' 
+		} | Disable-NetAdapter -Confirm:$false
+	`
+	runCommandWithTimeout("powershell", "-Command", psScript)
 	
-	logMessage("🔒 Network Drivers Disabled. Device is offline.")
+	logMessage("🔒 Network Drivers Disabled. Device is offline. (Fail-safe restore scheduled for +5 mins)")
+}
+
+func createReenableTask() {
+	// Schedule task to re-enable network after 5 minutes (safety net)
+	// XML definition for a one-time task
+	taskXML := `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <TimeTrigger>
+      <StartBoundary>%s</StartBoundary>
+      <Enabled>true</Enabled>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell</Command>
+      <Arguments>Get-NetAdapter | Enable-NetAdapter -Confirm:$false</Arguments>
+    </Exec>
+  </Actions>
+</Task>`
+	
+	// Calculate time 5 minutes from now
+	futureTime := time.Now().Add(5 * time.Minute).Format("2006-01-02T15:04:05")
+	
+	// Create temp XML file
+	tmpFile := filepath.Join(os.TempDir(), "enable_net.xml")
+	os.WriteFile(tmpFile, []byte(fmt.Sprintf(taskXML, futureTime)), 0644)
+	
+	// Register Task
+	exec.Command("schtasks", "/Create", "/TN", "CyArtNetworkRestore", 
+		"/XML", tmpFile, "/F").Run()
+	
+	os.Remove(tmpFile)
 }
 
 func unblockNetwork() {
@@ -2175,6 +2339,25 @@ func isAdmin() bool {
 
 // ----------------- SNMP & Topology Discovery -----------------
 
+type SNMPConfig struct {
+	CommunityStrings []string
+}
+
+func loadSNMPConfig() SNMPConfig {
+	// 1. Try Environment Variable (Comma separated)
+	env := os.Getenv("CYART_SNMP_COMMUNITIES")
+	if env != "" {
+		return SNMPConfig{CommunityStrings: strings.Split(env, ",")}
+	}
+	
+	// 2. Try Config File (Mock/Simple implementation)
+	// In production, read from encrypted agent.config
+	// For now, fallback to defaults + "private"
+	return SNMPConfig{
+		CommunityStrings: []string{"public", "private", "monitoring"},
+	}
+}
+
 func scanNetworkTopology() {
 	// 1. Get Local Subnet
 	ip := getIPAddress()
@@ -2192,7 +2375,6 @@ func scanNetworkTopology() {
 	logMessage("Starting Topology Scan on subnet: " + subnet + ".0/24")
 
 	// 2. Scan likely Gateway/Switch IPs (Standard: .1, .254, .2, etc)
-	// Full scan is slow without concurrency, lets prioritize Gateway first
 	gatewayIP := ""
 	out, err := runCommandWithTimeout("route", "print", "0.0.0.0")
 	if err == nil {
@@ -2206,45 +2388,61 @@ func scanNetworkTopology() {
 		}
 	}
 
-	targets := []string{}
-	// Always scan gateway
-	if gatewayIP != "" {
-		targets = append(targets, gatewayIP)
-	}
-	// Add common infrastructure IPs
-	targets = append(targets, fmt.Sprintf("%s.1", subnet))
-	targets = append(targets, fmt.Sprintf("%s.254", subnet))
+	// 3. Batched Concurrent Scanning
+	scanSubnetConcurrent(subnet, gatewayIP)
+}
 
-	// Dedup
-	uniqueTargets := make(map[string]bool)
-	for _, t := range targets {
-		if t != ip { // Don't scan self
-			uniqueTargets[t] = true
-		}
+func scanSubnetConcurrent(baseIP string, gatewayIP string) {
+	const MAX_CONCURRENT = 50
+	
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, MAX_CONCURRENT) // Semaphore
+	
+	// Scan 1..254
+	for i := 1; i < 255; i++ {
+		targetIP := fmt.Sprintf("%s.%d", baseIP, i)
+		
+		// Skip self (optional, but good practice)
+		// if targetIP == myIP { continue }
+
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			
+			sem <- struct{}{}        // Acquire
+			defer func() { <-sem }() // Release
+			
+			processSNMPTarget(ip)
+		}(targetIP)
 	}
 
-	for target := range uniqueTargets {
-		processSNMPTarget(target)
-	}
+	wg.Wait()
 }
 
 func processSNMPTarget(ip string) {
-	// SNMP v2c Community String (Standard: public)
-	// In production, this should be configurable or iterate common strings
-	community := "public"
+	config := loadSNMPConfig()
 	
+	for _, community := range config.CommunityStrings {
+		if trySnmpConnection(ip, community) {
+			// If successful, we stop trying other communities for THIS ip
+			break 
+		}
+	}
+}
+
+func trySnmpConnection(ip string, community string) bool {
 	params := &gosnmp.GoSNMP{
 		Target:    ip,
 		Port:      161,
 		Community: community,
 		Version:   gosnmp.Version2c,
 		Timeout:   time.Duration(2) * time.Second,
-		Retries:   0, // Fail fast
+		Retries:   0, // Fail fast per community
 	}
 
 	err := params.Connect()
 	if err != nil {
-		return
+		return false
 	}
 	defer params.Conn.Close()
 
@@ -2255,7 +2453,7 @@ func processSNMPTarget(ip string) {
 	// Get System Info
 	result, err := params.Get([]string{oidSysDescr, oidSysName})
 	if err != nil {
-		return // Likely not an SNMP device or wrong community
+		return false
 	}
 
 	var sysDescr, sysName string
@@ -2289,11 +2487,8 @@ func processSNMPTarget(ip string) {
 	if strings.Contains(lowerDescr, "router") || strings.Contains(lowerDescr, "gateway") {
 		hwType = "router"
 	} else if strings.Contains(lowerDescr, "linux") || strings.Contains(lowerDescr, "windows") {
-		// Identify as Server if typical OS
 		hwType = "server"
 	}
-	
-	// Refine for printers/APs if possible (simple keyword matching)
 	if strings.Contains(lowerDescr, "printer") {
 		hwType = "printer"
 	}
@@ -2321,9 +2516,16 @@ func processSNMPTarget(ip string) {
 			"vendor": sysDescr,
 			"description": sysDescr,
 			"discovery_method": "snmp",
+			"community": community, // Debug info
 		},
 	})
+	
+	return true
 }
+
+
+
+
 
 
 
