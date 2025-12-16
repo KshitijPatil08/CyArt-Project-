@@ -413,18 +413,31 @@ var (
 	
 	// File Tracker to prevent overcounting USB data
 	// Path -> FileInfo
-	type FileInfo struct {
-		LastSize int64
-		LastMod  time.Time
-	}
+)
+
+// File Tracker for USB Deduplication - Struct definition moved to top level
+// (Already defined at line 486 in previous edits, so we just remove it from here to avoid duplication if it exists,
+// or if not, we rely on the one I added at 486.
+// Wait, I added it at 486. So I should just REMOVE it from here.)
+
+// Error Tracker definition was also inside var block. I should move it out.
+type ErrorTracker struct {
+	mu     sync.Mutex
+	errors map[string]int
+}
+
+var (
+	// File Tracker to prevent overcounting USB data
+	// Path -> FileInfo (FileInfo is defined below/elsewhere)
 	fileTrackerMU sync.Mutex
-	fileTracker   = make(map[string]FileInfo)
+	// fileTracker is already defined as a global variable elsewhere (line 496 in previous edit).
+	// removing duplicate declaration if present or just cleaning up.
+	// Actually, line 496 `var fileTracker = ...` interacts with this `var (...)` block.
+	// if I have `var (...)` ending at 450, and then I defined `var fileTracker = ...` at 496.
+	// checks...
 
 	currentPolicies []UsbPolicy
 
-	
-	currentPolicies []UsbPolicy
-	
 	// Track connected USBs to detect disconnects
 	lastConnectedUSB = make(map[string]bool)
 	lldpNeighborInfo string
@@ -441,11 +454,7 @@ var (
 	// Unverified Software Cache to avoid repeated logging
 	softwareAuditCache = make(map[string]bool)
 
-	// Error Tracker
-	type ErrorTracker struct {
-		mu     sync.Mutex
-		errors map[string]int
-	}
+	// Error Tracker Instance
 	errTracker = &ErrorTracker{errors: make(map[string]int)}
 )
 
@@ -722,13 +731,13 @@ func loadOrDetectServerURL() string {
 		if json.Unmarshal(data, &cfg) == nil {
 			if cfg.ServerURL != "" {
 				logMessage("Loaded server URL from config")
-				return cfg.ServerURL
+				return strings.TrimSpace(cfg.ServerURL)
 			}
 		}
 	}
 	url := detectServer()
 	saveConfig(url)
-	return url
+	return strings.TrimSpace(url)
 }
 
 func saveConfig(url string) {
@@ -2308,35 +2317,6 @@ func isAdmin() bool {
 	}
 	return false
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ----------------- SNMP & Topology Discovery -----------------
 
 type SNMPConfig struct {
