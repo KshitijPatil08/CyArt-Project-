@@ -713,7 +713,7 @@ export function NetworkTopology({ devices, userRole = 'user' }: NetworkTopologyP
 
         {/* Discovery Controls Overlay */}
         {userRole === 'admin' && (
-          <div className="absolute top-4 right-4 p-4 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-lg shadow-xl w-80">
+          <div className="absolute top-4 right-4 p-4 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-lg shadow-xl w-80 nopan nodrag">
             <h4 className="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
               <Search className="w-4 h-4 text-sky-500" /> Network Discovery
             </h4>
