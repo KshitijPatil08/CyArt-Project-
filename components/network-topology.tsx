@@ -744,7 +744,7 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
           className="!bg-slate-900 !border-slate-800"
         />
         <div className="absolute bottom-4 left-4 p-3 bg-slate-900/80 backdrop-blur border border-slate-800 rounded-lg shadow-lg">
-          <h4 className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Legend</h4>
+          <h4 className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Components</h4>
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <Server className="w-4 h-4 text-sky-500" /> <span className="text-xs text-slate-300">Server</span>
