@@ -126,7 +126,12 @@ sudo apt install -y nodejs
 # Install PM2
 sudo npm install -g pm2
 ```
-
+```bash
+# Install Ngrok
+# For VM install Server with Ngrok
+sudo apt install snap ngrok
+ngrok config add-authtoken <your-authtoken>
+```
 ### Step 2.2: Code Installation
 ```bash
 git clone https://github.com/KshitijPatil08/CyArt-Project-.git /var/www/cyart
