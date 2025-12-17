@@ -477,45 +477,41 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       const angle = index * ANGLE_STEP
       const subnetAgents = subnetMap.get(subnet) || []
 
-      // Calculate Group Center
-      const groupCenterX = CENTER_X + RADIUS * Math.cos(angle)
-      const groupCenterY = CENTER_Y + RADIUS * Math.sin(angle)
+      // Calculate Subnet Dimensions
+      // Classify Infrastructure
+      const gateways: string[] = []
+      const aps: string[] = []
+      const switches: string[] = []
 
-      const subnetWidth = Math.max(300, subnetAgents.length * 180 + 40)
-      const subnetHeight = 350 // Increased for APs
+      subnetInfraNodes.forEach(id => {
+        const node = infrastructureMap.get(id)
+        if (node) {
+          if (node.data.deviceType === 'router' || node.data.deviceType === 'firewall') {
+            gateways.push(id)
+          } else if (node.data.deviceType === 'wifi_ap') {
+            aps.push(id)
+          } else {
+            switches.push(id)
+          }
+        }
+      })
+
+      // Level 2 consists of APs and Switches
+      const level2Nodes = [...aps, ...switches]
+
+      const hasGateway = gateways.length > 0
+      const hasLevel2 = level2Nodes.length > 0
+
+      // Layout Constants
+      const LAYER_HEIGHT = 150
+      const subnetWidth = Math.max(400, Math.max(gateways.length, level2Nodes.length, subnetAgents.length) * 180 + 40)
+      const subnetHeight = 100 + (hasGateway ? LAYER_HEIGHT : 0) + ((hasGateway && hasLevel2) ? LAYER_HEIGHT : 0) + (subnetAgents.length > 0 ? LAYER_HEIGHT : 0)
 
       // Top-Left corner for the Group Box
       const groupBoxX = groupCenterX - (subnetWidth / 2)
       const groupBoxY = groupCenterY - (subnetHeight / 2)
 
       const groupId = `group-${subnet}`
-
-      // Determine what infrastructure exists in this subnet
-      // Filter infrastructureMap to find nodes that these agents are connected to
-      const subnetInfraNodes = new Set<string>()
-      subnetAgents.forEach(agent => {
-        const conn = deviceConnections.get(agent.device_id)
-        if (conn) subnetInfraNodes.add(conn)
-      })
-
-      // If no LLDP infra found, look for Discovered Infra in this subnet
-      if (subnetInfraNodes.size === 0) {
-        infrastructureMap.forEach((node, id) => {
-          // Check if this node is in the current subnet
-          // We stored it in infrastructureMap but didn't explicitly link it to subnet yet
-          if (id.startsWith('disc-')) {
-            const originalIp = id.replace('disc-', '').replace(/-/g, '.')
-            const nodeSubnet = originalIp.split('.').slice(0, 3).join('.')
-            if (nodeSubnet === subnet) {
-              subnetInfraNodes.add(id)
-            }
-          }
-        })
-      }
-
-      // Fallback Switch if no infra discovered for this subnet
-      let fallbackSwitchId = `switch-${subnet}`
-      let useFallbackSwitch = subnetInfraNodes.size === 0
 
       // Subnet Label
       let subnetLabel = `Subnet ${subnet}.x`
@@ -535,50 +531,85 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         zIndex: -1,
       })
 
-      // 2. Add Infrastructure Nodes (Real or Fallback)
-      const placedInfraIds: string[] = []
+      // 2. Place Infrastructure Nodes & Create Backbone Links
+      let currentY = 60
 
-      if (!useFallbackSwitch) {
-        // Place Real Discovered Infra Nodes
-        let infraIndex = 0
-        const infraCount = subnetInfraNodes.size
-        const infraSpacing = subnetWidth / (infraCount + 1)
-
-        subnetInfraNodes.forEach(infraId => {
-          const infraNode = infrastructureMap.get(infraId)
-          if (infraNode) {
-            // Clone and Position relative to Subnet
+      // --- LAYER 1: GATEWAYS ---
+      if (hasGateway) {
+        const spacing = subnetWidth / (gateways.length + 1)
+        gateways.forEach((gwId, idx) => {
+          const gwNode = infrastructureMap.get(gwId)
+          if (gwNode) {
             nodes.push({
-              ...infraNode,
-              position: { x: (infraSpacing * (infraIndex + 1)) - 70, y: 40 },
+              ...gwNode,
+              position: { x: (spacing * (idx + 1)) - 70, y: currentY },
               parentNode: groupId,
               extent: 'parent',
             })
-            placedInfraIds.push(infraId)
-            infraIndex++
-
-            // Edge from Server to this Infra
+            // Link Server -> Gateway
             edges.push({
-              id: `link-${mainServerId}-${infraId}`,
+              id: `link-${mainServerId}-${gwId}`,
               source: mainServerId,
-              target: infraId,
-              type: 'smoothstep',
+              target: gwId,
+              type: 'default',
+              style: { stroke: '#0ea5e9', strokeWidth: 2 },
               animated: true,
-              style: { stroke: '#0ea5e9', strokeWidth: 3 },
               zIndex: 50,
             })
           }
         })
+        currentY += LAYER_HEIGHT
       }
 
-      // 3. Place Agents and Connect
+      // --- LAYER 2: APs / SWITCHES ---
+      if (hasLevel2) {
+        const spacing = subnetWidth / (level2Nodes.length + 1)
+        level2Nodes.forEach((nodeId, idx) => {
+          const node = infrastructureMap.get(nodeId)
+          if (node) {
+            nodes.push({
+              ...node,
+              position: { x: (spacing * (idx + 1)) - 70, y: currentY },
+              parentNode: groupId,
+              extent: 'parent',
+            })
+
+            // Link Upwards
+            if (hasGateway) {
+              // Connect Key Infrastructure to Gateway (Default to first gateway)
+              edges.push({
+                id: `link-${gateways[0]}-${nodeId}`,
+                source: gateways[0],
+                target: nodeId,
+                type: 'wired', // Usually wired backhaul
+                style: { stroke: '#64748b', strokeWidth: 2 },
+                zIndex: 45,
+              })
+            } else {
+              // No Gateway? Connect directly to Server (Fallback)
+              edges.push({
+                id: `link-${mainServerId}-${nodeId}`,
+                source: mainServerId,
+                target: nodeId,
+                type: 'default',
+                style: { stroke: '#0ea5e9', strokeWidth: 2 },
+                animated: true,
+                zIndex: 50,
+              })
+            }
+          }
+        })
+        currentY += LAYER_HEIGHT
+      }
+
+      // --- LAYER 3: AGENTS ---
       subnetAgents.forEach((agent, agentIndex) => {
         const DEVICE_SPACING = 180
         const rowWidth = subnetAgents.length * DEVICE_SPACING
         const rowStartX = (subnetWidth - rowWidth) / 2
 
         const agentX = rowStartX + (agentIndex * DEVICE_SPACING) + 10 // Relative
-        const agentY = 180 // Relative
+        const agentY = currentY // Relative based on layers above
 
         nodes.push({
           id: agent.device_id,
@@ -599,14 +630,15 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         })
         placedIps.add(agent.ip_address)
 
-        // Determine which node to connect to
-
-        // Determine which node to connect to
-        // Determine which node to connect to
+        // Connect Agent to Best Infrastructure
         let targetId = deviceConnections.get(agent.device_id)
+
+        // Validation: Ensure target exists in this subnet structure
         if (!targetId || !subnetInfraNodes.has(targetId)) {
-          // If no specific infra target, connect logic
-          targetId = useFallbackSwitch ? mainServerId : placedInfraIds[0]
+          // Intelligent Fallback
+          if (hasLevel2) targetId = level2Nodes[0] // Prefer AP/Switch
+          else if (hasGateway) targetId = gateways[0] // Then Gateway
+          else targetId = mainServerId // Finally Server
         }
 
         const isOnline = agent.status === 'online'
