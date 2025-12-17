@@ -477,6 +477,32 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       const angle = index * ANGLE_STEP
       const subnetAgents = subnetMap.get(subnet) || []
 
+      // Calculate Group Center
+      const groupCenterX = CENTER_X + RADIUS * Math.cos(angle)
+      const groupCenterY = CENTER_Y + RADIUS * Math.sin(angle)
+
+      // Determine what infrastructure exists in this subnet
+      // Filter infrastructureMap to find nodes that these agents are connected to
+      const subnetInfraNodes = new Set<string>()
+      subnetAgents.forEach(agent => {
+        const conn = deviceConnections.get(agent.device_id)
+        if (conn) subnetInfraNodes.add(conn)
+      })
+
+      // If no LLDP infra found, look for Discovered Infra in this subnet
+      if (subnetInfraNodes.size === 0) {
+        infrastructureMap.forEach((node, id) => {
+          // Check if this node is in the current subnet
+          if (id.startsWith('disc-')) {
+            const originalIp = id.replace('disc-', '').replace(/-/g, '.')
+            const nodeSubnet = originalIp.split('.').slice(0, 3).join('.')
+            if (nodeSubnet === subnet) {
+              subnetInfraNodes.add(id)
+            }
+          }
+        })
+      }
+
       // Calculate Subnet Dimensions
       // Classify Infrastructure
       const gateways: string[] = []
