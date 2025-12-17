@@ -4,11 +4,11 @@ import { Analytics } from '@vercel/analytics/next'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
-const geist = Geist({ 
+const geist = Geist({
   subsets: ["latin"],
   variable: '--font-geist-sans',
 });
-const geistMono = Geist_Mono({ 
+const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: '--font-geist-mono',
 });
@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   title: 'CyArt Security Dashboard',
   description: 'Device tracking and USB monitoring security dashboard',
   generator: 'Next.js',
+  icons: {
+    icon: '/cyart-logo.png',
+  },
 }
 
 export default function RootLayout({
