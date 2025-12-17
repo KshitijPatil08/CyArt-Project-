@@ -322,52 +322,69 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         .filter(l => l.device_id === device.device_id)
       // Sort by timestamp if available in future, for now take last (latest fetch)
 
+      // Process ALL logs to find all infrastructure (Gateway + AP + Switch)
+      let bestConnectionId = ""
+      let bestConnectionPriority = 999 // 1 = Wifi/Switch (L2), 2 = Gateway (L3)
+
       if (logs.length > 0) {
-        const log = logs[0] // Assuming API returns newest first or we just take one
+        logs.forEach(log => {
+          let infraId = ""
+          let infraLabel = ""
+          let infraType = ""
+          let infraDetails = ""
+          let priority = 999
 
-        let infraId = ""
-        let infraLabel = ""
-        let infraType = ""
-        let infraDetails = ""
-
-        if (log.hardware_type === 'wifi_ap') {
-          infraId = `ap-${log.raw_data.bssid?.replace(/:/g, '') || 'unknown'}`
-          infraLabel = log.raw_data.ssid || 'WiFi AP'
-          infraType = 'wifi_ap'
-          infraDetails = 'Signal: ' + (log.raw_data.signal || 'N/A')
-        } else if (log.hardware_type === 'switch') {
-          infraId = `sw-${log.raw_data.chassis_id?.replace(/:/g, '') || log.raw_data.switch_name || 'unknown'}`
-          infraLabel = log.raw_data.switch_name || 'Switch'
-          infraType = 'switch'
-          infraDetails = 'Port: ' + (log.raw_data.port_id || 'Unknown Port')
-        } else if (log.hardware_type === 'router' || log.hardware_type === 'firewall' || log.hardware_type === 'repeater') {
-          infraId = `gw-${log.raw_data.mac?.replace(/:/g, '') || log.raw_data.ip?.replace(/\./g, '-') || 'unknown'}`
-          infraLabel = log.raw_data.switch_name || 'Gateway' // We reused switch_name in Go agent
-          infraType = log.hardware_type // 'router' handled by icon helper
-          infraDetails = 'IP: ' + log.raw_data.ip
-        }
-
-        if (infraId) {
-          deviceConnections.set(device.device_id, infraId)
-
-          if (!infrastructureMap.has(infraId)) {
-            // Create Infrastructure Node (will position later)
-            infrastructureMap.set(infraId, {
-              id: infraId,
-              type: 'device',
-              position: { x: 0, y: 0 }, // Placeholder
-              data: {
-                label: infraLabel,
-                deviceType: infraType,
-                details: infraDetails, // e.g. signal strength not per device but general... wait details are per link usually but node serves many.
-                // Keeping details simple for node label
-                status: 'online',
-                userRole: userRole,
-              },
-              zIndex: 10,
-            })
+          if (log.hardware_type === 'wifi_ap') {
+            infraId = `ap-${log.raw_data.bssid?.replace(/:/g, '') || 'unknown'}`
+            infraLabel = log.raw_data.ssid || 'WiFi AP'
+            infraType = 'wifi_ap'
+            infraDetails = 'Signal: ' + (log.raw_data.signal || 'N/A')
+            priority = 1
+          } else if (log.hardware_type === 'switch') {
+            infraId = `sw-${log.raw_data.chassis_id?.replace(/:/g, '') || log.raw_data.switch_name || 'unknown'}`
+            infraLabel = log.raw_data.switch_name || 'Switch'
+            infraType = 'switch'
+            infraDetails = 'Port: ' + (log.raw_data.port_id || 'Unknown Port')
+            priority = 1
+          } else if (log.hardware_type === 'router' || log.hardware_type === 'firewall' || log.hardware_type === 'repeater') {
+            infraId = `gw-${log.raw_data.mac?.replace(/:/g, '') || log.raw_data.ip?.replace(/\./g, '-') || 'unknown'}`
+            infraLabel = log.raw_data.switch_name || 'Gateway'
+            infraType = log.hardware_type
+            infraDetails = 'IP: ' + log.raw_data.ip
+            priority = 2
           }
-        }
+
+          if (infraId) {
+            // 1. Ensure Infrastructure Node Exists
+            if (!infrastructureMap.has(infraId)) {
+              infrastructureMap.set(infraId, {
+                id: infraId,
+                type: 'device',
+                position: { x: 0, y: 0 }, // Placeholder
+                data: {
+                  label: infraLabel,
+                  deviceType: infraType,
+                  details: infraDetails,
+                  status: 'online',
+                  userRole: userRole,
+                },
+                zIndex: 10,
+              })
+            }
+
+            // 2. Determine Best Connection (Prioritize L2 over L3)
+            // If we already have a connection, only overwrite if new one is higher priority (lower number)
+            if (priority < bestConnectionPriority) {
+              bestConnectionPriority = priority
+              bestConnectionId = infraId
+            }
+          }
+        })
+      }
+
+      // Link Agent to the best infrastructure found
+      if (bestConnectionId) {
+        deviceConnections.set(device.device_id, bestConnectionId)
       }
     })
 
