@@ -509,6 +509,40 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       const aps: string[] = []
       const switches: string[] = []
 
+      // Enhanced Discovery: Look for any candidate gateway in Discovered Devices if none found in logs
+      if (subnetInfraNodes.size === 0) {
+        // Find any device ending in .1 or .254 in this subnet from discoveredDevices list
+        const candidate = discoveredDevices.find(dd => {
+          const ipParts = dd.ip.split('.')
+          const ddSubnet = ipParts.slice(0, 3).join('.')
+          const lastOctet = parseInt(ipParts[3])
+          return ddSubnet === subnet && (lastOctet === 1 || lastOctet === 254)
+        })
+
+        if (candidate) {
+          // We found a likely gateway via SNMP/Scan! Use it.
+          const infraId = `disc-${candidate.ip.replace(/\./g, '-')}`
+
+          // Ensure it exists in the map
+          if (!infrastructureMap.has(infraId)) {
+            infrastructureMap.set(infraId, {
+              id: infraId,
+              type: 'device',
+              position: { x: 0, y: 0 },
+              data: {
+                label: candidate.hostname || 'Gateway',
+                deviceType: 'router',
+                details: candidate.vendor || 'Discovered',
+                status: 'online',
+                userRole: userRole,
+              },
+              zIndex: 10,
+            })
+          }
+          subnetInfraNodes.add(infraId)
+        }
+      }
+
       subnetInfraNodes.forEach(id => {
         const node = infrastructureMap.get(id)
         if (node) {

@@ -2316,6 +2316,7 @@ func isAdmin() bool {
 		}
 	}
 	return false
+
 }
 // ----------------- SNMP & Topology Discovery -----------------
 
@@ -2502,12 +2503,3 @@ func trySnmpConnection(ip string, community string) bool {
 	
 	return true
 }
-
-
-
-
-
-
-
-
-
