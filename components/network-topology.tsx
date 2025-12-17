@@ -564,8 +564,17 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
 
       // Layout Constants
       const LAYER_HEIGHT = 150
+      const PADDING_TOP = 60
+      const PADDING_BOTTOM = 60
+
+      // Dynamic Height Calculation
+      let calculatedHeight = PADDING_TOP + PADDING_BOTTOM
+      if (hasGateway) calculatedHeight += LAYER_HEIGHT
+      if (hasLevel2) calculatedHeight += LAYER_HEIGHT
+      if (subnetAgents.length > 0) calculatedHeight += LAYER_HEIGHT
+
       const subnetWidth = Math.max(400, Math.max(gateways.length, level2Nodes.length, subnetAgents.length) * 180 + 40)
-      const subnetHeight = 100 + (hasGateway ? LAYER_HEIGHT : 0) + ((hasGateway && hasLevel2) ? LAYER_HEIGHT : 0) + (subnetAgents.length > 0 ? LAYER_HEIGHT : 0)
+      const subnetHeight = Math.max(250, calculatedHeight) // Ensure minimum height
 
       // Top-Left corner for the Group Box
       const groupBoxX = groupCenterX - (subnetWidth / 2)
@@ -592,7 +601,14 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       })
 
       // 2. Place Infrastructure Nodes & Create Backbone Links
-      let currentY = 60
+      // Center vertically if missing layers
+      let currentY = PADDING_TOP
+
+      // If no gateway/switch, push agents down slightly to center them
+      // This centers the content stack within the box dynamic height
+      if (!hasGateway && !hasLevel2) {
+        currentY = (subnetHeight - LAYER_HEIGHT) / 2 + 20
+      }
 
       // --- LAYER 1: GATEWAYS ---
       if (hasGateway) {
@@ -821,6 +837,7 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         className="bg-slate-950"
         minZoom={0.2}
         maxZoom={4}
+        proOptions={{ hideAttribution: true }}
       >
         <Background color="#1e293b" gap={20} size={1} />
         <Controls position="top-left" className="!bg-slate-900 !border-slate-800 !fill-slate-400" />
