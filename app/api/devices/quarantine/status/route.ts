@@ -51,6 +51,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Fetch Authorized Software
+    let approvedSoftware: string[] = []
+    const { data: authSoftware, error: swError } = await supabase
+      .from("authorized_software")
+      .select("name")
+      .eq("is_approved", true)
+
+    if (!swError && authSoftware) {
+      approvedSoftware = authSoftware.map(s => s.name)
+    }
+
     return NextResponse.json({
       is_quarantined: deviceData?.is_quarantined || false,
       quarantine_reason: deviceData?.quarantine_reason || null,
@@ -61,7 +72,9 @@ export async function GET(request: NextRequest) {
       usb_data_limit_mb: deviceData?.usb_data_limit_mb || 0,
       usb_expiration_date: deviceData?.usb_expiration_date || null,
       // Per-Device Policies
-      usb_policies: usbPolicies
+      usb_policies: usbPolicies,
+      // Approved Software List
+      approved_software: approvedSoftware
     }, { status: 200 })
   } catch (error) {
     console.error("Status check error:", error)

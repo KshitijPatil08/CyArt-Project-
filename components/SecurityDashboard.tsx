@@ -6,6 +6,7 @@ import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
 import { QuarantineManagement } from './quarantine-management';
 import { SeverityRulesManagement } from './SeverityRulesManagement';
+import { SoftwareManagement } from './software-management';
 import { createClient } from '@/lib/supabase/client';
 
 import { Button } from '@/components/ui/button';
@@ -63,7 +64,7 @@ export default function SecurityDashboard() {
   const [usbEventCount, setUsbEventCount] = useState(0);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine' | 'rules'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine' | 'rules' | 'software'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
@@ -586,6 +587,15 @@ export default function SecurityDashboard() {
               <ShieldAlert className="w-4 h-4" />
               Quarantine
             </Button>
+            <Button
+              variant={viewMode === 'software' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('software')}
+              className="gap-2 whitespace-nowrap"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Software Approval
+            </Button>
             {userRole === 'admin' && (
               <Button
                 variant={viewMode === 'rules' ? 'default' : 'outline'}
@@ -609,6 +619,10 @@ export default function SecurityDashboard() {
         ) : viewMode === 'quarantine' ? (
           <div className="bg-card border rounded-lg shadow-sm">
             <QuarantineManagement />
+          </div>
+        ) : viewMode === 'software' ? (
+          <div className="bg-card border rounded-lg shadow-sm">
+            <SoftwareManagement />
           </div>
         ) : viewMode === 'rules' ? (
           <div className="bg-card border rounded-lg shadow-sm">

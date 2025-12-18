@@ -407,6 +407,7 @@ var (
 	usbReadOnly    bool
 	usbExpiration  string
 	usbUsageMB     float64
+	lastResetDate  string // YYYY-MM-DD
 	
 	// Track usage per serial number: serial -> MB used
 	usbUsageMap = make(map[string]float64)
@@ -450,6 +451,8 @@ var (
 
 	// MUTEX for safe concurrent access to policies
 	policyMutex sync.RWMutex
+
+	globalApprovedSoftware []string
 
 	// Unverified Software Cache to avoid repeated logging
 	softwareAuditCache = make(map[string]bool)
@@ -581,7 +584,8 @@ type UsbPolicy struct {
 	ExpirationDate     string  `json:"expiration_date"`
 	AllowedStartTime   string  `json:"allowed_start_time"`
 	AllowedEndTime     string  `json:"allowed_end_time"`
-	MaxDailyTransferMB float64 `json:"max_daily_transfer_mb"`
+	MaxDailyTransferMB float64  `json:"max_daily_transfer_mb"`
+	ApprovedSoftware   []string `json:"approved_software"` // Whitelist for this device
 }
 
 type QuarantineStatus struct {
@@ -593,6 +597,54 @@ type QuarantineStatus struct {
 	UsbReadOnly      bool        `json:"usb_read_only"`
 	UsbExpiration    string      `json:"usb_expiration_date"`
 	UsbPolicies      []UsbPolicy `json:"usb_policies"`
+	ApprovedSoftware []string    `json:"approved_software"` // Global software whitelist
+}
+
+type AgentState struct {
+	UsbUsageMB     float64  `json:"usb_usage_mb"`
+	LastResetDate  string   `json:"last_reset_date"`
+	ApprovedSoftware []string `json:"approved_software"`
+}
+
+func saveAgentState() {
+	policyMutex.RLock()
+	state := AgentState{
+		UsbUsageMB:    usbUsageMB,
+		LastResetDate: lastResetDate,
+	}
+	// Extract unique approved software from all policies
+	approvedSet := make(map[string]bool)
+	for _, p := range currentPolicies {
+		for _, s := range p.ApprovedSoftware {
+			approvedSet[s] = true
+		}
+	}
+	for s := range approvedSet {
+		state.ApprovedSoftware = append(state.ApprovedSoftware, s)
+	}
+	policyMutex.RUnlock()
+
+	data, _ := json.MarshalIndent(state, "", "  ")
+	os.WriteFile(filepath.Join(agentDir, "agent_state.json"), data, 0644)
+}
+
+func loadAgentState() {
+	path := filepath.Join(agentDir, "agent_state.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	var state AgentState
+	if err := json.Unmarshal(data, &state); err == nil {
+		policyMutex.Lock()
+		usbUsageMB = state.UsbUsageMB
+		lastResetDate = state.LastResetDate
+		// We don't overwrite server-provided policies here, 
+		// but we could use state.ApprovedSoftware as a secondary cache if needed.
+		policyMutex.Unlock()
+		logMessage(fmt.Sprintf("💾 Loaded agent state: %.2f MB used today.", state.UsbUsageMB))
+	}
 }
 
 func init() {
@@ -1017,6 +1069,7 @@ func checkQuarantineStatus() {
 	usbReadOnly = q.UsbReadOnly
 	usbExpiration = q.UsbExpiration
 	currentPolicies = q.UsbPolicies
+	globalApprovedSoftware = q.ApprovedSoftware
 	policyMutex.Unlock()
 
 	logMessage(fmt.Sprintf("Received %d USB policies from server", len(currentPolicies)))
@@ -1038,12 +1091,14 @@ func checkPolicies() {
 	}
 	policyMutex.RUnlock()
 
-	if quarantined {
-		return // Logic handled by quarantine checker
-	}
+	// Logic: checkPolicies is now the SINGLE AUTHORITY for unblocking USB.
+	// We evaluate EVERYTHING here.
 
-	shouldBlock := false
+	shouldBlock := quarantined // Inherit system status
 	blockReason := ""
+	if quarantined {
+		blockReason = "System is in Quarantine"
+	}
 	shouldReadOnly := false
 
 	// Check Connected Devices against Policies
@@ -1069,24 +1124,31 @@ func checkPolicies() {
 			break
 		}
 
-		// 2. Check Expiration
+		// 2. Check Expiration (Per-Device)
 		if policy.ExpirationDate != "" {
-			// Parse YYYY-MM-DD
-			expiry, err := time.Parse("2006-01-02", policy.ExpirationDate)
+			// Robust parsing: Handle YYYY-MM-DD and YYYY-MM-DDTHH:MM:SSZ
+			dateStr := policy.ExpirationDate
+			if idx := strings.Index(dateStr, "T"); idx > 0 {
+				dateStr = dateStr[:idx]
+			}
+			expiry, err := time.Parse("2006-01-02", dateStr)
 			if err == nil {
-				// Access allowed UNTIL the end of the day (Add 24h)
-				if time.Now().After(expiry.Add(24 * time.Hour)) {
+				// Access allowed ONLY until the start of the expiration date
+				if time.Now().After(expiry) {
 					shouldBlock = true
-					blockReason = fmt.Sprintf("Device %s Policy Expired on %s", serial, policy.ExpirationDate)
+					blockReason = fmt.Sprintf("Device %s Policy Expired on %s", serial, dateStr)
 					break
 				}
 			}
 		}
 
-		// 3. Check Data Limit (Fail-Secure Global Check)
-		if policy.MaxDailyTransferMB > 0 && currentGlobalUsage > policy.MaxDailyTransferMB {
+		// 3. Check Data Limit (Per-Device or Global Trigger)
+		// If policy has a specific limit, check against global usage (as a proxy for this session)
+		// Or if global limit is set, it's already checked in trackUSBDataUsage but we double check here.
+		limitToCheck := policy.MaxDailyTransferMB
+		if limitToCheck > 0 && currentGlobalUsage > limitToCheck {
 			shouldBlock = true
-			blockReason = fmt.Sprintf("Device %s exceeded Data Limit (%.2f / %.2f MB)", serial, currentGlobalUsage, policy.MaxDailyTransferMB)
+			blockReason = fmt.Sprintf("Device %s exceeded Data Limit (%.2f / %.2f MB)", serial, currentGlobalUsage, limitToCheck)
 			break
 		}
 
@@ -1103,6 +1165,37 @@ func checkPolicies() {
 		if policy.IsReadOnly {
 			shouldReadOnly = true
 		}
+	}
+
+	// 6. GLOBAL POLICY ENFORCEMENT (Fail-Secure)
+	policyMutex.RLock()
+	gExpiration := usbExpiration
+	gDataLimit := usbDataLimitMB
+	gReadOnly := usbReadOnly
+	approvedSoftware := globalApprovedSoftware
+	policyMutex.RUnlock()
+
+	if !shouldBlock && gExpiration != "" {
+		dateStr := gExpiration
+		if idx := strings.Index(dateStr, "T"); idx > 0 {
+			dateStr = dateStr[:idx]
+		}
+		expiry, err := time.Parse("2006-01-02", dateStr)
+		if err == nil {
+			if time.Now().After(expiry) {
+				shouldBlock = true
+				blockReason = "Global USB Access Policy Expired on " + dateStr
+			}
+		}
+	}
+
+	if !shouldBlock && gDataLimit > 0 && currentGlobalUsage > gDataLimit {
+		shouldBlock = true
+		blockReason = fmt.Sprintf("Global USB Data Limit Exceeded (%.2f / %.2f MB)", currentGlobalUsage, gDataLimit)
+	}
+
+	if gReadOnly {
+		shouldReadOnly = true
 	}
 
 	// ENFORCEMENT HIERARCHY
@@ -1175,8 +1268,63 @@ func isInTimeWindow(start, end string) bool {
 var usbMonitorCmd *exec.Cmd
 
 func trackUSBDataUsage() {
-	// This function is now a supervisor for the persistent File Watcher
-	// If the watcher is not running, start it.
+	// 1. DAILY RESET LOGIC
+	today := time.Now().Format("2006-01-02")
+	policyMutex.Lock()
+	if lastResetDate != today {
+		logMessage(fmt.Sprintf("📅 New Day Detected (%s). Resetting daily USB usage (was %.2f MB).", today, usbUsageMB))
+		usbUsageMB = 0
+		lastResetDate = today
+	}
+	policyMutex.Unlock()
+
+	// 2. POWER-SHELL POLLING (Accurate for Read/Write Monitoring)
+	// Simple polling of disk usage for Removable disks
+	// This uses PowerShell to get Perf Counters for logical disks that are Removable
+	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command",
+		"$drives = Get-CimInstance Win32_LogicalDisk | Where-Object DriveType -eq 2; "+
+			"if ($drives) { "+
+			"  $counters = $drives | ForEach-Object { '\\LogicalDisk(' + $_.DeviceID + ')\\Disk Write Bytes/sec' }; "+
+			"  (Get-Counter -Counter $counters -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue).CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum "+
+			"} else { 0 }")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	bytesPerSecStr := strings.TrimSpace(string(out))
+	var bytesPerSec float64
+	fmt.Sscanf(bytesPerSecStr, "%f", &bytesPerSec)
+
+	// Add to total usage (since we poll every 2 seconds as per initializer)
+	// Using a 2s window for usage increments.
+	policyMutex.Lock()
+	usbUsageMB += (bytesPerSec * 2) / 1024 / 1024
+	currentUsage := usbUsageMB
+	currentLimit := usbDataLimitMB
+	policyMutex.Unlock()
+
+	if currentLimit > 0 && currentUsage > currentLimit {
+		logMessage(fmt.Sprintf("⚠️ Global USB Data Limit Exceeded: %.2f / %.2f MB", currentUsage, currentLimit))
+
+		// Send critical alert
+		sendLog(LogEntry{
+			DeviceID:   deviceID,
+			DeviceName: deviceName,
+			Hostname:   getHostname(),
+			LogType:    "security",
+			Source:     "agent-policy",
+			Severity:   "critical",
+			Message:    "Global USB Data Limit Exceeded. Blocking USB access.",
+			Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		})
+
+		enforceQuarantine("Global USB Data Limit Exceeded")
+		saveAgentState()
+	}
+
+	// 3. FILE-WATCHER SUPERVISOR (Keep running for logging filenames)
 	if usbMonitorCmd != nil && usbMonitorCmd.ProcessState == nil {
 		return // Already running
 	}
@@ -1243,24 +1391,29 @@ func startUSBFileMonitor() {
 				name, _ := event["name"].(string)
 				size, _ := event["size"].(float64) // Bytes
 				
-				// Log File Transfer
-				logMessage(fmt.Sprintf("📂 File Activity: %s (%.2f MB)", name, size/1024/1024))
-				
-				// Update Usage
-				policyMutex.Lock()
-				
-				// Deduplicate and track delta
-				deltaBytes := fileTracker.ProcessEvent(name, int64(size))
-				deltaMB := float64(deltaBytes) / 1024.0 / 1024.0
-				
-				// Only add positive deltas
-				if deltaMB > 0 {
-					usbUsageMB += deltaMB
+				// 1. Proactive Blocking: Check if this file PUSHES us over the limit
+				sizeMB := size / 1024 / 1024
+				policyMutex.RLock()
+				projectedUsage := usbUsageMB + sizeMB
+				limit := usbDataLimitMB
+				policyMutex.RUnlock()
+
+				if limit > 0 && projectedUsage > limit {
+					reason := fmt.Sprintf("Proactive Block: Transfer of '%s' (%.2f MB) would exceed %.2f MB limit.", filepath.Base(name), sizeMB, limit)
+					logMessage("⛔ " + reason)
+					enforceQuarantine(reason)
+					showQuarantineWarning(reason)
+					return // End routine
 				}
+
+				// Log File Transfer
+				logMessage(fmt.Sprintf("📂 File Activity: %s (%.2f MB)", name, sizeMB))
 				
+				// Update Usage (REMOVED - Now handled by polling in trackUSBDataUsage to avoid overcounting)
+				policyMutex.RLock()
 				currentUsage := usbUsageMB
 				currentLimit := usbDataLimitMB
-				policyMutex.Unlock()
+				policyMutex.RUnlock()
 				
 				// Cleanup old tracking data periodically
 				fileTracker.Cleanup()
@@ -1350,9 +1503,9 @@ func enforceQuarantine(reason string) {
 
 func releaseQuarantine() {
 	isQuarantined = false
-	logMessage("✅ Quarantine Released")
-	unblockUSBStorage()
+	logMessage("✅ System Quarantine Released (Network Restored)")
 	unblockNetwork()
+	// NOTE: unblockUSBStorage is NOT called here. checkPolicies() will handle it.
 	
 	// Send log AFTER restoring network
 	// Give it a moment for network to come up (unblockNetwork has no sleep, but runCommand waits)
@@ -1372,13 +1525,22 @@ func releaseQuarantine() {
 }
 
 func blockUSBStorage() {
-	// 1. Disable USBSTOR Service to prevent future mounts
-	exec.Command("reg", "add",
-		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR",
-		"/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
+	// 1. Disable USBSTOR and UAS Services
+	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", "/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
+	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\UAS", "/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
 
-	// 2. DISCONNECT: Force Disable currently connected USB Storage Devices
-	psCmd := `Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -like "*USB*" -and $_.Status -eq "OK" } | Disable-PnpDevice -Confirm:$false`
+	// 2. DISCONNECT: Force Disable currently connected USB Storage Devices via Service/Property
+	psCmd := `Get-PnpDevice | Where-Object { $_.Service -eq "USBSTOR" -or $_.Service -eq "UASP" } | Where-Object { $_.Status -eq "OK" } | Disable-PnpDevice -Confirm:$false`
+	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psCmd).Run()
+}
+
+func unblockUSBStorage() {
+	// 1. Re-enable USBSTOR and UAS Services
+	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", "/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
+	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\UAS", "/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
+
+	// 2. RECONNECT: Enable devices
+	psCmd := `Get-PnpDevice | Where-Object { $_.Service -eq "USBSTOR" -or $_.Service -eq "UASP" } | Where-Object { $_.Status -ne "OK" } | Enable-PnpDevice -Confirm:$false`
 	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psCmd).Run()
 }
 
@@ -2121,6 +2283,8 @@ func auditDownloads() {
 		psScript := fmt.Sprintf(`
 			$sig = Get-AuthenticodeSignature -FilePath "%s"
 			$signer = $sig.SignerCertificate.Subject
+			$publisher = $sig.SignerCertificate.Issuer
+			if (-not $publisher) { $publisher = "Unknown" }
 			$status = $sig.Status
 			$year = "Unknown"
 			if ($sig.TimeStamperCertificate) {
@@ -2128,7 +2292,7 @@ func auditDownloads() {
 			} elseif ($sig.SignerCertificate) {
 				$year = $sig.SignerCertificate.NotBefore.Year
 			}
-			@{Signer=$signer; Status=$status; Year=$year} | ConvertTo-Json -Compress
+			@{Signer=$signer; Publisher=$publisher; Status=$status; Year=$year} | ConvertTo-Json -Compress
 		`, fullPath)
 
 		out, err := runCommandWithTimeout("powershell", "-Command", psScript)
@@ -2137,38 +2301,119 @@ func auditDownloads() {
 			json.Unmarshal(out, &result)
 			
 			status, _ := result["Status"].(string)
-			year, _ := result["Year"].(interface{}) // Could be number or string
+			yearVal, _ := result["Year"].(interface{}) 
+			publisher, _ := result["Publisher"].(string)
 			signer, _ := result["Signer"].(string)
 
-			isUnverified := status != "Valid"
+			year := 0
+			switch v := yearVal.(type) {
+			case float64: year = int(v)
+			case string: fmt.Sscanf(v, "%d", &year)
+			}
+
+			isOld := year > 0 && year < (time.Now().Year()-5)
+			isUnverified := status != "Valid" || isOld || status == "Unknown"
 			
 			// Log audit result
 			if isUnverified {
-				logMessage(fmt.Sprintf("⚠ Unverified Software: %s (Status: %s, Year: %v)", name, status, year))
+				reason := "Unverified Signature"
+				if isOld { reason = fmt.Sprintf("Outdated Software (Year: %d)", year) }
+				
+				logMsg := fmt.Sprintf("⚠️ AUDIT ALERT: %s | File: %s | Publisher: %s", reason, name, publisher)
+				logMessage(logMsg)
+
+				// Windows Event Log Reporting
+				eventCmd := fmt.Sprintf("eventcreate /ID 1001 /L APPLICATION /T WARNING /SO CyArtAgent /D \"%s\"", strings.ReplaceAll(logMsg, "\"", ""))
+				exec.Command("powershell", "-Command", eventCmd).Run()
+
+				// PROACTIVE BLOCK: Rename file to prevent execution
+				blockedPath := fullPath + ".blocked"
+				os.Rename(fullPath, blockedPath)
+				logMessage("🚫 INSTALL BLOCKED: Renamed to " + filepath.Base(blockedPath))
+
+				showQuarantineWarning(fmt.Sprintf("Installation Blocked: %s\nPublisher: %s\nYear: %v", name, publisher, yearVal))
+				
 				sendLog(LogEntry{
 					DeviceID:   deviceID,
 					DeviceName: deviceName,
 					Hostname:   getHostname(),
-					LogType:    "application", // As requested "application log type"
-					Event:      "unverified_software",
+					LogType:    "application",
+					Event:      "software_blocked",
 					Source:     "agent-audit",
 					Severity:   "warning",
-					Message:    fmt.Sprintf("Unverified Download Detected: %s", name),
+					Message:    fmt.Sprintf("Blocked Installation: %s (Reason: %s)", name, reason),
 					Timestamp:  time.Now().UTC().Format(time.RFC3339),
 					RawData: map[string]interface{}{
-						"filename": name,
-						"status":   status,
-						"year":     year,
-						"signer":   signer,
+						"filename":  name,
+						"status":    status,
+						"year":      yearVal,
+						"publisher": publisher,
+						"signer":    signer,
+						"action":    "renamed_to_blocked",
 					},
 				})
+
+				// SUBMIT APPROVAL REQUEST TO DASHBOARD
+				go func() {
+					reqBody := map[string]interface{}{
+						"name":          name,
+						"publisher":     publisher,
+						"year":          fmt.Sprintf("%v", yearVal),
+						"device_id":     deviceID,
+						"computer_name": getHostname(),
+					}
+					jsonBody, _ := json.Marshal(reqBody)
+					http.Post(fmt.Sprintf("%s/api/software/request", apiURL), "application/json", bytes.NewBuffer(jsonBody))
+				}()
 			} else {
 				// Valid software
-				logMessage(fmt.Sprintf("✅ Verified Software: %s (Year: %v)", name, year))
+				logMessage(fmt.Sprintf("✅ Verified Software: %s (Publisher: %s, Year: %d)", name, publisher, year))
 			}
 			
 			// Mark as audited
 			softwareAuditCache[name] = true
+			saveAgentState()
+		}
+	}
+}
+
+// Remediation: Check if blocked files are now approved
+func remediateBlockedSoftware(approvedGlobal []string) {
+	userProfile := os.Getenv("USERPROFILE")
+	downloadsPath := filepath.Join(userProfile, "Downloads")
+	files, err := os.ReadDir(downloadsPath)
+	if err != nil {
+		return
+	}
+
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".blocked") {
+			continue
+		}
+
+		originalName := strings.TrimSuffix(file.Name(), ".blocked")
+		isApproved := false
+		
+		// 1. Check Global Approval
+		for _, app := range approvedGlobal {
+			if app == originalName {
+				isApproved = true
+				break
+			}
+		}
+		
+		// 2. Check Admin Override Checkbox/String
+		if strings.Contains(strings.ToLower(originalName), "_approved") {
+			isApproved = true
+		}
+
+		if isApproved {
+			fullPath := filepath.Join(downloadsPath, file.Name())
+			restoredPath := filepath.Join(downloadsPath, originalName)
+			if err := os.Rename(fullPath, restoredPath); err == nil {
+				logMessage("🔓 SOFTWARE APPROVED: Restored " + originalName)
+				showPolicyChangeNotification("Software Approved", fmt.Sprintf("%s has been whitelisted and restored.", originalName))
+			}
 		}
 	}
 }
@@ -2196,6 +2441,7 @@ func initializeAgent() {
 	}
 
 	logMessage("Agent entering background monitoring loop")
+	loadAgentState()
 
 	// START CONCURRENT ROUTINES
 	// We use a simple channel to keep the main function alive
@@ -2251,16 +2497,23 @@ func initializeAgent() {
 	safeGo("Log_Collector", func() {
 		for {
 			sendSystemLogs()
+			
+			// Get Approved List for Remediation
+			policyMutex.RLock()
+			approvedList := globalApprovedSoftware
+			policyMutex.RUnlock()
+
+			remediateBlockedSoftware(approvedList)
 			auditDownloads() // Check for unverified software
 			time.Sleep(30 * time.Second)
 		}
 	})
 
-	// 6. USB Data Usage (High Frequency: 5s)
+	// 6. USB Data Usage (High Frequency: 2s)
 	safeGo("USB_Usage", func() {
 		for {
 			trackUSBDataUsage()
-			time.Sleep(5 * time.Second)
+			time.Sleep(2 * time.Second)
 		}
 	})
 
@@ -2503,3 +2756,4 @@ func trySnmpConnection(ip string, community string) bool {
 	
 	return true
 }
+
