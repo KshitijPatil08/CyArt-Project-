@@ -1172,7 +1172,6 @@ func checkPolicies() {
 	gExpiration := usbExpiration
 	gDataLimit := usbDataLimitMB
 	gReadOnly := usbReadOnly
-	approvedSoftware := globalApprovedSoftware
 	policyMutex.RUnlock()
 
 	if !shouldBlock && gExpiration != "" {
@@ -1541,17 +1540,6 @@ func unblockUSBStorage() {
 
 	// 2. RECONNECT: Enable devices
 	psCmd := `Get-PnpDevice | Where-Object { $_.Service -eq "USBSTOR" -or $_.Service -eq "UASP" } | Where-Object { $_.Status -ne "OK" } | Enable-PnpDevice -Confirm:$false`
-	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psCmd).Run()
-}
-
-func unblockUSBStorage() {
-	// 1. Enable USBSTOR Service
-	exec.Command("reg", "add",
-		"HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR",
-		"/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
-
-	// 2. RECONNECT: Enable previously disabled USB Storage Devices
-	psCmd := `Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -like "*USB*" -and $_.Status -ne "OK" } | Enable-PnpDevice -Confirm:$false`
 	exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psCmd).Run()
 }
 
@@ -2756,4 +2744,6 @@ func trySnmpConnection(ip string, community string) bool {
 	
 	return true
 }
+
+
 
