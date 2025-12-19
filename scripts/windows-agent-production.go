@@ -601,9 +601,10 @@ type QuarantineStatus struct {
 }
 
 type AgentState struct {
-	UsbUsageMB     float64  `json:"usb_usage_mb"`
-	LastResetDate  string   `json:"last_reset_date"`
-	ApprovedSoftware []string `json:"approved_software"`
+	UsbUsageMB       float64            `json:"usb_usage_mb"`
+	LastResetDate    string             `json:"last_reset_date"`
+	UsbUsageMap      map[string]float64 `json:"usb_usage_map"`
+	ApprovedSoftware []string           `json:"approved_software"`
 }
 
 func saveAgentState() {
@@ -611,6 +612,11 @@ func saveAgentState() {
 	state := AgentState{
 		UsbUsageMB:    usbUsageMB,
 		LastResetDate: lastResetDate,
+		UsbUsageMap:   make(map[string]float64),
+	}
+	// Copy per-device usage map
+	for serial, usage := range usbUsageMap {
+		state.UsbUsageMap[serial] = usage
 	}
 	// Extract unique approved software from all policies
 	approvedSet := make(map[string]bool)
@@ -640,6 +646,12 @@ func loadAgentState() {
 		policyMutex.Lock()
 		usbUsageMB = state.UsbUsageMB
 		lastResetDate = state.LastResetDate
+		// Restore per-device usage map
+		if state.UsbUsageMap != nil {
+			usbUsageMap = state.UsbUsageMap
+		} else {
+			usbUsageMap = make(map[string]float64)
+		}
 		// We don't overwrite server-provided policies here, 
 		// but we could use state.ApprovedSoftware as a secondary cache if needed.
 		policyMutex.Unlock()
@@ -851,11 +863,33 @@ func runCommandWithTimeout(name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// For PowerShell commands, add -WindowStyle Hidden to prevent window popup
+	if strings.ToLower(name) == "powershell" || strings.ToLower(name) == "powershell.exe" {
+		// Insert -WindowStyle Hidden after powershell but before other args
+		newArgs := []string{"-WindowStyle", "Hidden"}
+		newArgs = append(newArgs, args...)
+		args = newArgs
+	}
+
 	cmd := exec.CommandContext(ctx, name, args...)
 	// On Windows, forcing hide window if possible (though for internal commands it's less visible)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	
 	return cmd.Output()
+}
+
+// Helper function to create hidden exec.Command for background execution
+func createHiddenCommand(name string, args ...string) *exec.Cmd {
+	// For PowerShell commands, add -WindowStyle Hidden to prevent window popup
+	if strings.ToLower(name) == "powershell" || strings.ToLower(name) == "powershell.exe" {
+		newArgs := []string{"-WindowStyle", "Hidden"}
+		newArgs = append(newArgs, args...)
+		args = newArgs
+	}
+	
+	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd
 }
 
 func initializeDevice() error {
@@ -1081,6 +1115,9 @@ func checkPolicies() {
 	quarantined := isQuarantined
 	policies := currentPolicies
 	currentGlobalUsage := usbUsageMB
+	gExpiration := usbExpiration
+	gDataLimit := usbDataLimitMB
+	gReadOnly := usbReadOnly
 	
 	// Get connected serials safely
 	connectedSerials := make([]string, 0, len(lastConnectedUSB))
@@ -1091,18 +1128,49 @@ func checkPolicies() {
 	}
 	policyMutex.RUnlock()
 
-	// Logic: checkPolicies is now the SINGLE AUTHORITY for unblocking USB.
-	// We evaluate EVERYTHING here.
-
-	shouldBlock := quarantined // Inherit system status
+	shouldBlock := quarantined
 	blockReason := ""
 	if quarantined {
 		blockReason = "System is in Quarantine"
 	}
 	shouldReadOnly := false
 
-	// Check Connected Devices against Policies
+	// === GLOBAL POLICY CHECKS (Apply to ALL devices) ===
+	
+	// 1. Global Expiration Check
+	if !shouldBlock && gExpiration != "" {
+		dateStr := gExpiration
+		if idx := strings.Index(dateStr, "T"); idx > 0 {
+			dateStr = dateStr[:idx]
+		}
+		expiry, err := time.Parse("2006-01-02", dateStr)
+		if err == nil {
+			// Block if current date is AFTER expiration date (at start of expiry day)
+			expiryEndOfDay := expiry.Add(24 * time.Hour) // Allow through the entire expiration day
+			if time.Now().After(expiryEndOfDay) {
+				shouldBlock = true
+				blockReason = "Global USB Access Expired on " + dateStr
+			}
+		}
+	}
+
+	// 2. Global Data Limit Check
+	if !shouldBlock && gDataLimit > 0 && currentGlobalUsage >= gDataLimit {
+		shouldBlock = true
+		blockReason = fmt.Sprintf("Global USB Data Limit Reached (%.2f / %.2f MB)", currentGlobalUsage, gDataLimit)
+	}
+
+	// 3. Global Read-Only
+	if gReadOnly {
+		shouldReadOnly = true
+	}
+
+	// === PER-DEVICE POLICY CHECKS ===
 	for _, serial := range connectedSerials {
+		if shouldBlock {
+			break // Already blocking, no need to check further
+		}
+
 		// Find policy for this serial
 		var policy *UsbPolicy
 		for i := range policies {
@@ -1112,95 +1180,74 @@ func checkPolicies() {
 			}
 		}
 
-		// Default: Unrestricted if no policy found
+		// If no specific policy, continue (device inherits global policies only)
 		if policy == nil {
 			continue
 		}
 
-		// 1. Check Active Status (Block if disabled)
+		// Check 1: Active Status
 		if !policy.IsActive {
 			shouldBlock = true
 			blockReason = fmt.Sprintf("Device %s is Disabled by Policy", serial)
 			break
 		}
 
-		// 2. Check Expiration (Per-Device)
+		// Check 2: Per-Device Expiration
 		if policy.ExpirationDate != "" {
-			// Robust parsing: Handle YYYY-MM-DD and YYYY-MM-DDTHH:MM:SSZ
 			dateStr := policy.ExpirationDate
 			if idx := strings.Index(dateStr, "T"); idx > 0 {
 				dateStr = dateStr[:idx]
 			}
 			expiry, err := time.Parse("2006-01-02", dateStr)
 			if err == nil {
-				// Access allowed ONLY until the start of the expiration date
-				if time.Now().After(expiry) {
+				expiryEndOfDay := expiry.Add(24 * time.Hour)
+				if time.Now().After(expiryEndOfDay) {
 					shouldBlock = true
-					blockReason = fmt.Sprintf("Device %s Policy Expired on %s", serial, dateStr)
+					blockReason = fmt.Sprintf("Device %s Access Expired on %s", serial, dateStr)
 					break
 				}
 			}
 		}
 
-		// 3. Check Data Limit (Per-Device or Global Trigger)
-		// If policy has a specific limit, check against global usage (as a proxy for this session)
-		// Or if global limit is set, it's already checked in trackUSBDataUsage but we double check here.
-		limitToCheck := policy.MaxDailyTransferMB
-		if limitToCheck > 0 && currentGlobalUsage > limitToCheck {
-			shouldBlock = true
-			blockReason = fmt.Sprintf("Device %s exceeded Data Limit (%.2f / %.2f MB)", serial, currentGlobalUsage, limitToCheck)
-			break
-		}
-
-		// 4. Check Time Window
-		if policy.AllowedStartTime != "" && policy.AllowedEndTime != "" {
-			if !isInTimeWindow(policy.AllowedStartTime, policy.AllowedEndTime) {
+		// Check 3: Per-Device Data Limit
+		// Use per-serial usage tracking
+		if policy.MaxDailyTransferMB > 0 {
+			policyMutex.RLock()
+			deviceUsage := usbUsageMap[serial]
+			policyMutex.RUnlock()
+			
+			if deviceUsage >= policy.MaxDailyTransferMB {
 				shouldBlock = true
-				blockReason = fmt.Sprintf("Device %s access denied at this time (%s-%s)", serial, policy.AllowedStartTime, policy.AllowedEndTime)
+				blockReason = fmt.Sprintf("Device %s Data Limit Reached (%.2f / %.2f MB)", 
+					serial, deviceUsage, policy.MaxDailyTransferMB)
 				break
 			}
 		}
 
-		// 5. Check Read-Only (Set flag, but keep checking for Blocks)
+		// Check 4: Time Window
+		if policy.AllowedStartTime != "" && policy.AllowedEndTime != "" {
+			if !isInTimeWindow(policy.AllowedStartTime, policy.AllowedEndTime) {
+				shouldBlock = true
+				blockReason = fmt.Sprintf("Device %s access denied outside allowed hours (%s-%s)", 
+					serial, policy.AllowedStartTime, policy.AllowedEndTime)
+				break
+			}
+		}
+
+		// Check 5: Per-Device Read-Only
 		if policy.IsReadOnly {
 			shouldReadOnly = true
 		}
 	}
 
-	// 6. GLOBAL POLICY ENFORCEMENT (Fail-Secure)
-	policyMutex.RLock()
-	gExpiration := usbExpiration
-	gDataLimit := usbDataLimitMB
-	gReadOnly := usbReadOnly
-	policyMutex.RUnlock()
-
-	if !shouldBlock && gExpiration != "" {
-		dateStr := gExpiration
-		if idx := strings.Index(dateStr, "T"); idx > 0 {
-			dateStr = dateStr[:idx]
-		}
-		expiry, err := time.Parse("2006-01-02", dateStr)
-		if err == nil {
-			if time.Now().After(expiry) {
-				shouldBlock = true
-				blockReason = "Global USB Access Policy Expired on " + dateStr
-			}
-		}
-	}
-
-	if !shouldBlock && gDataLimit > 0 && currentGlobalUsage > gDataLimit {
-		shouldBlock = true
-		blockReason = fmt.Sprintf("Global USB Data Limit Exceeded (%.2f / %.2f MB)", currentGlobalUsage, gDataLimit)
-	}
-
-	if gReadOnly {
-		shouldReadOnly = true
-	}
-
-	// ENFORCEMENT HIERARCHY
+	// === ENFORCEMENT ===
 	if shouldBlock {
 		logMessage("⛔ BLOCKING USB: " + blockReason)
 		blockUSBStorage()
+		
+		// Force dismount any currently mounted USB drives
+		forceDismountUSB()
+		
 		showQuarantineWarning(blockReason)
 		
 		// Send Security Log
@@ -1210,25 +1257,25 @@ func checkPolicies() {
 			Hostname:   getHostname(),
 			LogType:    "security",
 			Source:     "agent-policy",
-			Severity:   "high",
-			Message:    "USB Blocked: " + blockReason,
+			Severity:   "critical",
+			Message:    "USB Access Blocked: " + blockReason,
 			Timestamp:  time.Now().UTC().Format(time.RFC3339),
 		})
 
 	} else if shouldReadOnly {
-		// Enforce Read-Only (Global)
+		// Enforce Read-Only
 		policyMutex.RLock()
 		wasRO := lastReadOnlyState
 		policyMutex.RUnlock()
 
 		if !wasRO {
-			logMessage("🔒 Enforcing Read-Only Policy (Global Trigger)")
+			logMessage("🔒 Enforcing Read-Only Policy")
 			setUSBReadOnly()
 			policyMutex.Lock()
 			lastReadOnlyState = true
 			policyMutex.Unlock()
 			
-			showPolicyChangeNotification("USB Read-Only Mode", "Write protection enabled by active policy.")
+			showPolicyChangeNotification("USB Read-Only Mode", "Write protection enabled by policy.")
 		}
 		// Ensure Storage is UNBLOCKED (Readable)
 		unblockUSBStorage()
@@ -1246,10 +1293,32 @@ func checkPolicies() {
 			lastReadOnlyState = false
 			policyMutex.Unlock()
 			
-			showPolicyChangeNotification("USB Mode Restored", "Read-Write access restored.")
+			showPolicyChangeNotification("USB Access Restored", "Full read-write access enabled.")
 		}
 		// Ensure Storage is UNBLOCKED
 		unblockUSBStorage()
+	}
+}
+
+// Add this new function to force dismount USB drives:
+func forceDismountUSB() {
+	logMessage("Forcing dismount of USB drives...")
+	
+	// PowerShell script to dismount all removable drives
+	psScript := "Get-Volume | Where-Object { $_.DriveType -eq 'Removable' } | ForEach-Object { " +
+		"$driveLetter = $_.DriveLetter; " +
+		"if ($driveLetter) { " +
+		"Write-Host \"Dismounting $driveLetter\"; " +
+		"$volume = Get-Volume -DriveLetter $driveLetter; " +
+		"$volume | Get-Partition | Remove-PartitionAccessPath -AccessPath \"${driveLetter}:\" -ErrorAction SilentlyContinue " +
+		"} " +
+		"}"
+	
+	out, err := runCommandWithTimeout("powershell", "-ExecutionPolicy", "Bypass", "-Command", psScript)
+	if err != nil {
+		logMessage("Warning: Force dismount failed: " + err.Error())
+	} else {
+		logMessage("USB drives dismounted: " + string(out))
 	}
 }
 
@@ -1267,47 +1336,94 @@ func isInTimeWindow(start, end string) bool {
 var usbMonitorCmd *exec.Cmd
 
 func trackUSBDataUsage() {
-	// 1. DAILY RESET LOGIC
+	// Daily Reset Logic
 	today := time.Now().Format("2006-01-02")
 	policyMutex.Lock()
 	if lastResetDate != today {
-		logMessage(fmt.Sprintf("📅 New Day Detected (%s). Resetting daily USB usage (was %.2f MB).", today, usbUsageMB))
+		logMessage(fmt.Sprintf("📅 New Day: Resetting USB usage (was %.2f MB global).", usbUsageMB))
 		usbUsageMB = 0
+		usbUsageMap = make(map[string]float64) // Reset per-device tracking
 		lastResetDate = today
 	}
 	policyMutex.Unlock()
 
-	// 2. POWER-SHELL POLLING (Accurate for Read/Write Monitoring)
-	// Simple polling of disk usage for Removable disks
-	// This uses PowerShell to get Perf Counters for logical disks that are Removable
+	// Get list of connected USB serials
+	policyMutex.RLock()
+	connectedSerials := make([]string, 0)
+	for serial, connected := range lastConnectedUSB {
+		if connected {
+			connectedSerials = append(connectedSerials, serial)
+		}
+	}
+	policyMutex.RUnlock()
+
+	// If no USB devices connected, skip monitoring
+	if len(connectedSerials) == 0 {
+		return
+	}
+
+	// Monitor ONLY Removable Drives (DriveType=2)
+	// Get current write rate for USB drives
 	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command",
 		"$drives = Get-CimInstance Win32_LogicalDisk | Where-Object DriveType -eq 2; "+
 			"if ($drives) { "+
-			"  $counters = $drives | ForEach-Object { '\\LogicalDisk(' + $_.DeviceID + ')\\Disk Write Bytes/sec' }; "+
-			"  (Get-Counter -Counter $counters -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue).CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum "+
-			"} else { 0 }")
+			"$counters = $drives | ForEach-Object { \"\\\\LogicalDisk(\" + $_.DeviceID + \")\\\\Disk Write Bytes/sec\" }; "+
+			"$sample = Get-Counter -Counter $counters -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue; "+
+			"if ($sample) { "+
+			"$sample.CounterSamples | ForEach-Object { "+
+			"[PSCustomObject]@{ Path = $_.Path; Value = $_.CookedValue } "+
+			"} | ConvertTo-Json -Compress "+
+			"} else { \"[]\" } "+
+			"} else { \"[]\" }")
 
 	out, err := cmd.Output()
 	if err != nil {
 		return
 	}
 
-	bytesPerSecStr := strings.TrimSpace(string(out))
-	var bytesPerSec float64
-	fmt.Sscanf(bytesPerSecStr, "%f", &bytesPerSec)
+	// Parse results
+	var samples []map[string]interface{}
+	json.Unmarshal(out, &samples)
 
-	// Add to total usage (since we poll every 2 seconds as per initializer)
-	// Using a 2s window for usage increments.
+	totalBytesPerSec := 0.0
+	for _, sample := range samples {
+		if val, ok := sample["Value"].(float64); ok {
+			totalBytesPerSec += val
+		}
+	}
+
+	// Convert to MB (polling interval is 2 seconds)
+	incrementMB := (totalBytesPerSec * 2) / 1024 / 1024
+
+	// Update global and per-device usage
 	policyMutex.Lock()
-	usbUsageMB += (bytesPerSec * 2) / 1024 / 1024
+	usbUsageMB += incrementMB
+	
+	// Distribute usage across connected devices (simple approach)
+	// In a perfect world, we'd track which serial number wrote what
+	// For now, we split equally or assign to first connected device
+	if len(connectedSerials) > 0 {
+		perDeviceIncrement := incrementMB / float64(len(connectedSerials))
+		for _, serial := range connectedSerials {
+			usbUsageMap[serial] += perDeviceIncrement
+		}
+	}
+	
 	currentUsage := usbUsageMB
 	currentLimit := usbDataLimitMB
 	policyMutex.Unlock()
 
-	if currentLimit > 0 && currentUsage > currentLimit {
-		logMessage(fmt.Sprintf("⚠️ Global USB Data Limit Exceeded: %.2f / %.2f MB", currentUsage, currentLimit))
+	// Log if significant usage detected
+	if incrementMB > 0.1 { // More than 100KB written
+		logMessage(fmt.Sprintf("📊 USB Write Activity: %.2f MB/s (Total today: %.2f MB)", 
+			totalBytesPerSec/1024/1024, currentUsage))
+	}
 
-		// Send critical alert
+	// Check against GLOBAL limit
+	if currentLimit > 0 && currentUsage >= currentLimit {
+		logMessage(fmt.Sprintf("⚠️ CRITICAL: Global USB Data Limit Reached: %.2f / %.2f MB", 
+			currentUsage, currentLimit))
+
 		sendLog(LogEntry{
 			DeviceID:   deviceID,
 			DeviceName: deviceName,
@@ -1315,20 +1431,53 @@ func trackUSBDataUsage() {
 			LogType:    "security",
 			Source:     "agent-policy",
 			Severity:   "critical",
-			Message:    "Global USB Data Limit Exceeded. Blocking USB access.",
+			Message:    fmt.Sprintf("Global USB Data Limit Exceeded (%.2f/%.2f MB) - Triggering Block", currentUsage, currentLimit),
 			Timestamp:  time.Now().UTC().Format(time.RFC3339),
 		})
 
-		enforceQuarantine("Global USB Data Limit Exceeded")
+		// Trigger immediate block via checkPolicies
+		// The next checkPolicies() call (within 2s) will enforce the block
 		saveAgentState()
 	}
 
-	// 3. FILE-WATCHER SUPERVISOR (Keep running for logging filenames)
-	if usbMonitorCmd != nil && usbMonitorCmd.ProcessState == nil {
-		return // Already running
+	// Check per-device limits
+	policyMutex.RLock()
+	policies := currentPolicies
+	policyMutex.RUnlock()
+
+	for _, serial := range connectedSerials {
+		for _, policy := range policies {
+			if policy.SerialNumber == serial && policy.MaxDailyTransferMB > 0 {
+				policyMutex.RLock()
+				deviceUsage := usbUsageMap[serial]
+				policyMutex.RUnlock()
+
+				if deviceUsage >= policy.MaxDailyTransferMB {
+					logMessage(fmt.Sprintf("⚠️ Device %s reached data limit: %.2f / %.2f MB", 
+						serial, deviceUsage, policy.MaxDailyTransferMB))
+					
+					sendLog(LogEntry{
+						DeviceID:   deviceID,
+						DeviceName: deviceName,
+						Hostname:   getHostname(),
+						LogType:    "security",
+						Source:     "agent-policy",
+						Severity:   "high",
+						Message:    fmt.Sprintf("Device %s Data Limit Exceeded", serial),
+						Timestamp:  time.Now().UTC().Format(time.RFC3339),
+						RawData: map[string]interface{}{
+							"serial_number": serial,
+							"usage_mb": deviceUsage,
+							"limit_mb": policy.MaxDailyTransferMB,
+						},
+					})
+				}
+				break
+			}
+		}
 	}
-	
-	go startUSBFileMonitor()
+
+	saveAgentState()
 }
 
 func startUSBFileMonitor() {
@@ -1374,7 +1523,7 @@ func startUSBFileMonitor() {
 		}
 	`
 	
-	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-Command", psScript)
+	cmd := createHiddenCommand("powershell", "-ExecutionPolicy", "Bypass", "-Command", psScript)
 	usbMonitorCmd = cmd
 	
 	stdout, _ := cmd.StdoutPipe()
@@ -1525,8 +1674,8 @@ func releaseQuarantine() {
 
 func blockUSBStorage() {
 	// 1. Disable USBSTOR and UAS Services
-	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", "/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
-	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\UAS", "/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
+	createHiddenCommand("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", "/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
+	createHiddenCommand("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\UAS", "/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f").Run()
 
 	// 2. DISCONNECT: Force Disable currently connected USB Storage Devices via Service/Property
 	psCmd := `Get-PnpDevice | Where-Object { $_.Service -eq "USBSTOR" -or $_.Service -eq "UASP" } | Where-Object { $_.Status -eq "OK" } | Disable-PnpDevice -Confirm:$false`
@@ -1535,8 +1684,8 @@ func blockUSBStorage() {
 
 func unblockUSBStorage() {
 	// 1. Re-enable USBSTOR and UAS Services
-	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", "/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
-	exec.Command("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\UAS", "/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
+	createHiddenCommand("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR", "/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
+	createHiddenCommand("reg", "add", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\UAS", "/v", "Start", "/t", "REG_DWORD", "/d", "3", "/f").Run()
 
 	// 2. RECONNECT: Enable devices
 	psCmd := `Get-PnpDevice | Where-Object { $_.Service -eq "USBSTOR" -or $_.Service -eq "UASP" } | Where-Object { $_.Status -ne "OK" } | Enable-PnpDevice -Confirm:$false`
@@ -1596,7 +1745,7 @@ func createReenableTask() {
 	os.WriteFile(tmpFile, []byte(fmt.Sprintf(taskXML, futureTime)), 0644)
 	
 	// Register Task
-	exec.Command("schtasks", "/Create", "/TN", "CyArtNetworkRestore", 
+	createHiddenCommand("schtasks", "/Create", "/TN", "CyArtNetworkRestore", 
 		"/XML", tmpFile, "/F").Run()
 	
 	os.Remove(tmpFile)
@@ -2312,7 +2461,7 @@ func auditDownloads() {
 
 				// Windows Event Log Reporting
 				eventCmd := fmt.Sprintf("eventcreate /ID 1001 /L APPLICATION /T WARNING /SO CyArtAgent /D \"%s\"", strings.ReplaceAll(logMsg, "\"", ""))
-				exec.Command("powershell", "-Command", eventCmd).Run()
+				createHiddenCommand("powershell", "-Command", eventCmd).Run()
 
 				// PROACTIVE BLOCK: Rename file to prevent execution
 				blockedPath := fullPath + ".blocked"
@@ -2744,6 +2893,9 @@ func trySnmpConnection(ip string, community string) bool {
 	
 	return true
 }
+
+
+
 
 
 
