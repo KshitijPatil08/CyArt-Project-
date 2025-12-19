@@ -2650,16 +2650,16 @@ func initializeAgent() {
 	safeGo("USB_Usage", func() {
 		for {
 			trackUSBDataUsage()
-			time.Sleep(2 * time.Second)
+			time.Sleep(5 * time.Second)
 		}
 	})
 
-	// 7. Network Topology Discovery (Background)
+	// 7. Network Topology Discovery (Background - Fast Updates)
 	safeGo("Network_Discovery", func() {
 		logMessage("Triggering initial network topology scan...")
 		scanNetworkTopology() // Run immediately
 		for {
-			time.Sleep(5 * time.Minute)
+			time.Sleep(2 * time.Second) // Fast discovery for real-time topology
 			scanNetworkTopology()
 		}
 	})
@@ -2893,6 +2893,7 @@ func trySnmpConnection(ip string, community string) bool {
 	
 	return true
 }
+
 
 
 

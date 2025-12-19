@@ -132,19 +132,33 @@ const DeviceNode = ({ data }: { data: any }) => {
 
   const isSwitch = data.deviceType === 'switch'
   const isWifi = data.deviceType === 'wifi_ap'
+  const isRouter = data.deviceType === 'router' || data.deviceType === 'firewall'
   const isOnline = data.status === 'online'
   const statusColor = isOnline ? 'bg-green-500' : 'bg-gray-500'
 
-  // Infrastructure Node Styling (Switch/AP)
-  if (isSwitch || isWifi) {
-    const infrastructureColor = isWifi ? 'border-purple-500 bg-purple-950/80' : 'border-blue-500 bg-blue-950/80'
-    const iconColor = isWifi ? 'text-purple-400' : 'text-blue-400'
-    const textColor = isWifi ? 'text-purple-300' : 'text-blue-300'
+  // Infrastructure Node Styling (Switch/AP/Router)
+  if (isSwitch || isWifi || isRouter) {
+    let infrastructureColor = 'border-blue-500 bg-blue-950/80'
+    let iconColor = 'text-blue-400'
+    let textColor = 'text-blue-300'
+    let handleColor = 'blue'
+
+    if (isWifi) {
+      infrastructureColor = 'border-purple-500 bg-purple-950/80'
+      iconColor = 'text-purple-400'
+      textColor = 'text-purple-300'
+      handleColor = 'purple'
+    } else if (isRouter) {
+      infrastructureColor = 'border-orange-500 bg-orange-950/80'
+      iconColor = 'text-orange-400'
+      textColor = 'text-orange-300'
+      handleColor = 'orange'
+    }
 
     return (
       <div className={`px-3 py-1.5 ${infrastructureColor} border-2 rounded shadow-sm min-w-[140px] flex items-center justify-center gap-2 relative`}>
-        <Handle type="target" position={Position.Top} className={`!bg-${isWifi ? 'purple' : 'blue'}-500 !w-2 !h-2`} />
-        <Handle type="source" position={Position.Bottom} className={`!bg-${isWifi ? 'purple' : 'blue'}-500 !w-2 !h-2`} />
+        <Handle type="target" position={Position.Top} className={`!bg-${handleColor}-500 !w-2 !h-2`} />
+        <Handle type="source" position={Position.Bottom} className={`!bg-${handleColor}-500 !w-2 !h-2`} />
         {getDeviceIcon(data.deviceType)}
         <div className="flex flex-col items-start">
           <span className={`text-xs font-bold ${textColor}`}>{data.label}</span>
