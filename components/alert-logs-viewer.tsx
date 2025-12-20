@@ -56,6 +56,7 @@ export function AlertLogsViewer() {
     log_type: "all",
     severity: "all",
     search: "",
+    timeRange: "24h",
   })
   const [pagination, setPagination] = useState({
     limit: 50,
@@ -114,6 +115,21 @@ export function AlertLogsViewer() {
 
     if (filters.search) {
       query = query.ilike("message", `%${filters.search}%`)
+    }
+
+    if (filters.timeRange !== "all") {
+      const now = new Date()
+      let afterDate: Date | null = null
+      if (filters.timeRange === "24h") {
+        afterDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      } else if (filters.timeRange === "7d") {
+        afterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      } else if (filters.timeRange === "30d") {
+        afterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      }
+      if (afterDate) {
+        query = query.gte("timestamp", afterDate.toISOString())
+      }
     }
 
     return query
@@ -183,6 +199,21 @@ export function AlertLogsViewer() {
         query = query.ilike("message", `%${filters.search}%`)
       }
 
+      if (filters.timeRange !== "all") {
+        const now = new Date()
+        let afterDate: Date | null = null
+        if (filters.timeRange === "24h") {
+          afterDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        } else if (filters.timeRange === "7d") {
+          afterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        } else if (filters.timeRange === "30d") {
+          afterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        }
+        if (afterDate) {
+          query = query.gte("timestamp", afterDate.toISOString())
+        }
+      }
+
       const { data, error, count } = await query
         .order("timestamp", { ascending: false })
         .range(pagination.offset, pagination.offset + pagination.limit - 1)
@@ -205,6 +236,7 @@ export function AlertLogsViewer() {
       log_type: "all",
       severity: "all",
       search: "",
+      timeRange: "24h",
     })
     setPagination((prev) => ({ ...prev, offset: 0 }))
   }
@@ -501,6 +533,21 @@ export function AlertLogsViewer() {
                 value={filters.search}
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
               />
+            </div>
+
+            <div>
+              <Label htmlFor="time-range">Time Range</Label>
+              <Select value={filters.timeRange} onValueChange={(value) => setFilters({ ...filters, timeRange: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All time</SelectItem>
+                  <SelectItem value="24h">Last 24 hours</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex items-end gap-2">

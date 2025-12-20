@@ -12,6 +12,8 @@ export async function GET(request: NextRequest) {
     const logType = searchParams.get("log_type");
     const severity = searchParams.get("severity");
     const usbOnly = searchParams.get("usb_only") === "true";
+    const after = searchParams.get("after");
+    const before = searchParams.get("before");
 
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -38,6 +40,14 @@ export async function GET(request: NextRequest) {
 
     if (usbOnly) {
       query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)");
+    }
+
+    if (after) {
+      query = query.gte("timestamp", after);
+    }
+
+    if (before) {
+      query = query.lte("timestamp", before);
     }
 
     const { data, error, count } = await query
