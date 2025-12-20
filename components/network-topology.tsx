@@ -861,6 +861,7 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
             if (node.data.deviceType === 'server') return '#0ea5e9'
             if (node.data.deviceType === 'switch') return '#3b82f6'
             if (node.data.deviceType === 'wifi_ap') return '#a855f7'
+            if (['router', 'firewall', 'repeater'].includes(node.data.deviceType)) return '#f97316'
             return '#475569'
           }}
           maskColor="rgba(0, 0, 0, 0.3)"
