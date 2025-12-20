@@ -98,77 +98,60 @@ export function AlertLogsViewer() {
     }
   }
 
-  const getBaseQuery = () => {
-    let query = supabase.from("logs").select("*", { count: "exact", head: true })
+  const buildQueryParams = (params: any) => {
+    const qp = new URLSearchParams()
+    if (params.device_id && params.device_id !== "all") qp.append("device_id", params.device_id)
+    if (params.log_type && params.log_type !== "all") qp.append("log_type", params.log_type)
+    if (params.severity && params.severity !== "all") qp.append("severity", params.severity)
+    if (params.search) qp.append("search", params.search)
+    if (params.offset) qp.append("offset", params.offset.toString())
+    if (params.limit) qp.append("limit", params.limit.toString())
 
-    if (filters.device_id && filters.device_id !== "all") {
-      query = query.eq("device_id", filters.device_id)
-    }
-
-    if (filters.log_type !== "all") {
-      if (filters.log_type === "usb") {
-        query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)")
-      } else {
-        query = query.eq("log_type", filters.log_type)
-      }
-    }
-
-    if (filters.search) {
-      query = query.ilike("message", `%${filters.search}%`)
-    }
-
-    if (filters.timeRange !== "all") {
+    if (params.timeRange && params.timeRange !== "all") {
       const now = new Date()
       let afterDate: Date | null = null
-      if (filters.timeRange === "24h") {
+      if (params.timeRange === "24h") {
         afterDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-      } else if (filters.timeRange === "7d") {
+      } else if (params.timeRange === "7d") {
         afterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-      } else if (filters.timeRange === "30d") {
+      } else if (params.timeRange === "30d") {
         afterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
       }
       if (afterDate) {
-        query = query.gte("timestamp", afterDate.toISOString())
+        qp.append("after", afterDate.toISOString())
       }
     }
-
-    return query
+    return qp.toString()
   }
 
   const fetchSeverityCounts = async () => {
     try {
-      // If a specific severity is selected, we know the counts for others are 0
-      // and the count for the selected one is the total.
+      const severities = ["critical", "high", "error", "warning", "info"]
+
       if (filters.severity !== "all") {
         const counts = { critical: 0, high: 0, error: 0, warning: 0, info: 0 }
-        // We can't easily get the total here without the main query result, 
-        // but we can just let the main fetchLogs update the total and we set the specific one here?
-        // Actually, let's just query the count for the selected severity to be safe and consistent.
-        const query = getBaseQuery().eq("severity", filters.severity)
-        const { count } = await query
-
-        counts[filters.severity as keyof typeof counts] = count || 0
+        const qp = buildQueryParams({ ...filters, limit: 1 })
+        const res = await fetch(`/api/logs?${qp}`)
+        const data = await res.json()
+        counts[filters.severity as keyof typeof counts] = data.total || 0
         setSeverityCounts(counts)
         return
       }
 
-      // Otherwise, fetch counts for all severities in parallel
-      const severities = ["critical", "high", "error", "warning", "info"]
       const promises = severities.map(async (severity) => {
-        const query = getBaseQuery().eq("severity", severity)
-        const { count } = await query
-        return { severity, count: count || 0 }
+        const qp = buildQueryParams({ ...filters, severity, limit: 1 })
+        const res = await fetch(`/api/logs?${qp}`)
+        const data = await res.json()
+        return { severity, count: data.total || 0 }
       })
 
       const results = await Promise.all(promises)
-
       const newCounts = results.reduce((acc, curr) => {
         acc[curr.severity as keyof SeverityCounts] = curr.count
         return acc
       }, { critical: 0, high: 0, error: 0, warning: 0, info: 0 } as SeverityCounts)
 
       setSeverityCounts(newCounts)
-
     } catch (error) {
       console.error("Error fetching severity counts:", error)
     }
@@ -177,57 +160,30 @@ export function AlertLogsViewer() {
   const fetchLogs = async () => {
     try {
       setLoading(true)
-      let query = supabase.from("logs").select("*", { count: "exact" })
+      const qp = buildQueryParams({
+        ...filters,
+        offset: pagination.offset,
+        limit: pagination.limit
+      })
 
-      if (filters.device_id && filters.device_id !== "all") {
-        query = query.eq("device_id", filters.device_id)
-      }
+      const res = await fetch(`/api/logs?${qp}`)
+      const data = await res.json()
 
-      if (filters.log_type !== "all") {
-        if (filters.log_type === "usb") {
-          query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)")
-        } else {
-          query = query.eq("log_type", filters.log_type)
-        }
-      }
+      if (!res.ok) throw new Error(data.error || "Failed to fetch logs")
 
-      if (filters.severity !== "all") {
-        query = query.eq("severity", filters.severity)
-      }
-
-      if (filters.search) {
-        query = query.ilike("message", `%${filters.search}%`)
-      }
-
-      if (filters.timeRange !== "all") {
-        const now = new Date()
-        let afterDate: Date | null = null
-        if (filters.timeRange === "24h") {
-          afterDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-        } else if (filters.timeRange === "7d") {
-          afterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-        } else if (filters.timeRange === "30d") {
-          afterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-        }
-        if (afterDate) {
-          query = query.gte("timestamp", afterDate.toISOString())
-        }
-      }
-
-      const { data, error, count } = await query
-        .order("timestamp", { ascending: false })
-        .range(pagination.offset, pagination.offset + pagination.limit - 1)
-
-      if (error) throw error
-
-      setLogs(data || [])
-      setPagination((prev) => ({ ...prev, total: count || 0 }))
+      setLogs(data.logs || [])
+      setPagination((prev) => ({ ...prev, total: data.total || 0 }))
       setLoading(false)
-    } catch (error) {
-      console.error("[v0] Error fetching logs:", error)
-      toast({ title: "Error", description: "Failed to fetch logs", variant: "destructive" })
+    } catch (error: any) {
+      console.error("[Logs] Fetch error:", error)
+      toast({ title: "Error", description: error.message || "Failed to fetch logs", variant: "destructive" })
       setLoading(false)
     }
+  }
+
+  const handleFilterChange = (newFilters: any) => {
+    setFilters(newFilters)
+    setPagination(prev => ({ ...prev, offset: 0 }))
   }
 
   const resetFilters = () => {
@@ -475,7 +431,7 @@ export function AlertLogsViewer() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <Label htmlFor="device">Device</Label>
-              <Select value={filters.device_id} onValueChange={(value) => setFilters({ ...filters, device_id: value })}>
+              <Select value={filters.device_id} onValueChange={(value) => handleFilterChange({ ...filters, device_id: value })}>
                 <SelectTrigger>
                   <SelectValue placeholder="All devices" />
                 </SelectTrigger>
@@ -492,7 +448,7 @@ export function AlertLogsViewer() {
 
             <div>
               <Label htmlFor="log-type">Log Type</Label>
-              <Select value={filters.log_type} onValueChange={(value) => setFilters({ ...filters, log_type: value })}>
+              <Select value={filters.log_type} onValueChange={(value) => handleFilterChange({ ...filters, log_type: value })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -510,7 +466,7 @@ export function AlertLogsViewer() {
 
             <div>
               <Label htmlFor="severity">Severity</Label>
-              <Select value={filters.severity} onValueChange={(value) => setFilters({ ...filters, severity: value })}>
+              <Select value={filters.severity} onValueChange={(value) => handleFilterChange({ ...filters, severity: value })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -531,13 +487,13 @@ export function AlertLogsViewer() {
                 id="search"
                 placeholder="Search logs..."
                 value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                onChange={(e) => handleFilterChange({ ...filters, search: e.target.value })}
               />
             </div>
 
             <div>
               <Label htmlFor="time-range">Time Range</Label>
-              <Select value={filters.timeRange} onValueChange={(value) => setFilters({ ...filters, timeRange: value })}>
+              <Select value={filters.timeRange} onValueChange={(value) => handleFilterChange({ ...filters, timeRange: value })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

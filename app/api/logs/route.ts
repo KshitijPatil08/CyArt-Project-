@@ -7,10 +7,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const device_id = searchParams.get("device_id");
-    const limit = parseInt(searchParams.get("limit") || "200", 10);
+    const limit = parseInt(searchParams.get("limit") || "100", 10);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
     const logType = searchParams.get("log_type");
     const severity = searchParams.get("severity");
+    const search = searchParams.get("search");
     const usbOnly = searchParams.get("usb_only") === "true";
     const after = searchParams.get("after");
     const before = searchParams.get("before");
@@ -19,23 +20,31 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("logs")
-      .select("*, devices!inner(owner)", { count: "exact" });
+      .select("*, devices!inner(*)", { count: "exact" });
 
     // RBAC: If not admin, only show logs for user's devices
     if (user?.user_metadata?.role !== 'admin' && user?.email) {
       query = query.eq("devices.owner", user.email);
     }
 
-    if (device_id) {
+    if (device_id && device_id !== "all") {
       query = query.eq("device_id", device_id);
     }
 
-    if (logType) {
-      query = query.eq("log_type", logType);
+    if (logType && logType !== "all") {
+      if (logType === "usb") {
+        query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)");
+      } else {
+        query = query.eq("log_type", logType);
+      }
     }
 
-    if (severity) {
+    if (severity && severity !== "all") {
       query = query.eq("severity", severity);
+    }
+
+    if (search) {
+      query = query.ilike("message", `%${search}%`);
     }
 
     if (usbOnly) {
