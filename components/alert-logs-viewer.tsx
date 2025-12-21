@@ -314,6 +314,7 @@ export function AlertLogsViewer() {
       case "network":
         return "bg-indigo-500/10 border-indigo-500/40"
       case "network_topology":
+      case "topology":
         return "bg-cyan-500/10 border-cyan-500/40"
       default:
         return "bg-muted/30 border-border"

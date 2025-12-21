@@ -33,7 +33,10 @@ export async function GET(request: NextRequest) {
 
     if (logType && logType !== "all") {
       if (logType === "usb") {
-        query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)");
+        // Include direct USB logs, hardware USB events, AND security logs mentioning USB
+        query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb),and(log_type.eq.security,message.ilike.%USB%)");
+      } else if (logType === "network_topology" || logType === "topology") {
+        query = query.or("log_type.eq.network_topology,log_type.eq.topology");
       } else {
         query = query.eq("log_type", logType);
       }
@@ -48,7 +51,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (usbOnly) {
-      query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb)");
+      query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb),and(log_type.eq.security,message.ilike.%USB%)");
     }
 
     if (after) {

@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
       event,
       device_name,
       hostname,
+      owner,
     } = body;
 
     // Normalize log_type to lowercase to match frontend filters
@@ -84,6 +85,7 @@ export async function POST(request: NextRequest) {
           id: device_id, // Use the provided device_id
           device_name: finalDeviceName,
           device_type: "windows",
+          owner: owner || null, // Capture owner if provided to fix RBAC issues
           hostname: hostname || finalDeviceName || "unknown-host",
           readable_id: `Device-${crypto.randomUUID().slice(0, 8)}`,
           status: "online",
