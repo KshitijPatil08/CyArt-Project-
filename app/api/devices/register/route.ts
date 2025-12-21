@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     // CRITICAL FIX: Check if device exists by hostname
     const { data: existingDevice, error: fetchError } = await supabase
       .from("devices")
-      .select("id, readable_id, device_name, status, owner")
+      .select("id, readable_id, device_name, status, owner, security_status, is_quarantined")
       .eq("hostname", finalHostname)
       .maybeSingle()
 
@@ -171,8 +171,12 @@ export async function POST(request: NextRequest) {
         os_version,
         agent_version,
         status: "online",
-        security_status: "secure", // Reset security status on re-registration
-        is_quarantined: false,     // Release from quarantine if it was quarantined
+        // CRITICAL SECURITY FIX: Preserve existing security status and quarantine state
+        // Do NOT reset to 'secure' or release from quarantine automatically
+        // security_status: "secure", <--- REMOVED
+        // is_quarantined: false,     <--- REMOVED
+        security_status: existingDevice.security_status, // Preserve existing
+        is_quarantined: existingDevice.is_quarantined,   // Preserve existing
         last_seen: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }

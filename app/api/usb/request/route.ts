@@ -106,9 +106,10 @@ export async function POST(request: NextRequest) {
     try {
         const supabase = await createClient();
 
-        // NOTE: Agent submission might be unauthenticated if it's a new agent, 
-        // OR checks internal device token. For now, we allow POST but protect GET/PUT.
-        // Ideally checking a device token header here would be best.
+        // NOTE: Agent submission might be unauthenticated if it's a new agent.
+        // For now, we allow POST but protect GET/PUT via auth checks.
+        // TODO: Implement device token header validation to secure this endpoint while
+        // allowing unknown agents to register on first submission.
 
         const body = await request.json();
 
