@@ -2716,16 +2716,15 @@ type SNMPConfig struct {
 
 func loadSNMPConfig() SNMPConfig {
 	// 1. Try Environment Variable (Comma separated)
-	env := os.Getenv("CYART_SNMP_COMMUNITIES")
+	env := os.Getenv("CYART_SNMP_COMMUNITY")
 	if env != "" {
 		return SNMPConfig{CommunityStrings: strings.Split(env, ",")}
 	}
 	
-	// 2. Try Config File (Mock/Simple implementation)
-	// In production, read from encrypted agent.config
-	// For now, fallback to defaults + "private"
+	// 2. Fallback to defaults (using standard ones, but preferring env var)
+	// Ensuring we don't hardcode sensitive custom strings if possible
 	return SNMPConfig{
-		CommunityStrings: []string{"public", "private", "monitoring"},
+		CommunityStrings: []string{"public"},
 	}
 }
 

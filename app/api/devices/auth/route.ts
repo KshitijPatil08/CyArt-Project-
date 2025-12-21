@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
+import jwt from "jsonwebtoken"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -47,7 +48,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Device not found" }, { status: 404 })
     }
 
-    const token = Buffer.from(`${username}:${credentials.device_id}:${Date.now()}`).toString("base64")
+    const JWT_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "fallback_secret_change_me"
+    const token = jwt.sign(
+      {
+        device_id: credentials.device_id,
+        username: username,
+        type: 'device'
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    )
 
     await supabase
       .from("devices")

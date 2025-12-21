@@ -1,7 +1,34 @@
 import { updateSession } from "./lib/supabase/middleware"
-import { type NextRequest } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
+
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS = 100; // 100 requests per minute
+const ipRequests = new Map<string, { count: number; expires: number }>();
 
 export async function middleware(request: NextRequest) {
+  // Simple Rate Limiting (In-Memory Fallback)
+  if (request.nextUrl.pathname.startsWith('/api/')) {
+    const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+    const now = Date.now();
+
+    // Clean up expired
+    if (ipRequests.has(ip) && ipRequests.get(ip)!.expires < now) {
+      ipRequests.delete(ip);
+    }
+
+    const data = ipRequests.get(ip) || { count: 0, expires: now + RATE_LIMIT_WINDOW };
+    data.count++;
+
+    if (data.count > MAX_REQUESTS) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
+    // Refresh expiration if needed, or just update count
+    if (!ipRequests.has(ip)) {
+      ipRequests.set(ip, data);
+    }
+  }
+
   return await updateSession(request)
 }
 
