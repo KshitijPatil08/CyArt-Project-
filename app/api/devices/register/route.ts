@@ -1,14 +1,34 @@
-// app/api/devices/register/route.ts
-// FIXED: Handles re-registration after device deletion
-
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { type NextRequest, NextResponse } from "next/server"
+import { z } from "zod";
+import crypto from 'crypto';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+const registerSchema = z.object({
+  device_name: z.string().min(1),
+  device_type: z.string().min(1),
+  owner: z.string().optional(),
+  location: z.string().optional(),
+  ip_address: z.string().optional(),
+  mac_address: z.string().optional(),
+  hostname: z.string().optional(),
+  os_version: z.string().optional(),
+  agent_version: z.string().optional(),
+});
+
+const allowedOrigins = [
+  'https://cyart-dashboard.vercel.app',
+  process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+].filter(Boolean);
+
+function getCorsHeaders(request: NextRequest) {
+  const origin = request.headers.get('origin');
+  return {
+    'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
 }
 
 async function getSupabaseClient() {
@@ -45,7 +65,7 @@ async function getSupabaseClient() {
 export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 200,
-    headers: corsHeaders,
+    headers: getCorsHeaders(request),
   })
 }
 
@@ -55,7 +75,7 @@ export async function POST(request: NextRequest) {
       console.error("Missing Supabase environment variables")
       return NextResponse.json(
         { error: "Server configuration error: Missing Supabase credentials" },
-        { status: 500, headers: corsHeaders }
+        { status: 500, headers: getCorsHeaders(request) }
       )
     }
 
@@ -66,7 +86,7 @@ export async function POST(request: NextRequest) {
       console.error("Failed to create Supabase client:", error)
       return NextResponse.json(
         { error: "Failed to initialize database connection", details: error.message },
-        { status: 500, headers: corsHeaders }
+        { status: 500, headers: getCorsHeaders(request) }
       )
     }
 
@@ -78,8 +98,16 @@ export async function POST(request: NextRequest) {
       console.error("Failed to parse request body:", e)
       return NextResponse.json(
         { error: "Invalid JSON body" },
-        { status: 400, headers: corsHeaders }
+        { status: 400, headers: getCorsHeaders(request) }
       )
+    }
+
+    const validationResult = registerSchema.safeParse(body);
+    if (!validationResult.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: validationResult.error.format() },
+        { status: 400, headers: getCorsHeaders(request) }
+      );
     }
 
     const {
@@ -92,14 +120,7 @@ export async function POST(request: NextRequest) {
       hostname,
       os_version,
       agent_version
-    } = body
-
-    if (!device_name || !device_type) {
-      return NextResponse.json(
-        { error: "Missing required fields: device_name and device_type" },
-        { status: 400, headers: corsHeaders }
-      )
-    }
+    } = validationResult.data
 
     // Ensure hostname is provided, use device_name as fallback
     const finalHostname = hostname || device_name
@@ -107,7 +128,6 @@ export async function POST(request: NextRequest) {
     console.log("[REGISTRATION] Registering device:", { device_name, hostname: finalHostname, ip_address, mac_address })
 
     // CRITICAL FIX: Check if device exists by hostname
-    // Use maybeSingle() instead of single() to avoid errors when device doesn't exist
     const { data: existingDevice, error: fetchError } = await supabase
       .from("devices")
       .select("id, readable_id, device_name, status, owner")
@@ -118,7 +138,7 @@ export async function POST(request: NextRequest) {
       console.error("[REGISTRATION] Error checking existing device:", fetchError)
       return NextResponse.json(
         { error: "Database query failed", details: fetchError.message },
-        { status: 500, headers: corsHeaders }
+        { status: 500, headers: getCorsHeaders(request) }
       )
     }
 
@@ -155,15 +175,8 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString(),
       }
 
-      // Always update IP address if provided
-      if (ip_address) {
-        updateData.ip_address = ip_address
-      }
-
-      // Always update MAC address if provided
-      if (mac_address) {
-        updateData.mac_address = mac_address
-      }
+      if (ip_address) updateData.ip_address = ip_address
+      if (mac_address) updateData.mac_address = mac_address
 
       const { error: updateError } = await supabase
         .from("devices")
@@ -174,7 +187,7 @@ export async function POST(request: NextRequest) {
         console.error("[REGISTRATION] Error updating device:", updateError)
         return NextResponse.json(
           { error: "Failed to update device", details: updateError.message },
-          { status: 500, headers: corsHeaders }
+          { status: 500, headers: getCorsHeaders(request) }
         )
       }
 
@@ -231,15 +244,8 @@ export async function POST(request: NextRequest) {
         last_seen: new Date().toISOString(),
       }
 
-      // Add IP address if provided
-      if (ip_address) {
-        insertData.ip_address = ip_address
-      }
-
-      // Add MAC address if provided
-      if (mac_address) {
-        insertData.mac_address = mac_address
-      }
+      if (ip_address) insertData.ip_address = ip_address
+      if (mac_address) insertData.mac_address = mac_address
 
       const { data: newDevice, error: insertError } = await supabase
         .from("devices")
@@ -251,7 +257,7 @@ export async function POST(request: NextRequest) {
         console.error("[REGISTRATION] Error creating device:", insertError)
         return NextResponse.json(
           { error: "Failed to create device", details: insertError.message },
-          { status: 500, headers: corsHeaders }
+          { status: 500, headers: getCorsHeaders(request) }
         )
       }
 
@@ -289,7 +295,7 @@ export async function POST(request: NextRequest) {
         is_new_device: isNewDevice,
         message: isNewDevice ? "Device registered successfully" : "Device re-registered successfully"
       },
-      { status: isNewDevice ? 201 : 200, headers: corsHeaders }
+      { status: isNewDevice ? 201 : 200, headers: getCorsHeaders(request) }
     )
 
   } catch (error: any) {
@@ -300,7 +306,7 @@ export async function POST(request: NextRequest) {
         details: error?.message || "Unknown error",
         stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
       },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: getCorsHeaders(request) }
     )
   }
 }
@@ -308,6 +314,6 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   return NextResponse.json(
     { error: "Method not allowed. Use POST to register a device." },
-    { status: 405, headers: corsHeaders }
+    { status: 405, headers: getCorsHeaders(request) }
   )
 }
