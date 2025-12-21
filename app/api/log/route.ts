@@ -10,11 +10,43 @@ import { createClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { checkAndCreateAlerts } from "@/lib/alerts";
 import { trackDataTransfer } from "@/lib/trackers";
+import { z } from "zod";
+
+const logSchema = z.object({
+  device_id: z.string().min(1),
+  log_type: z.enum(['hardware', 'software', 'network', 'security', 'system', 'usb']).transform(val => val.toLowerCase()),
+  source: z.string().optional(),
+  severity: z.string().optional(),
+  message: z.string().max(2000),
+  event_code: z.string().optional(),
+  timestamp: z.string().optional(),
+  raw_data: z.any().optional(),
+  hardware_type: z.string().optional(),
+  event: z.string().optional(),
+  device_name: z.string().optional(),
+  hostname: z.string().optional(),
+  owner: z.string().optional(),
+});
 
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
+
+    // AUTH CHECK
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
+
+    const validationResult = logSchema.safeParse(body);
+    if (!validationResult.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: validationResult.error.format() },
+        { status: 400 }
+      );
+    }
 
     const {
       device_id,
@@ -30,7 +62,7 @@ export async function POST(request: NextRequest) {
       device_name,
       hostname,
       owner,
-    } = body;
+    } = validationResult.data;
 
     // Normalize log_type to lowercase to match frontend filters
     const log_type = raw_log_type?.toLowerCase();
@@ -325,7 +357,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Security alerts
-    await checkAndCreateAlerts(supabase, device_id, log_type, message, severity);
+    await checkAndCreateAlerts(supabase, device_id, log_type, message, finalSeverity);
 
     // 4. Track data transfers
     if (log_type === "usb" && message.toLowerCase().includes("transfer")) {

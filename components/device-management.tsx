@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { createDeviceAction } from "@/app/actions/create-device" // Import server action
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -103,35 +104,34 @@ export function DeviceManagement() {
         return
       }
 
-      const { data, error } = await supabase
-        .from("devices")
-        .insert([
-          {
-            ...formData,
-            status: "offline",
-            security_status: "unknown",
-          },
-        ])
-        .select()
+      setLoading(true)
+      const result = await createDeviceAction(formData)
+      setLoading(false)
 
-      if (error) throw error
+      if (!result.success) {
+        throw new Error(result.error)
+      }
 
-      // Generate credentials for the device
-      const deviceId = data[0].id
-      const username = `device_${data[0].device_name.toLowerCase().replace(/\s+/g, "_")}`
-      const password = Math.random().toString(36).slice(-12)
+      if (!result.data) {
+        throw new Error("No data returned from server action")
+      }
 
-      const { error: credError } = await supabase.from("device_credentials").insert([
-        {
-          device_id: deviceId,
-          username,
-          password,
-        },
-      ])
-
-      if (credError) throw credError
+      // Explicitly case the data to avoid TS errors
+      const device = result.data.device;
+      const newCreds = result.data.credentials;
 
       toast({ title: "Success", description: "Device registered successfully" })
+
+      // Update local state temporarily to show credentials immediately
+      setCredentials(prev => ({
+        ...prev,
+        [device.id]: {
+          device_id: device.id,
+          username: newCreds.username,
+          password: newCreds.password // Display the raw password return from action
+        }
+      }))
+
       setFormData({
         device_name: "",
         device_type: "windows",
@@ -143,9 +143,10 @@ export function DeviceManagement() {
       })
       setIsDialogOpen(false)
       fetchDevices()
-    } catch (error) {
+    } catch (error: any) {
       console.error("[v0] Error adding device:", error)
-      toast({ title: "Error", description: "Failed to register device", variant: "destructive" })
+      toast({ title: "Error", description: error.message || "Failed to register device", variant: "destructive" })
+      setLoading(false)
     }
   }
 

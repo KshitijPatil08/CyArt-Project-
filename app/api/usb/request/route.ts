@@ -2,6 +2,55 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { z } from "zod";
+
+const allowedOrigins = [
+    'https://cyart-dashboard.vercel.app',
+    process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+].filter(Boolean);
+
+function getCorsHeaders(request: NextRequest) {
+    const origin = request.headers.get('origin');
+    return {
+        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    };
+}
+
+export async function OPTIONS(request: NextRequest) {
+    return new NextResponse(null, {
+        status: 200,
+        headers: getCorsHeaders(request),
+    })
+}
+
+
+const usbRequestSchema = z.object({
+    serial_number: z.string().min(1),
+    vendor_id: z.string().optional(),
+    product_id: z.string().optional(),
+    device_name: z.string().min(1),
+    vendor_name: z.string().optional(),
+    description: z.string().optional(),
+    device_class: z.string().optional(),
+    hardware_id: z.string().optional(),
+    device_id: z.string().min(1),
+    computer_name: z.string().optional()
+});
+
+const usbApproveSchema = z.object({
+    id: z.string().min(1),
+    action: z.enum(['approve', 'reject']),
+    policies: z.object({
+        max_daily_transfer_mb: z.number().optional(),
+        allowed_start_time: z.string().optional().nullable(),
+        allowed_end_time: z.string().optional().nullable(),
+        expiration_date: z.string().optional().nullable(),
+        is_read_only: z.boolean().optional()
+    }).optional()
+});
 
 // Helper to generate SHA-256 fingerprint hash
 function generateFingerprintHash(data: any) {
@@ -21,6 +70,13 @@ function generateFingerprintHash(data: any) {
 export async function GET(request: NextRequest) {
     try {
         const supabase = await createClient();
+
+        // AUTH CHECK
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
+        }
+
         const { data, error } = await supabase
             .from("usb_approval_requests")
             .select("*")
@@ -39,9 +95,9 @@ export async function GET(request: NextRequest) {
                 return { ...req, isUnknownAgent: !device };
             })
         );
-        return NextResponse.json({ success: true, requests: enriched });
+        return NextResponse.json({ success: true, requests: enriched }, { headers: getCorsHeaders(request) });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) });
     }
 }
 
@@ -49,7 +105,22 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const supabase = await createClient();
+
+        // NOTE: Agent submission might be unauthenticated if it's a new agent.
+        // For now, we allow POST but protect GET/PUT via auth checks.
+        // TODO: Implement device token header validation to secure this endpoint while
+        // allowing unknown agents to register on first submission.
+
         const body = await request.json();
+
+        const validationResult = usbRequestSchema.safeParse(body);
+        if (!validationResult.success) {
+            return NextResponse.json(
+                { error: "Validation failed", details: validationResult.error.format() },
+                { status: 400, headers: getCorsHeaders(request) }
+            );
+        }
+
         const {
             serial_number,
             vendor_id,
@@ -61,13 +132,13 @@ export async function POST(request: NextRequest) {
             hardware_id,
             device_id,
             computer_name
-        } = body;
+        } = validationResult.data;
 
         // Basic validation – required fields
         if (!serial_number || !device_name || !device_id) {
             return NextResponse.json(
                 { error: "Missing required fields: serial_number, device_name, device_id" },
-                { status: 400 }
+                { status: 400, headers: getCorsHeaders(request) }
             );
         }
 
@@ -88,7 +159,7 @@ export async function POST(request: NextRequest) {
             .eq("status", "pending")
             .maybeSingle();
         if (existingRequest) {
-            return NextResponse.json({ success: true, message: "Request already pending" });
+            return NextResponse.json({ success: true, message: "Request already pending" }, { headers: getCorsHeaders(request) });
         }
 
         // Prevent creating a request for a device that is already authorized
@@ -99,7 +170,7 @@ export async function POST(request: NextRequest) {
             .eq("is_active", true)
             .maybeSingle();
         if (existingAuth) {
-            return NextResponse.json({ success: true, message: "Device already authorized" });
+            return NextResponse.json({ success: true, message: "Device already authorized" }, { headers: getCorsHeaders(request) });
         }
 
         const { error } = await supabase.from("usb_approval_requests").insert([
@@ -119,9 +190,9 @@ export async function POST(request: NextRequest) {
             }
         ]);
         if (error) throw error;
-        return NextResponse.json({ success: true, message: "Request submitted successfully" });
+        return NextResponse.json({ success: true, message: "Request submitted successfully" }, { headers: getCorsHeaders(request) });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) });
     }
 }
 
@@ -129,10 +200,32 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
     try {
         const supabase = await createClient();
+
+        // AUTH CHECK - Admin only
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
+        }
+
+        // Enforce Admin Role
+        const role = user.user_metadata?.role;
+        if (role !== 'admin') {
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: getCorsHeaders(request) });
+        }
+
         const body = await request.json();
-        const { id, action, policies } = body; // action: 'approve' | 'reject'
+
+        const validationResult = usbApproveSchema.safeParse(body);
+        if (!validationResult.success) {
+            return NextResponse.json(
+                { error: "Validation failed", details: validationResult.error.format() },
+                { status: 400, headers: getCorsHeaders(request) }
+            );
+        }
+
+        const { id, action, policies } = validationResult.data; // action: 'approve' | 'reject'
         if (!id || !action) {
-            return NextResponse.json({ error: "Missing id or action" }, { status: 400 });
+            return NextResponse.json({ error: "Missing id or action" }, { status: 400, headers: getCorsHeaders(request) });
         }
         if (action === "reject") {
             const { error } = await supabase
@@ -140,7 +233,7 @@ export async function PUT(request: NextRequest) {
                 .update({ status: "rejected" })
                 .eq("id", id);
             if (error) throw error;
-            return NextResponse.json({ success: true, message: "Request rejected" });
+            return NextResponse.json({ success: true, message: "Request rejected" }, { headers: getCorsHeaders(request) });
         }
         if (action === "approve") {
             const { data: reqData, error: fetchError } = await supabase
@@ -180,10 +273,10 @@ export async function PUT(request: NextRequest) {
                 .from("usb_approval_requests")
                 .update({ status: "approved" })
                 .eq("id", id);
-            return NextResponse.json({ success: true, message: "Device authorized successfully" });
+            return NextResponse.json({ success: true, message: "Device authorized successfully" }, { headers: getCorsHeaders(request) });
         }
-        return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+        return NextResponse.json({ error: "Invalid action" }, { status: 400, headers: getCorsHeaders(request) });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) });
     }
 }

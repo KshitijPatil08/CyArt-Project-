@@ -2,6 +2,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { z } from "zod";
+
+const softwareRequestSchema = z.object({
+    name: z.string().min(1),
+    publisher: z.string().optional(),
+    year: z.union([z.string(), z.number()]).optional(),
+    device_id: z.string().min(1),
+    computer_name: z.string().optional()
+});
 
 function generateSoftwareHash(data: any) {
     const { name, publisher, device_id } = data;
@@ -33,13 +42,22 @@ export async function POST(request: NextRequest) {
     try {
         const supabase = await createClient();
         const body = await request.json();
+
+        const validationResult = softwareRequestSchema.safeParse(body);
+        if (!validationResult.success) {
+            return NextResponse.json(
+                { error: "Validation failed", details: validationResult.error.format() },
+                { status: 400 }
+            );
+        }
+
         const {
             name,
             publisher,
             year,
             device_id,
             computer_name
-        } = body;
+        } = validationResult.data;
 
         if (!name || !device_id) {
             return NextResponse.json(
