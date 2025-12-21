@@ -30,14 +30,18 @@ export async function POST(request: Request) {
 
             // Log to database if possible
             const supabase = await createClient();
-            await supabase.from("logs").insert([{
-                device_id: "system",
-                log_type: "security",
-                severity: "warning",
-                message: "Failed admin login attempt: Invalid Code",
-                source: "auth-api",
-                timestamp: new Date().toISOString()
-            }]);
+            try {
+                await supabase.from("logs").insert([{
+                    device_id: "system",
+                    log_type: "security",
+                    severity: "warning",
+                    message: "Failed admin login attempt: Invalid Code",
+                    source: "auth-api",
+                    timestamp: new Date().toISOString()
+                }]);
+            } catch (logError) {
+                console.error("Failed to log security event:", logError);
+            }
 
             return NextResponse.json(
                 { valid: false, message: "Invalid Admin Code" },

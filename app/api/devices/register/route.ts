@@ -23,8 +23,10 @@ const allowedOrigins = [
 
 function getCorsHeaders(request: NextRequest) {
   const origin = request.headers.get('origin');
+  const isAllowed = allowedOrigins.includes(origin || '');
+
   return {
-    'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
+    'Access-Control-Allow-Origin': isAllowed ? origin! : 'null',
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',

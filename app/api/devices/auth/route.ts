@@ -48,7 +48,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Device not found" }, { status: 404 })
     }
 
-    const JWT_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "fallback_secret_change_me"
+    const JWT_SECRET = process.env.JWT_SECRET
+    if (!JWT_SECRET) {
+      console.error("JWT_SECRET is not defined")
+      return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
+    }
+
     const token = jwt.sign(
       {
         device_id: credentials.device_id,

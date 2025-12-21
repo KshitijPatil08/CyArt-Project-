@@ -7,6 +7,9 @@ const ipRequests = new Map<string, { count: number; expires: number }>();
 
 export async function middleware(request: NextRequest) {
   // Simple Rate Limiting (In-Memory Fallback)
+  // NOTE: This is effective for single-instance/dev but in serverless/production 
+  // with multiple instances, this state is not shared. For strict production limits,
+  // use Redis (e.g. Upstash) or Edge Config.
   if (request.nextUrl.pathname.startsWith('/api/')) {
     const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
     const now = Date.now();

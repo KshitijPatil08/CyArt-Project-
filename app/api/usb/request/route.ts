@@ -206,6 +206,12 @@ export async function PUT(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
         }
 
+        // Enforce Admin Role
+        const role = user.user_metadata?.role;
+        if (role !== 'admin') {
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: getCorsHeaders(request) });
+        }
+
         const body = await request.json();
 
         const validationResult = usbApproveSchema.safeParse(body);

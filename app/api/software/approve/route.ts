@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
         }
 
-        // Optional: Check if user is admin (metadata role)
-        // const role = user.user_metadata?.role;
-        // if (role !== 'admin') return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: corsHeaders });
+        // Check if user is admin (metadata role)
+        const role = user.user_metadata?.role;
+        if (role !== 'admin') return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: corsHeaders });
 
         const body = await request.json();
 
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400 }
+                { status: 400, headers: corsHeaders }
             );
         }
 
