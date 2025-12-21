@@ -150,6 +150,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh...
 SUPABASE_SERVICE_ROLE_KEY=eyJh...
 ADMIN_SECRET_CODE=ChangeMeToSomethingSecure123!
+CYART_Server_URL=http://your-server-ip:3000
 ```
 
 ### Step 2.4: Launch
