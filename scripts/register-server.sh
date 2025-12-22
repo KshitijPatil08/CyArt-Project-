@@ -42,17 +42,16 @@ fi
 
 # --- Interactive Mode ---
 
-# Prompt for Supabase credentials
-read -p "Enter Supabase URL (https://xxx.supabase.co): " SUPABASE_URL
-read -p "Enter Supabase Service Role Key: " SUPABASE_KEY
+# Prompt for API URL
+read -p "Enter CyArt API URL (e.g., http://192.168.1.100:3000 or https://your-domain.com): " API_URL
 echo ""
 
-if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
-    echo "Error: Supabase URL and Key are required!"
+if [ -z "$API_URL" ]; then
+    echo "Error: API URL is required!"
     exit 1
 fi
 
-SUPABASE_URL=${SUPABASE_URL%/}
+API_URL=${API_URL%/}
 
 echo "Registering server..."
 
@@ -66,27 +65,21 @@ JSON_PAYLOAD=$(cat <<EOF
   "hostname": "${HOSTNAME}",
   "ip_address": "${IP_ADDRESS}",
   "os_version": "${OS_VERSION}",
-  "agent_version": "3.0.0-server",
-  "status": "online",
-  "security_status": "secure",
-  "is_server": true
+  "agent_version": "3.0.0-server"
 }
 EOF
 )
 
-# Register
-RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/devices" \
-  -H "apikey: ${SUPABASE_KEY}" \
-  -H "Authorization: Bearer ${SUPABASE_KEY}" \
+# Register using Next.js API route
+RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "${API_URL}/api/devices/register" \
   -H "Content-Type: application/json" \
-  -H "Prefer: return=representation" \
   -d "$JSON_PAYLOAD" 2>&1)
 
 HTTP_CODE=$(echo "$RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d':' -f2)
 RESPONSE_BODY=$(echo "$RESPONSE" | sed 's/HTTP_CODE:[0-9]*//g')
 
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-  DEVICE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":"[^"]*' | cut -d'"' -f4 | head -1)
+  DEVICE_ID=$(echo "$RESPONSE_BODY" | grep -o '"device_id":"[^"]*' | cut -d'"' -f4 | head -1)
   
   if [ -n "$DEVICE_ID" ]; then
     echo "✓ Registration successful! Device ID: $DEVICE_ID"
@@ -96,11 +89,13 @@ if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
     echo "$DEVICE_ID" | sudo tee /etc/cyart/server_device_id.txt > /dev/null
     echo "ID saved to /etc/cyart/server_device_id.txt"
   else
-    echo "Could not extract Device ID."
+    echo "Could not extract Device ID from response."
+    echo "Response: $RESPONSE_BODY"
     exit 1
   fi
 else
   echo "Registration failed ($HTTP_CODE)."
+  echo "Response: $RESPONSE_BODY"
   exit 1
 fi
 
