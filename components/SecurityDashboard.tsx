@@ -736,9 +736,7 @@ export default function SecurityDashboard() {
                         <div className="flex items-center gap-2">
                           <div className={`w-2 h-2 rounded-full ${selectedDevice.status === 'online' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>
                           <p className="font-medium text-foreground capitalize">
-                            {selectedDevice.status === 'online'
-                              ? (selectedDevice.is_server ? 'Online' : 'Connected to Server')
-                              : 'Offline'}
+                            {selectedDevice.status === 'online' ? 'Online' : 'Offline'}
                           </p>
                         </div>
                       </div>

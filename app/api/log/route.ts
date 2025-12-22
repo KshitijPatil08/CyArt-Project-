@@ -32,11 +32,8 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    // AUTH CHECK
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // NOTE: Authentication removed to allow agents to send logs
+    // Agents are system services and don't have user sessions
 
     const body = await request.json();
 
