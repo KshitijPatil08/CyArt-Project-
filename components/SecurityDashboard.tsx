@@ -316,30 +316,48 @@ export default function SecurityDashboard() {
 
   const filteredDevices = useMemo(() => (
     devices.filter(device => {
-      // Standard user:
-      if (userRole !== 'admin') {
-        // Safety check: if user email is not loaded yet, don't show anything to non-admins
-        if (!userEmail) return false;
-
-        // 1. Hide server devices from list (they are strictly for status indicator)
+      // Admin user:
+      if (userRole === 'admin') {
+        // Hide server devices from list (they are shown in the status card)
         if (device.is_server) return false;
 
-        // 2. Only show devices owned by the user (fuzzy match)
-        const ownerLower = device.owner?.toLowerCase().trim() || '';
-        const emailLower = userEmail.toLowerCase().trim();
-        const username = emailLower.split('@')[0];
+        // Apply search filter
+        if (!searchQuery) return true;
 
-        // Match if:
-        // - Exact match
-        // - Owner contains username (e.g. owner="john-pc", email="john@...")
-        // - Email contains owner (e.g. owner="john", email="john.doe@...")
-        const isMatch =
-          ownerLower === emailLower ||
-          ownerLower.includes(username) ||
-          (ownerLower.length > 3 && emailLower.includes(ownerLower));
+        const deviceName = (device.device_name || '').toLowerCase();
+        const hostname = (device.hostname || '').toLowerCase();
+        const ipAddress = device.ip_address || '';
+        const searchLower = searchQuery.toLowerCase();
 
-        if (!isMatch) return false;
+        return (
+          deviceName.includes(searchLower) ||
+          hostname.includes(searchLower) ||
+          ipAddress.includes(searchQuery)
+        );
       }
+
+      // Standard user:
+      // Safety check: if user email is not loaded yet, don't show anything to non-admins
+      if (!userEmail) return false;
+
+      // 1. Hide server devices from list (they are strictly for status indicator)
+      if (device.is_server) return false;
+
+      // 2. Only show devices owned by the user (fuzzy match)
+      const ownerLower = device.owner?.toLowerCase().trim() || '';
+      const emailLower = userEmail.toLowerCase().trim();
+      const username = emailLower.split('@')[0];
+
+      // Match if:
+      // - Exact match
+      // - Owner contains username (e.g. owner="john-pc", email="john@...")
+      // - Email contains owner (e.g. owner="john", email="john.doe@...")
+      const isMatch =
+        ownerLower === emailLower ||
+        ownerLower.includes(username) ||
+        (ownerLower.length > 3 && emailLower.includes(ownerLower));
+
+      if (!isMatch) return false;
 
       // Search filter (with null-safety)
       if (!searchQuery) return true;
