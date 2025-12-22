@@ -2306,7 +2306,7 @@ func sendSystemLogs() {
 
 func sendLog(entry LogEntry) {
 	data, _ := json.Marshal(entry)
-	url := fmt.Sprintf("%s/api/log", apiURL)
+	url := fmt.Sprintf("%s/api/agent-log", apiURL)
 	resp, err := http.Post(url, "application/json", strings.NewReader(string(data)))
 	if err != nil {
 		logMessage("Log send error: " + err.Error())
@@ -2892,6 +2892,7 @@ func trySnmpConnection(ip string, community string) bool {
 	
 	return true
 }
+
 
 
 

@@ -8,10 +8,10 @@ import { z } from "zod";
 
 const logSchema = z.object({
     device_id: z.string().min(1),
-    log_type: z.enum(['hardware', 'software', 'network', 'security', 'system', 'usb']).transform(val => val.toLowerCase()),
+    log_type: z.enum(['hardware', 'software', 'network', 'security', 'system', 'usb', 'application']).transform(val => val.toLowerCase()),
     source: z.string().optional(),
     severity: z.string().optional(),
-    message: z.string().max(2000),
+    message: z.string().max(5000),
     event_code: z.string().optional(),
     timestamp: z.string().optional(),
     raw_data: z.any().optional(),
@@ -108,7 +108,11 @@ export async function POST(request: NextRequest) {
                 .eq("id", device_id);
         }
 
-        // Insert log
+        // Insert log (truncate message if too long for database)
+        const truncatedMessage = message.length > 5000
+            ? message.substring(0, 4997) + '...'
+            : message;
+
         const { data: logData, error: logError } = await supabase
             .from("logs")
             .insert([{
@@ -116,7 +120,7 @@ export async function POST(request: NextRequest) {
                 log_type,
                 source: source || "windows-agent",
                 severity: severity || "info",
-                message,
+                message: truncatedMessage,
                 event_code,
                 timestamp: (timestamp && !isNaN(Date.parse(timestamp))) ? new Date(timestamp).toISOString() : new Date().toISOString(),
                 raw_data,

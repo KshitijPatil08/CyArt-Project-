@@ -477,7 +477,7 @@ send_software_approval_request() {
 EOF
 )
     
-    curl -s -X POST "$API_URL/api/log" \
+    curl -s -X POST "$API_URL/api/agent-log" \
         -H "Content-Type: application/json" \
         -d "$payload" > /dev/null
 }
@@ -614,7 +614,7 @@ EOF
     
     payload+="}"
 
-    curl -s -X POST "$API_URL/api/log" \
+    curl -s -X POST "$API_URL/api/agent-log" \
         -H "Content-Type: application/json" \
         -d "$payload" > /dev/null
 }
