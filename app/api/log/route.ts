@@ -6,44 +6,15 @@
 // FIXED: Applies dynamic severity rules
 // FIXED: USB whitelist check BEFORE log creation to set proper severity
 
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { type NextRequest, NextResponse } from "next/server";
 import { checkAndCreateAlerts } from "@/lib/alerts";
 import { trackDataTransfer } from "@/lib/trackers";
-import { z } from "zod";
-
-const logSchema = z.object({
-  device_id: z.string().min(1),
-  log_type: z.enum(['hardware', 'software', 'network', 'security', 'system', 'usb']).transform(val => val.toLowerCase()),
-  source: z.string().optional(),
-  severity: z.string().optional(),
-  message: z.string().max(2000),
-  event_code: z.string().optional(),
-  timestamp: z.string().optional(),
-  raw_data: z.any().optional(),
-  hardware_type: z.string().optional(),
-  event: z.string().optional(),
-  device_name: z.string().optional(),
-  hostname: z.string().optional(),
-  owner: z.string().optional(),
-});
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-
-    // NOTE: Authentication removed to allow agents to send logs
-    // Agents are system services and don't have user sessions
-
+    const supabase = createAdminClient();
     const body = await request.json();
-
-    const validationResult = logSchema.safeParse(body);
-    if (!validationResult.success) {
-      return NextResponse.json(
-        { error: "Validation failed", details: validationResult.error.format() },
-        { status: 400 }
-      );
-    }
 
     const {
       device_id,
@@ -58,8 +29,7 @@ export async function POST(request: NextRequest) {
       event,
       device_name,
       hostname,
-      owner,
-    } = validationResult.data;
+    } = body;
 
     // Normalize log_type to lowercase to match frontend filters
     const log_type = raw_log_type?.toLowerCase();
@@ -74,9 +44,9 @@ export async function POST(request: NextRequest) {
     console.log("[LOG] Received:", { device_id, log_type, hardware_type, event });
 
     // CRITICAL FIX: Check if device exists before creating log
-    const { data: deviceExists, error: deviceCheckError } = await supabase
+    let { data: deviceExists, error: deviceCheckError } = await supabase
       .from("devices")
-      .select("id, readable_id, hostname")
+      .select("id, readable_id, hostname, is_quarantined")
       .eq("id", device_id)
       .maybeSingle();
 
@@ -114,7 +84,6 @@ export async function POST(request: NextRequest) {
           id: device_id, // Use the provided device_id
           device_name: finalDeviceName,
           device_type: "windows",
-          owner: owner || null, // Capture owner if provided to fix RBAC issues
           hostname: hostname || finalDeviceName || "unknown-host",
           readable_id: `Device-${crypto.randomUUID().slice(0, 8)}`,
           status: "online",
@@ -137,6 +106,17 @@ export async function POST(request: NextRequest) {
       }
 
       console.log("[LOG] Device auto-registered successfully:", device_id);
+      // Re-fetch device info to ensure we have the correct object for status checks
+      const { data: newDevice } = await supabase
+        .from("devices")
+        .select("id, readable_id, hostname, is_quarantined")
+        .eq("id", device_id)
+        .single();
+
+      if (newDevice) {
+        // Update deviceExists for the severity logic below
+        (deviceExists as any) = newDevice;
+      }
     } else {
       // Device exists - update last_seen
       await supabase
@@ -174,38 +154,46 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. SEVERITY DETERMINATION LOGIC
+    // Priority: Quarantine Check > Severity Rule Match > USB Whitelist Check
+
     let finalSeverity = severity || "info";
     let isAuthorizedUSB = false;
     let matchedRuleName = null;
     let ruleApplied = false;
 
-    // STEP 1: Check Dynamic Severity Rules FIRST (Highest Priority)
+    // STEP 1: Quarantine Check (Base Severity)
+    if (deviceExists?.is_quarantined) {
+      finalSeverity = "critical";
+      console.log(`[LOG] Device ${device_id} is in QUARANTINE. Setting base severity to critical.`);
+    }
+
+    // STEP 2: Check Dynamic Severity Rules (Keyword matching)
+    // IMPORTANT: This happens BEFORE Whitelisting as requested.
     try {
-      const { data: rules } = await supabase
+      const { data: rules, error: fetchError } = await supabase
         .from('severity_rules')
         .select('*')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      console.log(`[LOG] Checking ${rules?.length || 0} severity rules against message: "${message}"`);
+      if (fetchError) {
+        console.error("[LOG] Error fetching severity rules:", fetchError);
+      }
+
+      console.log(`[LOG] Found ${rules?.length || 0} active severity rules.`);
 
       if (rules && rules.length > 0) {
         for (const rule of rules) {
           try {
-            // Use 'keyword' from DB schema (not 'pattern')
             const regex = new RegExp(rule.keyword, 'i');
             const isMatch = regex.test(message);
-            console.log(`[LOG] Rule (Keyword: ${rule.keyword}) Match Result: ${isMatch}`);
+            console.log(`[LOG] Testing rule: "${rule.keyword}" against message: "${message.substring(0, 50)}..." -> Match: ${isMatch}`);
 
             if (isMatch) {
-              // Use 'target_severity' from DB schema (not 'severity_level')
-              console.log(`[LOG] Severity Rule Matched! Applying: "${rule.keyword}" -> ${rule.target_severity}`);
-
-              // Apply rule severity immediately
+              console.log(`[LOG] SEVERITY MATCH! Rule: "${rule.keyword}" -> Target: ${rule.target_severity}`);
               finalSeverity = rule.target_severity.toLowerCase();
               matchedRuleName = rule.keyword;
               ruleApplied = true;
-
               break; // Stop after first match
             }
           } catch (e) {
@@ -217,12 +205,11 @@ export async function POST(request: NextRequest) {
       console.error("[LOG] Error applying severity rules:", ruleError);
     }
 
-    // STEP 2: Check USB Whitelist (Only if NO rule was applied)
+    // STEP 3: Check USB Whitelist (Fallback if NO keyword rules matched)
     if (!ruleApplied && log_type === "hardware" && hardware_type?.toLowerCase() === "usb" && event === "connected" && raw_data) {
       const serialNumber = raw_data.serial_number;
 
       if (serialNumber && serialNumber !== "UNKNOWN") {
-        // Check if USB is authorized
         const { data: authorizedUSB } = await supabase
           .from("authorized_usb_devices")
           .select("*")
@@ -231,19 +218,16 @@ export async function POST(request: NextRequest) {
           .maybeSingle();
 
         if (authorizedUSB) {
-          // Whitelisted USB - set to info
           finalSeverity = "info";
           isAuthorizedUSB = true;
-          console.log(`[LOG] Authorized USB connected (Whitelist): ${serialNumber}`);
+          console.log(`[LOG] Authorized USB (Whitelist): ${serialNumber} -> Setting severity to info`);
         } else {
-          // Non-whitelisted USB - set to critical
           finalSeverity = "critical";
-          console.log(`[LOG] Unauthorized USB detected (Whitelist): ${serialNumber}`);
+          console.log(`[LOG] Unauthorized USB (Whitelist): ${serialNumber} -> Setting severity to critical`);
         }
       } else {
-        // USB without serial number - set to critical
         finalSeverity = "critical";
-        console.log(`[LOG] USB connected without serial number`);
+        console.log(`[LOG] USB connected without serial number -> Setting severity to critical`);
       }
     }
 
