@@ -8,7 +8,7 @@ import { z } from "zod";
 
 const logSchema = z.object({
     device_id: z.string().min(1),
-    log_type: z.enum(['hardware', 'software', 'network', 'security', 'system', 'usb', 'application']).transform(val => val.toLowerCase()),
+    log_type: z.enum(['hardware', 'software', 'network', 'security', 'system', 'usb', 'application', 'network_topology']).transform(val => val.toLowerCase()),
     source: z.string().optional(),
     severity: z.string().optional(),
     message: z.string().max(5000),

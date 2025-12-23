@@ -1,6 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -73,11 +83,11 @@ export async function GET(request: NextRequest) {
       count: data?.length || 0,
       total: count ?? data?.length ?? 0,
       logs: data || [],
-    });
+    }, { headers: corsHeaders });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
@@ -88,13 +98,13 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const { data: { user } } = await supabase.auth.getUser();
     if (user?.user_metadata?.role !== 'admin') {
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: corsHeaders });
     }
 
     const { after, before } = body;
 
     if (!after && !before) {
-      return NextResponse.json({ error: "Time range required" }, { status: 400 });
+      return NextResponse.json({ error: "Time range required" }, { status: 400, headers: corsHeaders });
     }
 
     let query = supabase.from("logs").delete();
@@ -113,11 +123,11 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       success: true,
       deleted: data?.length || 0,
-    });
+    }, { headers: corsHeaders });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
