@@ -120,7 +120,7 @@ export default function SecurityDashboard() {
       setDevices(normalizedDevices);
 
       // Auto-update server status based on devices
-      const serverDevices = normalizedDevices.filter((d: Device) => d.is_server);
+      const serverDevices = normalizedDevices.filter((d: Device) => Boolean(d.is_server));
       if (serverDevices.length > 0) {
         const isAnyServerOnline = serverDevices.some((d: Device) => d.status === 'online');
         setServerStatus(isAnyServerOnline ? 'online' : 'offline');
@@ -780,7 +780,7 @@ export default function SecurityDashboard() {
                           <div className={`w-2 h-2 rounded-full ${selectedDevice.status === 'online' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>
                           <p className="font-medium text-foreground capitalize">
                             {selectedDevice.status === 'online'
-                              ? (selectedDevice.is_server ? 'Online' : 'Connected to Server')
+                              ? (Boolean(selectedDevice.is_server) ? 'Online' : 'Connected to Server')
                               : 'Offline'}
                           </p>
                         </div>
