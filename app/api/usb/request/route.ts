@@ -23,22 +23,22 @@ export async function OPTIONS(request: NextRequest) {
 
 const usbRequestSchema = z.object({
     serial_number: z.string().min(1),
-    vendor_id: z.string().optional(),
-    product_id: z.string().optional(),
+    vendor_id: z.string().optional().nullable(),
+    product_id: z.string().optional().nullable(),
     device_name: z.string().min(1),
-    vendor_name: z.string().optional(),
-    description: z.string().optional(),
-    device_class: z.string().optional(),
-    hardware_id: z.string().optional(),
+    vendor_name: z.string().optional().nullable(),
+    description: z.string().optional().nullable(),
+    device_class: z.string().optional().nullable(),
+    hardware_id: z.string().optional().nullable(),
     device_id: z.string().min(1),
-    computer_name: z.string().optional()
+    computer_name: z.string().optional().nullable()
 });
 
 const usbApproveSchema = z.object({
     id: z.string().min(1),
     action: z.enum(['approve', 'reject']),
     policies: z.object({
-        max_daily_transfer_mb: z.union([z.number(), z.string()]).optional().transform(val => {
+        max_daily_transfer_mb: z.union([z.number(), z.string()]).nullable().optional().transform(val => {
             if (val === null || val === undefined || val === '') return null;
             const num = typeof val === 'string' ? parseFloat(val) : val;
             return isNaN(num) ? null : num;
@@ -46,8 +46,8 @@ const usbApproveSchema = z.object({
         allowed_start_time: z.string().optional().nullable(),
         allowed_end_time: z.string().optional().nullable(),
         expiration_date: z.string().optional().nullable(),
-        is_read_only: z.boolean().optional()
-    }).optional()
+        is_read_only: z.boolean().optional().nullable()
+    }).optional().nullable()
 });
 
 // Helper to generate SHA-256 fingerprint hash
@@ -247,11 +247,9 @@ export async function PUT(request: NextRequest) {
                         device_name: reqData.device_name,
                         vendor_name: reqData.vendor_name,
                         description: reqData.description,
-                        device_class: reqData.device_class,
-                        hardware_id: reqData.hardware_id,
-                        device_id: reqData.device_id, // Machine Binding
+                        // device_id and computer_name are supported
+                        device_id: reqData.device_id,
                         computer_name: reqData.computer_name,
-                        fingerprint_hash: reqData.fingerprint_hash,
                         is_active: true,
                         // Apply policies (permissive defaults)
                         max_daily_transfer_mb: policies?.max_daily_transfer_mb || null,
