@@ -1,0 +1,681 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { AlertCircle, Download, Filter, Trash2, Clock, Activity, Shield, AlertTriangle, Siren, XCircle } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+
+interface Log {
+  id: string
+  device_id: string
+  log_type: string
+  hardware_type?: string
+  event?: string
+  source?: string
+  severity: string
+  message: string
+  timestamp: string
+  event_code?: string
+  raw_data: any
+}
+
+interface Device {
+  id: string
+  device_name: string
+}
+
+interface SeverityCounts {
+  critical: number
+  high: number
+  error: number
+  warning: number
+  info: number
+}
+
+export function AlertLogsViewer() {
+  const [logs, setLogs] = useState<Log[]>([])
+  const [devices, setDevices] = useState<Device[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filters, setFilters] = useState({
+    device_id: "all",
+    log_type: "all",
+    severity: "all",
+    search: "",
+    timeRange: "24h",
+  })
+  const [pagination, setPagination] = useState({
+    limit: 50,
+    offset: 0,
+    total: 0,
+  })
+  const { toast } = useToast()
+  const supabase = createClient()
+  const [clearDialogOpen, setClearDialogOpen] = useState(false)
+  const [clearRange, setClearRange] = useState("24h")
+  const [customRange, setCustomRange] = useState({ before: "", after: "" })
+  const [clearing, setClearing] = useState(false)
+
+  const [severityCounts, setSeverityCounts] = useState<SeverityCounts>({
+    critical: 0,
+    high: 0,
+    error: 0,
+    warning: 0,
+    info: 0,
+  })
+
+  useEffect(() => {
+    fetchDevices()
+    fetchLogs()
+  }, [])
+
+  useEffect(() => {
+    fetchLogs()
+    fetchSeverityCounts()
+  }, [filters, pagination.offset])
+
+  const fetchDevices = async () => {
+    try {
+      const { data, error } = await supabase.from("devices").select("id, device_name").order("device_name")
+      if (error) throw error
+      setDevices(data || [])
+    } catch (error) {
+      console.error("[v0] Error fetching devices:", error)
+    }
+  }
+
+  const buildQueryParams = (params: any) => {
+    const qp = new URLSearchParams()
+    if (params.device_id && params.device_id !== "all") qp.append("device_id", params.device_id)
+    if (params.log_type && params.log_type !== "all") qp.append("log_type", params.log_type)
+    if (params.severity && params.severity !== "all") qp.append("severity", params.severity)
+    if (params.search) qp.append("search", params.search)
+    if (params.offset) qp.append("offset", params.offset.toString())
+    if (params.limit) qp.append("limit", params.limit.toString())
+
+    if (params.timeRange && params.timeRange !== "all") {
+      const now = new Date()
+      let afterDate: Date | null = null
+      if (params.timeRange === "24h") {
+        afterDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      } else if (params.timeRange === "7d") {
+        afterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      } else if (params.timeRange === "30d") {
+        afterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      }
+      if (afterDate) {
+        qp.append("after", afterDate.toISOString())
+      }
+    }
+    return qp.toString()
+  }
+
+  const fetchSeverityCounts = async () => {
+    try {
+      const severities = ["critical", "high", "error", "warning", "info"]
+
+      if (filters.severity !== "all") {
+        const counts = { critical: 0, high: 0, error: 0, warning: 0, info: 0 }
+        const qp = buildQueryParams({ ...filters, limit: 1 })
+        const res = await fetch(`/api/logs?${qp}`)
+        const data = await res.json()
+        counts[filters.severity as keyof typeof counts] = data.total || 0
+        setSeverityCounts(counts)
+        return
+      }
+
+      const promises = severities.map(async (severity) => {
+        const qp = buildQueryParams({ ...filters, severity, limit: 1 })
+        const res = await fetch(`/api/logs?${qp}`)
+        const data = await res.json()
+        return { severity, count: data.total || 0 }
+      })
+
+      const results = await Promise.all(promises)
+      const newCounts = results.reduce((acc, curr) => {
+        acc[curr.severity as keyof SeverityCounts] = curr.count
+        return acc
+      }, { critical: 0, high: 0, error: 0, warning: 0, info: 0 } as SeverityCounts)
+
+      setSeverityCounts(newCounts)
+    } catch (error) {
+      console.error("Error fetching severity counts:", error)
+    }
+  }
+
+  const fetchLogs = async () => {
+    try {
+      setLoading(true)
+      const qp = buildQueryParams({
+        ...filters,
+        offset: pagination.offset,
+        limit: pagination.limit
+      })
+
+      const res = await fetch(`/api/logs?${qp}`)
+      const data = await res.json()
+
+      if (!res.ok) throw new Error(data.error || "Failed to fetch logs")
+
+      setLogs(data.logs || [])
+      setPagination((prev) => ({ ...prev, total: data.total || 0 }))
+      setLoading(false)
+    } catch (error: any) {
+      console.error("[Logs] Fetch error:", error)
+      toast({ title: "Error", description: error.message || "Failed to fetch logs", variant: "destructive" })
+      setLoading(false)
+    }
+  }
+
+  const handleFilterChange = (newFilters: any) => {
+    setFilters(newFilters)
+    setPagination(prev => ({ ...prev, offset: 0 }))
+  }
+
+  const resetFilters = () => {
+    setFilters({
+      device_id: "all",
+      log_type: "all",
+      severity: "all",
+      search: "",
+      timeRange: "24h",
+    })
+    setPagination((prev) => ({ ...prev, offset: 0 }))
+  }
+
+  const buildRangePayload = () => {
+    const now = new Date()
+    switch (clearRange) {
+      case "24h":
+        return { after: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "7d":
+        return { after: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "30d":
+        return { after: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "custom":
+        return {
+          before: customRange.before ? new Date(customRange.before).toISOString() : undefined,
+          after: customRange.after ? new Date(customRange.after).toISOString() : undefined,
+        }
+      default:
+        return {}
+    }
+  }
+
+  const handleClearLogs = async () => {
+    try {
+      const payload = buildRangePayload()
+      if (!payload.before && !payload.after) {
+        toast({ title: "Range required", description: "Select or set at least one time bound.", variant: "destructive" })
+        return
+      }
+
+      setClearing(true)
+      const response = await fetch("/api/logs", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to clear logs")
+      }
+
+      toast({
+        title: "Logs cleared",
+        description: `Removed ${result.deleted || 0} log${(result.deleted || 0) === 1 ? "" : "s"}.`,
+      })
+      setClearDialogOpen(false)
+      setCustomRange({ before: "", after: "" })
+      setPagination((prev) => ({ ...prev, offset: 0 }))
+      fetchLogs()
+    } catch (error: any) {
+      console.error("Error clearing logs:", error)
+      toast({ title: "Error", description: error.message || "Unable to clear logs", variant: "destructive" })
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const handleExport = async () => {
+    try {
+      const csv = [
+        ["Timestamp", "Device", "Type", "Severity", "Message", "Event"].join(","),
+        ...logs.map((log) =>
+          [
+            new Date(log.timestamp).toLocaleString(),
+            devices.find((d) => d.id === log.device_id)?.device_name || "Unknown",
+            log.log_type,
+            log.severity,
+            `"${log.message.replace(/"/g, '""')}"`,
+            log.event || log.source || "-",
+          ].join(","),
+        ),
+      ].join("\n")
+
+      const blob = new Blob([csv], { type: "text/csv" })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `logs-${new Date().toISOString().split("T")[0]}.csv`
+      a.click()
+      window.URL.revokeObjectURL(url)
+
+      toast({ title: "Success", description: "Logs exported successfully" })
+    } catch (error) {
+      console.error("[v0] Error exporting logs:", error)
+      toast({ title: "Error", description: "Failed to export logs", variant: "destructive" })
+    }
+  }
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case "critical":
+        return "bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/30"
+      case "high":
+        return "bg-orange-600/20 text-orange-700 dark:text-orange-300 border border-orange-600/30"
+      case "error":
+        return "bg-orange-500/20 text-orange-700 dark:text-orange-200 border border-orange-500/30"
+      case "warning":
+        return "bg-yellow-500/20 text-yellow-700 dark:text-yellow-200 border border-yellow-500/30"
+      case "info":
+        return "bg-blue-500/20 text-blue-700 dark:text-blue-200 border border-blue-500/30"
+      default:
+        return "bg-muted text-foreground border border-border"
+    }
+  }
+
+  const getLogTypeColor = (logType: string) => {
+    switch (logType) {
+      case "security":
+        return "bg-red-500/10 border-red-500/40"
+      case "usb":
+        return "bg-purple-500/10 border-purple-500/40"
+      case "system":
+        return "bg-blue-500/10 border-blue-500/40"
+      case "application":
+        return "bg-green-500/10 border-green-500/40"
+      case "network":
+        return "bg-indigo-500/10 border-indigo-500/40"
+      case "network_topology":
+      case "topology":
+        return "bg-cyan-500/10 border-cyan-500/40"
+      default:
+        return "bg-muted/30 border-border"
+    }
+  }
+
+  return (
+    <div className="space-y-6 p-6">
+      <Card className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-background border-primary/10">
+        <CardHeader className="space-y-1">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-wide text-muted-foreground">Operations Center</p>
+              <h1 className="text-3xl font-bold">Alert Logs</h1>
+              <p className="text-muted-foreground mt-1">
+                Monitor live telemetry, investigate spikes, and prune noisy signals.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => fetchLogs()} disabled={loading} className="gap-2">
+              <Activity className="w-4 h-4" />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="flex flex-wrap gap-4">
+        {[
+          {
+            label: "Total Logs",
+            value: pagination.total,
+            icon: Activity,
+            accent: "bg-card dark:bg-gradient-to-br dark:from-indigo-500/20 dark:to-indigo-500/5 border-l-indigo-500",
+            iconColor: "text-indigo-600 dark:text-indigo-400",
+            iconBg: "bg-indigo-50 dark:bg-indigo-500/20",
+          },
+          {
+            label: "Critical Logs",
+            value: severityCounts.critical,
+            icon: AlertCircle,
+            accent: "bg-card dark:bg-gradient-to-br dark:from-rose-500/20 dark:to-rose-500/5 border-l-rose-500",
+            iconColor: "text-rose-600 dark:text-rose-400",
+            iconBg: "bg-rose-50 dark:bg-rose-500/20",
+          },
+          {
+            label: "High Severity",
+            value: severityCounts.high,
+            icon: Siren,
+            accent: "bg-card dark:bg-gradient-to-br dark:from-orange-500/20 dark:to-orange-500/5 border-l-orange-500",
+            iconColor: "text-orange-600 dark:text-orange-400",
+            iconBg: "bg-orange-50 dark:bg-orange-500/20",
+          },
+          {
+            label: "Errors",
+            value: severityCounts.error,
+            icon: XCircle,
+            accent: "bg-card dark:bg-gradient-to-br dark:from-amber-500/20 dark:to-amber-500/5 border-l-amber-500",
+            iconColor: "text-amber-600 dark:text-amber-400",
+            iconBg: "bg-amber-50 dark:bg-amber-500/20",
+          },
+          {
+            label: "Warnings",
+            value: severityCounts.warning,
+            icon: Shield,
+            accent: "bg-card dark:bg-gradient-to-br dark:from-yellow-500/20 dark:to-yellow-500/5 border-l-yellow-500",
+            iconColor: "text-yellow-600 dark:text-yellow-400",
+            iconBg: "bg-yellow-50 dark:bg-yellow-500/20",
+          },
+          {
+            label: "Informational",
+            value: severityCounts.info,
+            icon: Clock,
+            accent: "bg-card dark:bg-gradient-to-br dark:from-blue-500/20 dark:to-blue-500/5 border-l-blue-500",
+            iconColor: "text-blue-600 dark:text-blue-400",
+            iconBg: "bg-blue-50 dark:bg-blue-500/20",
+          },
+        ]
+          .filter((card) => card.label === "Total Logs" || (typeof card.value === "number" && card.value > 0))
+          .map((card) => (
+            <Card key={card.label} className={`${card.accent} flex-1 min-w-[200px] shadow-sm hover:shadow-md transition-all border-l-4 border border-border/40`}>
+              <CardContent className="py-5 flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="text-sm text-muted-foreground font-medium">{card.label}</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{card.value}</p>
+                </div>
+                <div className={`${card.iconBg} p-3 rounded-full`}>
+                  <card.icon className={`w-5 h-5 ${card.iconColor}`} />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-4 h-4" />
+              Filters
+            </CardTitle>
+            <CardDescription>Slice data by device, severity, or keywords.</CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
+              Reset
+            </Button>
+            <Button variant="secondary" size="sm" className="gap-2" onClick={() => setClearDialogOpen(true)}>
+              <Trash2 className="w-4 h-4" />
+              Clear Logs
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div>
+              <Label htmlFor="device">Device</Label>
+              <Select value={filters.device_id} onValueChange={(value) => handleFilterChange({ ...filters, device_id: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All devices" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All devices</SelectItem>
+                  {devices.map((device) => (
+                    <SelectItem key={device.id} value={device.id}>
+                      {device.device_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="log-type">Log Type</Label>
+              <Select value={filters.log_type} onValueChange={(value) => handleFilterChange({ ...filters, log_type: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="security">Security</SelectItem>
+                  <SelectItem value="usb">USB</SelectItem>
+                  <SelectItem value="system">System</SelectItem>
+                  <SelectItem value="application">Application</SelectItem>
+                  <SelectItem value="network">Network</SelectItem>
+                  <SelectItem value="network_topology">Topology</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="severity">Severity</Label>
+              <Select value={filters.severity} onValueChange={(value) => handleFilterChange({ ...filters, severity: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All levels</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="error">Error</SelectItem>
+                  <SelectItem value="warning">Warning</SelectItem>
+                  <SelectItem value="info">Info</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="search">Search</Label>
+              <Input
+                id="search"
+                placeholder="Search logs..."
+                value={filters.search}
+                onChange={(e) => handleFilterChange({ ...filters, search: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="time-range">Time Range</Label>
+              <Select value={filters.timeRange} onValueChange={(value) => handleFilterChange({ ...filters, timeRange: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All time</SelectItem>
+                  <SelectItem value="24h">Last 24 hours</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-end gap-2">
+              <Button onClick={handleExport} variant="outline" className="gap-2 bg-transparent">
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Logs Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Logs</CardTitle>
+          <CardDescription>
+            Showing {logs.length} of {pagination.total} logs
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">Loading logs...</p>
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="text-center py-8">
+              <AlertCircle className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
+              <p className="text-muted-foreground">No logs found</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Timestamp</TableHead>
+                      <TableHead>Device</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Event</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {logs.map((log) => (
+                      <TableRow key={log.id} className={`border-l-4 ${getLogTypeColor(log.log_type)}`}>
+                        <TableCell className="text-sm">{new Date(log.timestamp).toLocaleString()}</TableCell>
+                        <TableCell className="font-medium">
+                          {devices.find((d) => d.id === log.device_id)?.device_name || "Unknown"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{log.log_type}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={getSeverityColor(log.severity)}>{log.severity}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-md truncate">{log.message}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{log.event || log.source || "-"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Page {Math.floor(pagination.offset / pagination.limit) + 1} of{" "}
+                  {Math.ceil(pagination.total / pagination.limit)}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setPagination((prev) => ({
+                        ...prev,
+                        offset: Math.max(0, prev.offset - prev.limit),
+                      }))
+                    }
+                    disabled={pagination.offset === 0}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setPagination((prev) => ({
+                        ...prev,
+                        offset: prev.offset + prev.limit,
+                      }))
+                    }
+                    disabled={pagination.offset + pagination.limit >= pagination.total}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="w-4 h-4" />
+              Clear Logs by Time
+            </DialogTitle>
+            <DialogDescription>
+              Permanently delete logs within the selected time window. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Time Range</Label>
+              <Select value={clearRange} onValueChange={setClearRange}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Choose range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="24h">Last 24 hours</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="custom">Custom range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {clearRange === "custom" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="clear-after">Start (after)</Label>
+                  <Input
+                    id="clear-after"
+                    type="datetime-local"
+                    value={customRange.after}
+                    onChange={(e) => setCustomRange((prev) => ({ ...prev, after: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="clear-before">End (before)</Label>
+                  <Input
+                    id="clear-before"
+                    type="datetime-local"
+                    value={customRange.before}
+                    onChange={(e) => setCustomRange((prev) => ({ ...prev, before: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row sm:justify-between gap-2">
+            <Button variant="ghost" onClick={() => setClearDialogOpen(false)} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="w-full sm:w-auto gap-2"
+              onClick={handleClearLogs}
+              disabled={clearing}
+            >
+              {clearing ? "Clearing..." : "Clear logs"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
