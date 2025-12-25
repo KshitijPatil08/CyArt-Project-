@@ -35,6 +35,7 @@ interface Device {
   status: string
   security_status: string
   is_quarantined: boolean
+  is_server: boolean
   quarantine_reason: string | null
   quarantined_at: string | null
   quarantined_by: string | null
@@ -352,6 +353,11 @@ export function DeviceManagement() {
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           <Badge className={getStatusColor(device.status)}>{device.status}</Badge>
+                          {device.is_server && (
+                            <Badge className="bg-blue-600 text-white">
+                              🖥️ SERVER
+                            </Badge>
+                          )}
                           {device.is_quarantined && (
                             <Badge className="bg-red-500 text-white">
                               🔒 QUARANTINED

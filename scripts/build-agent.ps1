@@ -129,15 +129,15 @@ else {
 # We inject the Npcap logic dynamically based on whether we found the installer or not
 $npcapInstallLogic = ""
 if ($npcapName) {
-    $npcapInstallLogic = @"
+    $npcapInstallLogic = @'
 echo Checking for Npcap...
 if exist "%ProgramFiles%\Npcap" (
     echo Npcap is already installed.
 ) else (
     echo Npcap not found. Installing...
-    if exist "%~dp0$npcapName" (
+    if exist "%~dp0{0}" (
         echo Running Npcap installer silently...
-        "%~dp0$npcapName" /loopback_support=yes /winpcap_mode=yes /admin_only=no /S
+        "%~dp0{0}" /loopback_support=yes /winpcap_mode=yes /admin_only=no /S
         if %errorLevel% neq 0 (
              echo Warning: Npcap installation might have failed.
         ) else (
@@ -147,19 +147,20 @@ if exist "%ProgramFiles%\Npcap" (
         echo Warning: Npcap installer not found in package!
     )
 )
-"@
+'@ -f $npcapName
 }
 else {
-    $npcapInstallLogic = @"
+    $npcapInstallLogic = @'
 echo Checking for Npcap...
 if not exist "%ProgramFiles%\Npcap" (
     echo WARNING: Npcap is NOT installed. LLDP features will not work.
     echo Please install Npcap manually to enable network discovery.
 )
-"@
+'@
 }
 
-$installerScript = @"
+
+$installerScript = @'
 @echo off
 REM CyArt Security Agent Installer
 REM Version 3.0.0
@@ -178,7 +179,7 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-$npcapInstallLogic
+{0}
 
 echo Stopping existing services...
 
@@ -249,7 +250,7 @@ echo.
 echo Logs can be found at: %APPDATA%\CyArtAgent\agent.log
 echo.
 pause
-"@
+'@ -f $npcapInstallLogic
 
 $installerScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "install.bat") -Encoding ASCII
 
@@ -393,9 +394,10 @@ Exit 0
 
 $sccmScript | Out-File -FilePath (Join-Path $OUTPUT_DIR "sccm-install.ps1") -Encoding UTF8
 
+
 # Create README
-$readme = @"
-CyArt Security Agent - Deployment Package v$AGENT_VERSION
+$readme = @'
+CyArt Security Agent - Deployment Package v{0}
 
 Files Included:
 1. CyArtAgent.exe - The agent executable
@@ -422,7 +424,7 @@ Method 3: SCCM Deployment
 2. Use sccm-install.ps1 as install script
 3. Deploy to target collection
 
-Server URL: $SERVER_URL
+Server URL: {1}
 
 System Requirements:
 - Windows 7/Server 2008 R2 or later
@@ -430,8 +432,8 @@ System Requirements:
 - Network access to server
 - ~10MB disk space
 
-Built on: $(Get-Date -Format "yyyy-MM-dd")
-"@
+Built on: {2}
+'@ -f $AGENT_VERSION, $SERVER_URL, (Get-Date -Format "yyyy-MM-dd")
 
 $readme | Out-File -FilePath (Join-Path $OUTPUT_DIR "README.txt") -Encoding UTF8
 

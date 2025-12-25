@@ -26,9 +26,21 @@ export async function POST(request: Request) {
             );
         }
 
-        // If is_server is true, we should probably unset other servers if we only want one? 
-        // For now, let's allow multiple servers or just toggle this one. 
-        // The dashboard logic allows multiple servers (filters by Boolean(is_server)).
+        // If is_server is true, enforce single server rule by unsetting other servers
+        if (is_server) {
+            const { error: unsetError } = await supabase
+                .from('devices')
+                .update({ is_server: false, updated_at: new Date().toISOString() })
+                .neq('id', device_id);
+
+            if (unsetError) {
+                console.error("Error unsetting other servers:", unsetError);
+                return NextResponse.json(
+                    { error: "Failed to unset other servers", details: unsetError.message },
+                    { status: 500 }
+                );
+            }
+        }
 
         // Update device server status
         const { data: updatedDevice, error } = await supabase

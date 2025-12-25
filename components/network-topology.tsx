@@ -437,7 +437,8 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     })
 
     // 3. Group Agents by Subnet (Fallback for those without LLDP/WiFi logs)
-    const agents = devices.filter(d => !servers.includes(d))
+    // We treat all devices except the MAIN server as agents for layout purposes
+    const agents = devices.filter(d => d.device_id !== mainServerId)
     const subnetMap = new Map<string, Device[]>()
 
     agents.forEach(agent => {
