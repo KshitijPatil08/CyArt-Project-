@@ -85,8 +85,16 @@ export function SoftwareManagement() {
 
     const handleDelete = async (id: string) => {
         try {
-            const { error } = await supabase.from("authorized_software").delete().eq("id", id)
-            if (error) throw error
+            // Use secure API route instead of direct Supabase call
+            const response = await fetch(`/api/software/approve?id=${id}`, {
+                method: 'DELETE'
+            })
+
+            if (!response.ok) {
+                const data = await response.json()
+                throw new Error(data.error || 'Failed to delete authorization')
+            }
+
             toast({ title: "Success", description: "Authorization removed" })
             fetchData()
         } catch (error: any) {

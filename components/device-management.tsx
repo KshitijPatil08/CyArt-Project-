@@ -80,15 +80,27 @@ export function DeviceManagement() {
       if (error) throw error
       setDevices(data || [])
 
-      // Fetch credentials for each device
-      const credsMap: Record<string, DeviceCredentials> = {}
-      for (const device of data || []) {
-        const { data: cred } = await supabase.from("device_credentials").select("*").eq("device_id", device.id).single()
-        if (cred) {
-          credsMap[device.id] = cred
+      // Fetch credentials securely via API route (server-side)
+      // This prevents exposure of Supabase URL and credentials in browser Network tab
+      try {
+        const response = await fetch('/api/devices/credentials')
+        if (!response.ok) {
+          throw new Error('Failed to fetch credentials')
         }
+        const { credentials: creds } = await response.json()
+
+        // Convert array to map for easy lookup
+        const credsMap: Record<string, DeviceCredentials> = {}
+        for (const cred of creds || []) {
+          credsMap[cred.device_id] = cred
+        }
+        setCredentials(credsMap)
+      } catch (credError) {
+        console.error("[v0] Error fetching credentials:", credError)
+        // Don't fail the whole operation if credentials fail
+        // Just log and continue with empty credentials
       }
-      setCredentials(credsMap)
+
       setLoading(false)
     } catch (error) {
       console.error("[v0] Error fetching devices:", error)

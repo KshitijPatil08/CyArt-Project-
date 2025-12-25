@@ -380,7 +380,7 @@ func performSSDPDiscovery() {
 }
 
 const (
-	DEFAULT_API_URL           = "https://lily-recrudescent-scantly.ngrok-free.dev" // replaced by build script
+	DEFAULT_API_URL           = "" // REMOVED: No hardcoded URL - must be configured via agent.config or environment variable
 	POLL_INTERVAL             = 3 * time.Second                                    // Faster polling for USB
 	CHECK_QUARANTINE_INTERVAL = 5 * time.Second
 	REGISTRATION_FILE         = "device_id.txt"
@@ -683,24 +683,18 @@ func init() {
 	owner = getUsername()
 	location = "Office"
 
-	// Obfuscation: Decode API URL at runtime
-	decoded, err := base64.StdEncoding.DecodeString(encodedAPIURL)
-	if err != nil {
-		// Fallback if decoding fails
-		apiURL = "http://localhost:3000"
-	} else {
-		apiURL = string(decoded)
-	}
-	// Load Config or Env takes precedence
+	// Load API URL from configuration (REQUIRED - no hardcoded fallback)
 	if cfgURL := loadOrDetectServerURL(); cfgURL != "" {
 		apiURL = cfgURL
+		logMessage("Loaded API URL from config: " + apiURL)
 	} else if envURL := os.Getenv("CYART_API_URL"); envURL != "" {
 		apiURL = envURL
 		logMessage("Loaded API URL from Environment: " + apiURL)
 	} else {
-		// Fallback to decoded default
-		logMessage("Using default obfuscated API URL")
+		// NO FALLBACK - Configuration is required
+		log.Fatal("FATAL: API URL not configured. Please set CYART_API_URL environment variable or create agent.config file with server_url.")
 	}
+
 
 	loadDeviceID()
 	go captureLLDP()

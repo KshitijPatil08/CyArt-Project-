@@ -4,10 +4,13 @@ import jwt from "jsonwebtoken"
 import bcrypt from "bcrypt"
 import { z } from "zod"
 
-const allowedOrigins = [
-  'https://cyart-dashboard.vercel.app',
-  process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-].filter(Boolean);
+// Load allowed origins from environment variable or use defaults
+const allowedOrigins = (
+  process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+    process.env.NEXT_PUBLIC_APP_URL || '',
+    process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+  ]
+).filter(Boolean);
 
 function getCorsHeaders(request: NextRequest) {
   const origin = request.headers.get('origin');

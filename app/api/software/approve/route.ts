@@ -9,10 +9,13 @@ const softwareApproveSchema = z.object({
     owner_email: z.string().email().optional().or(z.literal(''))
 });
 
-const allowedOrigins = [
-    'https://cyart-dashboard.vercel.app', // Replace with actual production domain
-    process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-].filter(Boolean);
+// Load allowed origins from environment variable or use defaults
+const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+        process.env.NEXT_PUBLIC_APP_URL || '',
+        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+    ]
+).filter(Boolean);
 
 export async function POST(request: NextRequest) {
     const origin = request.headers.get('origin');
@@ -105,7 +108,7 @@ export async function GET(request: NextRequest) {
     const corsHeaders = {
         'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
         'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
@@ -129,3 +132,61 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
     }
 }
+
+// DELETE: Remove authorized software
+export async function DELETE(request: NextRequest) {
+    const origin = request.headers.get('origin');
+    const corsHeaders = {
+        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Methods': 'DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    };
+
+    try {
+        const supabase = await createClient();
+
+        // AUTH CHECK
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+        }
+
+        // Admin check
+        const role = user.user_metadata?.role;
+        if (role !== 'admin') {
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: corsHeaders });
+        }
+
+        const { searchParams } = new URL(request.url);
+        const id = searchParams.get('id');
+
+        if (!id) {
+            return NextResponse.json({ error: "id is required" }, { status: 400, headers: corsHeaders });
+        }
+
+        const { error } = await supabase
+            .from("authorized_software")
+            .delete()
+            .eq("id", id);
+
+        if (error) throw error;
+
+        return NextResponse.json({ success: true, message: "Software authorization removed" }, { headers: corsHeaders });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+    }
+}
+
+export async function OPTIONS(request: NextRequest) {
+    const origin = request.headers.get('origin');
+    return NextResponse.json({}, {
+        headers: {
+            'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+    });
+}
+

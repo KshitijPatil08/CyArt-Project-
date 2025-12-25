@@ -265,9 +265,17 @@ export function USBWhitelistManagement() {
         return
       }
 
-      const { error } = await supabase.from("authorized_usb_devices").insert([formData])
+      // Use secure API route instead of direct Supabase call
+      const response = await fetch('/api/usb/whitelist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to add device')
+      }
 
       toast({ title: "Success", description: "USB device added to whitelist" })
       setFormData({
@@ -288,8 +296,15 @@ export function USBWhitelistManagement() {
 
   const handleDeleteDevice = async (id: string) => {
     try {
-      const { error } = await supabase.from("authorized_usb_devices").delete().eq("id", id)
-      if (error) throw error
+      // Use secure API route instead of direct Supabase call
+      const response = await fetch(`/api/usb/whitelist?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to delete device')
+      }
       toast({ title: "Success", description: "USB device removed from whitelist" })
       fetchDevices()
     } catch (error) {
@@ -300,11 +315,17 @@ export function USBWhitelistManagement() {
 
   const handleToggleActive = async (id: string, currentStatus: boolean) => {
     try {
-      const { error } = await supabase
-        .from("authorized_usb_devices")
-        .update({ is_active: !currentStatus, updated_at: new Date().toISOString() })
-        .eq("id", id)
-      if (error) throw error
+      // Use secure API route instead of direct Supabase call
+      const response = await fetch('/api/usb/whitelist', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_active: !currentStatus })
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to update device')
+      }
       toast({ title: "Success", description: `USB device ${!currentStatus ? "activated" : "deactivated"}` })
       fetchDevices()
     } catch (error) {
@@ -416,19 +437,24 @@ export function USBWhitelistManagement() {
     if (!editingDevice) return
 
     try {
-      const { error } = await supabase
-        .from("authorized_usb_devices")
-        .update({
+      // Use secure API route instead of direct Supabase call
+      const response = await fetch('/api/usb/whitelist', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingDevice.id,
           max_daily_transfer_mb: editPolicies.max_daily_transfer_mb ? parseInt(editPolicies.max_daily_transfer_mb) : null,
           allowed_start_time: editPolicies.allowed_start_time || null,
           allowed_end_time: editPolicies.allowed_end_time || null,
           expiration_date: editPolicies.expiration_date || null,
-          is_read_only: editPolicies.is_read_only,
-          updated_at: new Date().toISOString()
+          is_read_only: editPolicies.is_read_only
         })
-        .eq("id", editingDevice.id)
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to update policies')
+      }
 
       toast({ title: "Success", description: "Device policies updated successfully" })
       setIsEditPolicyDialogOpen(false)
