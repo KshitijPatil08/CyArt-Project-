@@ -95,8 +95,8 @@ export async function GET(request: NextRequest) {
         }
 
         // Auto-update stale devices to offline status in the database
-        // A device is considered stale if last_seen is older than 60 seconds
-        const OFFLINE_THRESHOLD_MS = 60 * 1000 // 60 seconds
+        // A device is considered stale if last_seen is older than 300 seconds (5 minutes)
+        const OFFLINE_THRESHOLD_MS = 300 * 1000; // 5 minutes
         const now = Date.now()
 
         const staleDeviceIds = (devices || [])

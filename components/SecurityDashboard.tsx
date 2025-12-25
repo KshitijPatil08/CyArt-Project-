@@ -106,7 +106,7 @@ export default function SecurityDashboard() {
 
         const lastSeenTime = new Date(device.last_seen).getTime();
         const now = Date.now();
-        const OFFLINE_THRESHOLD_MS = 60 * 1000; // 60 seconds
+        const OFFLINE_THRESHOLD_MS = 300 * 1000; // 5 minutes (300 seconds)
 
         return (now - lastSeenTime) < OFFLINE_THRESHOLD_MS;
       };
@@ -297,6 +297,56 @@ export default function SecurityDashboard() {
     } catch (error) {
       console.error('Error assigning owner:', error);
       alert('Failed to assign owner. Please try again.');
+    }
+  };
+
+  const handleToggleServer = async () => {
+    if (!selectedDevice) return;
+
+    try {
+      const newStatus = !selectedDevice.is_server;
+      const res = await fetch(`${API_URL}/api/devices/toggle-server`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add Authorization header if you are using Supabase Auth in request
+          // 'Authorization': `Bearer ${session?.access_token}` 
+          // (Assuming cookie auth is handled automatically by browser)
+        },
+        body: JSON.stringify({
+          device_id: selectedDevice.device_id,
+          is_server: newStatus
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // Update local state
+        const updatedDevices = devices.map(d =>
+          d.device_id === selectedDevice.device_id
+            ? { ...d, is_server: newStatus }
+            : d
+        );
+        setDevices(updatedDevices);
+        setSelectedDevice({ ...selectedDevice, is_server: newStatus });
+
+        // Re-calculate server status
+        const serverDevices = updatedDevices.filter((d: Device) => Boolean(d.is_server));
+        if (serverDevices.length > 0) {
+          const isAnyServerOnline = serverDevices.some((d: Device) => d.status === 'online');
+          setServerStatus(isAnyServerOnline ? 'online' : 'offline');
+        } else {
+          setServerStatus('offline');
+        }
+
+        alert(`Device marked as ${newStatus ? 'Server' : 'Regular Device'} successfully!`);
+      } else {
+        alert(`Error: ${data.error || 'Failed to update server status'}`);
+      }
+    } catch (error) {
+      console.error('Error toggling server status:', error);
+      alert('Failed to update server status. Please try again.');
     }
   };
 
@@ -798,25 +848,51 @@ export default function SecurityDashboard() {
                         </div>
                       )}
                     </div>
-
-                    {/* Assign Owner Button - ONLY FOR ADMINS */}
                     {userRole === 'admin' && (
-                      <div className="mt-4">
+                      <div className="mt-6 pt-6 border-t flex flex-wrap gap-2 text-sm text-muted-foreground">
                         <Button
-                          onClick={() => {
-                            setAssignOwnerEmail(selectedDevice.owner || '');
-                            setShowAssignOwnerDialog(true);
-                          }}
                           variant="outline"
                           size="sm"
-                          className="w-full"
+                          onClick={() => setShowAssignOwnerDialog(true)}
+                          className="w-full sm:w-auto"
                         >
-                          <Settings className="w-4 h-4 mr-2" />
+                          <Monitor className="w-4 h-4 mr-2" />
                           Assign Owner
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleToggleServer}
+                          className={`w-full sm:w-auto ${selectedDevice.is_server
+                            ? "border-blue-200 hover:bg-blue-50 text-blue-700 dark:border-blue-800 dark:hover:bg-blue-900/20 dark:text-blue-400"
+                            : ""
+                            }`}
+                        >
+                          <Server className="w-4 h-4 mr-2" />
+                          {selectedDevice.is_server ? "Unset as Server" : "Set as Server"}
                         </Button>
                       </div>
                     )}
                   </div>
+
+                  {/* Assign Owner Button - ONLY FOR ADMINS */}
+                  {userRole === 'admin' && (
+                    <div className="mt-4">
+                      <Button
+                        onClick={() => {
+                          setAssignOwnerEmail(selectedDevice.owner || '');
+                          setShowAssignOwnerDialog(true);
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                      >
+                        <Settings className="w-4 h-4 mr-2" />
+                        Assign Owner
+                      </Button>
+                    </div>
+                  )}
+
 
                   {/* Whitelisted USBs Section - ONLY FOR STANDARD USERS */}
                   {userRole !== 'admin' && (
