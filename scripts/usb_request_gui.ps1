@@ -2,8 +2,30 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$encodedUrl = "aHR0cHM6Ly92MC1wcm9qZWN0MS1yOS52ZXJjZWwuYXBwL2FwaS91c2IvcmVxdWVzdA=="
+# API Configuration
+$encodedUrl = "aHR0cHM6Ly92MC1wcm9qZWN0MS1yOS52ZXJjZWwuYXBwL2FwaS91c2IvcmVxdWVzdA==" # PATCH_TOKEN
 $script:API_URL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encodedUrl))
+
+# Try to find local agent config for URL override
+$appData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ApplicationData)
+$encodedConfig = "Q3lBcnRBZ2VudFxhZ2VudC5jb25maWc=" # CyArtAgent\agent.config
+$configPath = Join-Path $appData ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encodedConfig)))
+$apiSubPath = "L2FwaS91c2IvcmVxdWVzdA==" # /api/usb/request
+
+if (Test-Path $configPath) {
+    try {
+        $config = Get-Content $configPath | ConvertFrom-Json
+        if ($config.api_url) {
+            $script:API_URL = "$($config.api_url.TrimEnd('/'))$([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($apiSubPath)))"
+        }
+    }
+    catch {}
+}
+
+# Environment variable override
+if ($env:CYART_API_URL) {
+    $script:API_URL = "$($env:CYART_API_URL.TrimEnd('/'))$([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($apiSubPath)))"
+}
 
 # Get Machine ID for tracking
 try {

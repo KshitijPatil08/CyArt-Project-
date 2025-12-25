@@ -1,4 +1,4 @@
-﻿# CyArt Agent - Mass Deployment Script for Windows
+# CyArt Agent - Mass Deployment Script for Windows
 # This script compiles the agent and creates deployment packages
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -72,7 +72,21 @@ $replacement = "encodedAPIURL = `"$encodedServerUrl`""
 $newCode = [regex]::Replace($agentCode, $pattern, $replacement)
 Set-Content -Path $srcFile -Value $newCode -Encoding UTF8
 
-Write-Host "  ✓ Configured server URL: $SERVER_URL" -ForegroundColor Green
+Write-Host "  ✓ Configured server URL in Go source: $SERVER_URL" -ForegroundColor Green
+
+# Also patch the USB GUI script if it exists
+$guiFile = Join-Path $SCRIPT_DIR "usb_request_gui.ps1"
+if (Test-Path $guiFile) {
+    Write-Host "Configuring server URL in GUI script..." -ForegroundColor Yellow
+    $guiCode = Get-Content $guiFile -Raw
+    $guiRequestUrl = "$($SERVER_URL.TrimEnd('/'))/api/usb/request"
+    $encodedGuiUrl = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($guiRequestUrl))
+    $guiPattern = '\$encodedUrl\s*=\s*".*?"\s*#\s*PATCH_TOKEN'
+    $guiReplacement = "`$encodedUrl = `"$encodedGuiUrl`\" # PATCH_TOKEN"
+    $newGuiCode = [regex]::Replace($guiCode, $guiPattern, $guiReplacement)
+    Set-Content -Path $guiFile -Value $newGuiCode -Encoding UTF8
+    Write-Host "  ✓ Configured server URL in GUI script: $guiRequestUrl" -ForegroundColor Green
+}
 
 # Set environment for Windows build
 $env:GOOS = "windows"
@@ -437,10 +451,27 @@ $filesToCopy = @(
     "README.txt"
 )
 
-foreach ($f in $filesToCopy) {
-    $src = Join-Path $OUTPUT_DIR $f
-    if (Test-Path $src) {
-        Copy-Item -Path $src -Destination (Join-Path $devFolder $f) -Force
+# Handle USB GUI Executable Re-compilation
+$guiFile = Join-Path $SCRIPT_DIR "usb_request_gui.ps1"
+if (Test-Path $guiFile) {
+    if (Get-Module -ListAvailable ps2exe) {
+        Write-Host "Recompiling USB GUI to executable..." -ForegroundColor Yellow
+        $guiExePath = Join-Path $SCRIPT_DIR "usb_request_gui.exe"
+        try {
+            # Use Invoke-ps2exe to rebuild the binary
+            Invoke-ps2exe -inputFile $guiFile -outputFile $guiExePath -noConsole -x64 -ErrorAction Stop
+            Write-Host "  ✓ GUI executable recompiled: $guiExePath" -ForegroundColor Green
+            
+            # Copy to deployment folders
+            Copy-Item -Path $guiExePath -Destination (Join-Path $OUTPUT_DIR "usb_request_gui.exe") -Force
+            Copy-Item -Path $guiExePath -Destination (Join-Path $devFolder "usb_request_gui.exe") -Force
+        }
+        catch {
+            Write-Host "  ⚠ Warning: Failed to recompile GUI executable: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Host "  ℹ Info: ps2exe module not found. Skipping GUI EXE compilation. The .ps1 script is updated." -ForegroundColor Gray
     }
 }
 
