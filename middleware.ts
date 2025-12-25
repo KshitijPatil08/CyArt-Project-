@@ -2,7 +2,7 @@ import { updateSession } from "./lib/supabase/middleware"
 import { type NextRequest, NextResponse } from "next/server"
 
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 100; // 100 requests per minute
+const MAX_REQUESTS = 500; // 500 requests per minute (increased from 100 to support dashboard + agents)
 const ipRequests = new Map<string, { count: number; expires: number }>();
 let lastCleanup = Date.now();
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes cleanup interval
