@@ -55,7 +55,7 @@ REM Create installation directory
 set "INSTALL_DIR=%ProgramFiles%\CyArtAgent"
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
-REM Copy agent executable (assumes install.bat runs from same folder as exe)
+REM Copy agent executable
 echo Copying files...
 copy /Y "%~dp0CyArtAgent.exe" "%INSTALL_DIR%\CyArtAgent.exe"
 if %errorLevel% neq 0 (
@@ -65,13 +65,11 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-REM Create Windows Service (will overwrite if exists)
+REM Create Windows Service
 echo Creating Windows Service...
-
 sc create "CyArtAgent" binPath= "\"%INSTALL_DIR%\CyArtAgent.exe\"" start= auto DisplayName= "CyArt Security Agent"
 if %errorLevel% neq 0 (
     echo [SC] CreateService FAILED.
-    echo Please check Event Viewer for details.
     pause
     exit /b 1
 )
@@ -84,22 +82,9 @@ netsh advfirewall firewall add rule name="CyArt Agent" dir=out action=allow prog
 REM Start the service
 echo Starting CyArt Agent service...
 sc start "CyArtAgent"
-if %errorLevel% neq 0 (
-    echo [SC] StartService FAILED.
-    echo The service may take a moment to initialize. Check the Windows Event Log if it fails to start.
-    pause
-    exit /b 1
-)
 
 echo.
 echo ======================================
 echo Installation completed successfully!
 echo ======================================
-echo.
-echo The CyArt Agent is now installed as a Windows Service.
-echo Service Name: CyArtAgent
-echo Installation Path: %INSTALL_DIR%
-echo.
-echo Logs can be found at: %APPDATA%\CyArtAgent\agent.log
-echo.
 pause

@@ -2631,7 +2631,7 @@ func remediateBlockedSoftware(approvedGlobal []string) {
 
 func initializeAgent() {
 	logMessage(fmt.Sprintf("Starting CyArt Security Agent v%s...", VERSION))
-	logMessage(fmt.Sprintf("Server URL: %s", apiURL))
+	// logMessage(fmt.Sprintf("Server URL: %s", apiURL))
 
 	// Admin check - log but continue (services run as SYSTEM)
 	if !isAdmin() {
@@ -2966,3 +2966,12 @@ func trySnmpConnection(ip string, community string) bool {
 
 	return true
 }
+
+
+
+
+
+
+
+
+

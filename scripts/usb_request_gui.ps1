@@ -1,9 +1,9 @@
-# USB Device Whitelist Request - GUI Version (Stable)
+﻿# USB Device Whitelist Request - GUI Version (Stable)
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # API Configuration
-$encodedUrl = "aHR0cHM6Ly92MC1wcm9qZWN0MS1yOS52ZXJjZWwuYXBwL2FwaS91c2IvcmVxdWVzdA==" # PATCH_TOKEN
+$encodedUrl = "aHR0cHM6Ly9saWx5LXJlY3J1ZGVzY2VudC1zY2FudGx5Lm5ncm9rLWZyZWUuZGV2L2FwaS91c2IvcmVxdWVzdA==" # PATCH_TOKEN
 $script:API_URL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encodedUrl))
 
 # Try to find local agent config for URL override
@@ -254,3 +254,7 @@ Load-USBDevices
 
 # Show the form
 $form.ShowDialog() | Out-Null
+
+
+
+
