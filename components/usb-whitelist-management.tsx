@@ -71,19 +71,18 @@ export function USBWhitelistManagement() {
   const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(null)
   const [approvalPolicies, setApprovalPolicies] = useState({
-    max_daily_transfer_mb: "",
     allowed_start_time: "",
     allowed_end_time: "",
     expiration_date: "",
     is_read_only: false
   })
+
   const [isApproving, setIsApproving] = useState(false)
 
   // Edit Dialog State
   const [isEditPolicyDialogOpen, setIsEditPolicyDialogOpen] = useState(false)
   const [editingDevice, setEditingDevice] = useState<AuthorizedUSB | null>(null)
   const [editPolicies, setEditPolicies] = useState({
-    max_daily_transfer_mb: "",
     allowed_start_time: "",
     allowed_end_time: "",
     expiration_date: "",
@@ -338,7 +337,6 @@ export function USBWhitelistManagement() {
     console.log('[USB] Approve button clicked for:', request.device_name)
     setSelectedRequest(request)
     setApprovalPolicies({
-      max_daily_transfer_mb: "",
       allowed_start_time: "",
       allowed_end_time: "",
       expiration_date: "",
@@ -367,7 +365,7 @@ export function USBWhitelistManagement() {
           id: selectedRequest.id,
           action: "approve",
           policies: {
-            max_daily_transfer_mb: approvalPolicies.max_daily_transfer_mb ? parseInt(approvalPolicies.max_daily_transfer_mb) : null,
+            max_daily_transfer_mb: null,
             allowed_start_time: approvalPolicies.allowed_start_time || null,
             allowed_end_time: approvalPolicies.allowed_end_time || null,
             expiration_date: approvalPolicies.expiration_date || null,
@@ -424,7 +422,6 @@ export function USBWhitelistManagement() {
   const handleEditClick = (device: AuthorizedUSB) => {
     setEditingDevice(device)
     setEditPolicies({
-      max_daily_transfer_mb: device.max_daily_transfer_mb?.toString() || "",
       allowed_start_time: device.allowed_start_time || "",
       allowed_end_time: device.allowed_end_time || "",
       expiration_date: device.expiration_date ? new Date(device.expiration_date).toISOString().split('T')[0] : "",
@@ -443,7 +440,7 @@ export function USBWhitelistManagement() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: editingDevice.id,
-          max_daily_transfer_mb: editPolicies.max_daily_transfer_mb ? parseInt(editPolicies.max_daily_transfer_mb) : null,
+          max_daily_transfer_mb: null,
           allowed_start_time: editPolicies.allowed_start_time || null,
           allowed_end_time: editPolicies.allowed_end_time || null,
           expiration_date: editPolicies.expiration_date || null,
@@ -632,9 +629,8 @@ export function USBWhitelistManagement() {
                             <div className="flex flex-wrap gap-1">
                               {device.is_read_only && <Badge variant="outline" className="text-xs"><Lock className="w-3 h-3 mr-1" /> Read-Only</Badge>}
                               {device.expiration_date && <Badge variant="outline" className="text-xs"><Calendar className="w-3 h-3 mr-1" /> Exp: {new Date(device.expiration_date).toLocaleDateString()}</Badge>}
-                              {device.max_daily_transfer_mb && <Badge variant="outline" className="text-xs"><Database className="w-3 h-3 mr-1" /> Limit: {device.max_daily_transfer_mb}MB</Badge>}
                               {device.allowed_start_time && <Badge variant="outline" className="text-xs"><Clock className="w-3 h-3 mr-1" /> {device.allowed_start_time}-{device.allowed_end_time}</Badge>}
-                              {!device.is_read_only && !device.expiration_date && !device.max_daily_transfer_mb && !device.allowed_start_time && (
+                              {!device.is_read_only && !device.expiration_date && !device.allowed_start_time && (
                                 <span className="text-xs text-muted-foreground">Unrestricted</span>
                               )}
                             </div>
@@ -816,16 +812,7 @@ export function USBWhitelistManagement() {
               <p className="text-xs text-muted-foreground">Access will be automatically revoked after this date.</p>
             </div>
 
-            {/* Data Limit */}
-            <div className="grid gap-2">
-              <Label className="flex items-center gap-2"><Database className="w-4 h-4" /> Daily Data Limit (MB) (Optional)</Label>
-              <Input
-                type="number"
-                placeholder="e.g. 1024 (1GB)"
-                value={approvalPolicies.max_daily_transfer_mb}
-                onChange={(e) => setApprovalPolicies({ ...approvalPolicies, max_daily_transfer_mb: e.target.value })}
-              />
-            </div>
+
 
             {/* Time Access */}
             <div className="grid grid-cols-2 gap-4">
@@ -904,16 +891,7 @@ export function USBWhitelistManagement() {
               <p className="text-xs text-muted-foreground">Access will be automatically revoked after this date.</p>
             </div>
 
-            {/* Data Limit */}
-            <div className="grid gap-2">
-              <Label className="flex items-center gap-2"><Database className="w-4 h-4" /> Daily Data Limit (MB) (Optional)</Label>
-              <Input
-                type="number"
-                placeholder="e.g. 1024 (1GB)"
-                value={editPolicies.max_daily_transfer_mb}
-                onChange={(e) => setEditPolicies({ ...editPolicies, max_daily_transfer_mb: e.target.value })}
-              />
-            </div>
+
 
             {/* Time Access */}
             <div className="grid grid-cols-2 gap-4">

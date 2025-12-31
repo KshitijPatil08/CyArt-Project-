@@ -38,11 +38,7 @@ const usbApproveSchema = z.object({
     id: z.string().min(1),
     action: z.enum(['approve', 'reject']),
     policies: z.object({
-        max_daily_transfer_mb: z.union([z.number(), z.string()]).nullable().optional().transform(val => {
-            if (val === null || val === undefined || val === '') return null;
-            const num = typeof val === 'string' ? parseFloat(val) : val;
-            return isNaN(num) ? null : num;
-        }),
+        max_daily_transfer_mb: z.any().optional(), // Deprecated / Ignored
         allowed_start_time: z.string().optional().nullable(),
         allowed_end_time: z.string().optional().nullable(),
         expiration_date: z.string().optional().nullable(),

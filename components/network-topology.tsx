@@ -322,7 +322,9 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     const placedIps = new Set<string>()
 
     // 1. Identify Main Server
-    const servers = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server' || d.device_name?.toLowerCase().includes('server'))
+    // STRICT SERVER DETECTION: Only accept explicit is_server flag or exact device_type match.
+    // REMOVED loose name matching (d.device_name.includes('server')) per user request.
+    const servers = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server')
     const mainServer = servers.length > 0 ? servers[0] : null
     const mainServerId = mainServer ? mainServer.device_id : 'virtual-server'
 
@@ -441,8 +443,17 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     const subnetMap = new Map<string, Device[]>()
 
     agents.forEach(agent => {
-      const ipParts = (agent.ip_address || '0.0.0.0').split('.')
-      const subnet = ipParts.length === 4 ? `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}` : 'Unknown'
+      let subnet = 'Unknown'
+
+      // TEAM/LOCATION OVERRIDE: If a location is set, group by that instead of IP.
+      if (agent.location && agent.location.trim().length > 0) {
+        subnet = agent.location.trim()
+      } else {
+        // Fallback to IP-based subnet
+        const ipParts = (agent.ip_address || '0.0.0.0').split('.')
+        subnet = ipParts.length === 4 ? `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}` : 'Unknown'
+      }
+
       if (!subnetMap.has(subnet)) subnetMap.set(subnet, [])
       subnetMap.get(subnet)?.push(agent)
     })
@@ -597,11 +608,16 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       const groupId = `group-${subnet}`
 
       // Subnet Label
-      let subnetLabel = `Subnet ${subnet}.x`
-      if (userRole !== 'admin') {
-        const departments = ['HR Department', 'Engineering', 'Sales', 'Finance', 'Marketing', 'Operations']
-        const deptIndex = subnet.split('.').reduce((acc, part) => acc + parseInt(part), 0) % departments.length
-        subnetLabel = departments[deptIndex]
+      let subnetLabel = subnet
+      // If it looks like an IP subnet (digits and dots), format it nicely.
+      // If it's a Team Name (Location), just show it.
+      if (/^\d+\.\d+\.\d+$/.test(subnet)) {
+        subnetLabel = `Subnet ${subnet}.x`
+        // Only mask if it IS an IP subnet and we are not admin?
+        // User requested "Manual Option to assign to different subnets" -> imply visualizing them as teams.
+        // We will respect the Location name as the label directly.
+      } else {
+        subnetLabel = subnet // It's a Team Name like "Red Team", "Engineering"
       }
 
       // 1. Add Subnet Group Node

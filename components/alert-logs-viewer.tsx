@@ -116,6 +116,8 @@ export function AlertLogsViewer() {
         afterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
       } else if (params.timeRange === "30d") {
         afterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      } else if (params.timeRange === "180d") {
+        afterDate = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
       }
       if (afterDate) {
         qp.append("after", afterDate.toISOString())
@@ -206,6 +208,12 @@ export function AlertLogsViewer() {
         return { after: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
       case "30d":
         return { after: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "180d":
+        // For clearing, usually we want to clear OLDER than 180 days, or just the last 180 days?
+        // User said: "Discard after 180 days" - implies "Delete logs OLDER than 180 days"
+        // But the current logic is "Clear logs WITHIN this range".
+        // Let's implement "Delete Older Than 180 Days" which means before = now - 180d.
+        return { before: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString() }
       case "custom":
         return {
           before: customRange.before ? new Date(customRange.before).toISOString() : undefined,
@@ -503,6 +511,7 @@ export function AlertLogsViewer() {
                   <SelectItem value="24h">Last 24 hours</SelectItem>
                   <SelectItem value="7d">Last 7 days</SelectItem>
                   <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="180d">Last 180 days</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -615,7 +624,7 @@ export function AlertLogsViewer() {
               Clear Logs by Time
             </DialogTitle>
             <DialogDescription>
-              Permanently delete logs within the selected time window. This action cannot be undone.
+              Permanently delete logs within the selected time window.
             </DialogDescription>
           </DialogHeader>
 
@@ -630,6 +639,7 @@ export function AlertLogsViewer() {
                   <SelectItem value="24h">Last 24 hours</SelectItem>
                   <SelectItem value="7d">Last 7 days</SelectItem>
                   <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="180d">Older than 180 days</SelectItem>
                   <SelectItem value="custom">Custom range</SelectItem>
                 </SelectContent>
               </Select>

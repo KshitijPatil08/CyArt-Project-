@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff } from "lucide-react"
+import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff, Edit, Server, ServerCrash } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { QuarantineDialog } from "./quarantine-dialog"
 import { ReleaseDialog } from "./release-dialog"
@@ -67,6 +67,15 @@ export function DeviceManagement() {
     ip_address: "",
     hostname: "",
     os_version: "",
+  })
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    id: "",
+    device_name: "",
+    device_type: "",
+    owner: "",
+    location: "",
+    hostname: "",
   })
   const { toast } = useToast()
   const supabase = createClient()
@@ -183,6 +192,66 @@ export function DeviceManagement() {
     } catch (error) {
       console.error("[v0] Error deleting device:", error)
       toast({ title: "Error", description: "Failed to delete device", variant: "destructive" })
+    }
+  }
+
+  const handleToggleServer = async (device: Device) => {
+    try {
+      const newIsServer = !device.is_server
+      const { error } = await supabase
+        .from("devices")
+        .update({ is_server: newIsServer })
+        .eq("id", device.id)
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: `Device ${newIsServer ? "promoted to Server" : "demoted from Server"}`,
+      })
+      fetchDevices()
+    } catch (error: any) {
+      console.error("Error toggling server status:", error)
+      toast({ title: "Error", description: "Failed to update server status", variant: "destructive" })
+    }
+  }
+
+  const openEditDialog = (device: Device) => {
+    setEditFormData({
+      id: device.id,
+      device_name: device.device_name,
+      device_type: device.device_type,
+      owner: device.owner || "",
+      location: device.location || "",
+      hostname: device.hostname || "",
+    })
+    setIsEditOpen(true)
+  }
+
+  const handleUpdateDevice = async () => {
+    try {
+      setLoading(true)
+      const { error } = await supabase
+        .from("devices")
+        .update({
+          device_name: editFormData.device_name,
+          device_type: editFormData.device_type,
+          owner: editFormData.owner,
+          location: editFormData.location,
+          hostname: editFormData.hostname,
+        })
+        .eq("id", editFormData.id)
+
+      if (error) throw error
+
+      toast({ title: "Success", description: "Device updated successfully" })
+      setIsEditOpen(false)
+      fetchDevices()
+    } catch (error: any) {
+      console.error("Error updating device:", error)
+      toast({ title: "Error", description: "Failed to update device", variant: "destructive" })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -314,6 +383,62 @@ export function DeviceManagement() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Device</DialogTitle>
+            <DialogDescription>Update device details and location (Team).</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Device Name</Label>
+              <Input
+                value={editFormData.device_name}
+                onChange={(e) => setEditFormData({ ...editFormData, device_name: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Location (Team / Subnet)</Label>
+              <Input
+                value={editFormData.location}
+                onChange={(e) => setEditFormData({ ...editFormData, location: e.target.value })}
+                placeholder="e.g. Red Team, Engineering"
+              />
+              <p className="text-xs text-muted-foreground mt-1">This overrides the subnet grouping in Network Topology.</p>
+            </div>
+            <div>
+              <Label>Owner</Label>
+              <Input
+                value={editFormData.owner}
+                onChange={(e) => setEditFormData({ ...editFormData, owner: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Device Type</Label>
+              <Select
+                value={editFormData.device_type}
+                onValueChange={(value) => setEditFormData({ ...editFormData, device_type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="windows">Windows</SelectItem>
+                  <SelectItem value="linux">Linux</SelectItem>
+                  <SelectItem value="mac">Mac</SelectItem>
+                  <SelectItem value="server">Server</SelectItem>
+                  <SelectItem value="switch">Switch</SelectItem>
+                  <SelectItem value="router">Router</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button onClick={handleUpdateDevice} className="w-full">
+              Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
@@ -461,6 +586,24 @@ export function DeviceManagement() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => openEditDialog(device)}
+                            className="text-blue-600 hover:text-blue-700"
+                            title="Edit Device (Team/Location)"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleServer(device)}
+                            className={device.is_server ? "text-purple-600 hover:text-purple-700" : "text-gray-400 hover:text-purple-600"}
+                            title={device.is_server ? "Demote from Server" : "Promote to Server"}
+                          >
+                            {device.is_server ? <ServerCrash className="w-4 h-4" /> : <Server className="w-4 h-4" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleDeleteDevice(device.id, device.device_name)}
                             className="text-red-600 hover:text-red-700"
                           >
@@ -500,6 +643,6 @@ export function DeviceManagement() {
         } : null}
         onSuccess={handleReleaseSuccess}
       />
-    </div>
+    </div >
   )
 }
