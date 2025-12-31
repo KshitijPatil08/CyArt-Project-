@@ -37,6 +37,26 @@ function getCorsHeaders(request: NextRequest) {
   };
 }
 
+// Admin client for bypassing RLS during server registration
+async function getAdminSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.warn("Missing SUPABASE_SERVICE_ROLE_KEY, falling back to anon client (RLS may fail)")
+    return getSupabaseClient() // Fallback if key missing, though unlikely to work for protected tables
+  }
+
+  // Use createClient directly from supabase-js for admin access without cookies
+  const { createClient } = await import('@supabase/supabase-js')
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
+
 async function getSupabaseClient() {
   const cookieStore = await cookies()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -298,16 +318,20 @@ export async function POST(request: NextRequest) {
     // AUTO-REGISTER AS SERVER if explicitly requested OR agent_version indicates it
     if (register_as_server === true || agent_version?.toLowerCase().includes('server') || device_type?.toLowerCase() === 'server') {
       console.log("[REGISTRATION] Server Registration Triggered.", { deviceId, register_as_server, agent_version })
-      const { error: serverError } = await supabase
+
+      // Use Admin Client to bypass RLS for servers table
+      const adminSupabase = await getAdminSupabaseClient()
+
+      const { error: serverError } = await adminSupabase
         .from('servers')
         .insert({ device_id: deviceId })
         .select()
 
       // Ignore duplicate key error (code 23505)
       if (serverError && serverError.code !== '23505') {
-        console.error("[REGISTRATION] Failed to register as server:", serverError)
+        console.error("[REGISTRATION] Failed to register as server (Admin Client):", serverError)
       } else {
-        console.log("[REGISTRATION] Successfully registered in servers table.")
+        console.log("[REGISTRATION] Successfully registered in servers table (Admin Client).")
       }
     }
 
