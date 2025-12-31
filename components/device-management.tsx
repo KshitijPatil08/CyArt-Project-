@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff, Edit, Server, ServerCrash } from "lucide-react"
+import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff, Edit } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { QuarantineDialog } from "./quarantine-dialog"
 import { ReleaseDialog } from "./release-dialog"
@@ -200,39 +200,7 @@ export function DeviceManagement() {
     }
   }
 
-  const handleToggleServer = async (device: Device) => {
-    try {
-      const isServer = device.is_server
-      let error = null
 
-      if (isServer) {
-        // Was server, so REMOVE from servers table (Demote)
-        // We need to delete by device_id.
-        const res = await supabase
-          .from("servers")
-          .delete()
-          .eq("device_id", device.id)
-        error = res.error
-      } else {
-        // Was NOT server, so ADD to servers table (Promote)
-        const res = await supabase
-          .from("servers")
-          .insert({ device_id: device.id })
-        error = res.error
-      }
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: `Device ${isServer ? "demoted from Server" : "promoted to Server"}`,
-      })
-      fetchDevices()
-    } catch (error: any) {
-      console.error("Error toggling server status:", error)
-      toast({ title: "Error", description: "Failed to update server status", variant: "destructive" })
-    }
-  }
 
   const openEditDialog = (device: Device) => {
     setEditFormData({
@@ -610,15 +578,7 @@ export function DeviceManagement() {
                           >
                             <Edit className="w-4 h-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleToggleServer(device)}
-                            className={device.is_server ? "text-purple-600 hover:text-purple-700" : "text-gray-400 hover:text-purple-600"}
-                            title={device.is_server ? "Demote from Server" : "Promote to Server"}
-                          >
-                            {device.is_server ? <ServerCrash className="w-4 h-4" /> : <Server className="w-4 h-4" />}
-                          </Button>
+
                           <Button
                             variant="ghost"
                             size="sm"
