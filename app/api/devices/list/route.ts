@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
         // Fetch all devices from the database
         const { data: devices, error: fetchError } = await supabase
             .from("devices")
-            .select("*")
+            .select("*, servers(id)")
             .order("created_at", { ascending: false })
 
         if (fetchError) {
@@ -130,6 +130,8 @@ export async function GET(request: NextRequest) {
         // Apply the offline status for stale devices in the response
         const transformedDevices = (devices || []).map((device: any) => {
             const isStale = staleDeviceIds.includes(device.id)
+            const isServer = device.servers && (Array.isArray(device.servers) ? device.servers.length > 0 : true)
+
             return {
                 device_id: device.id,
                 id: device.id,
@@ -146,7 +148,7 @@ export async function GET(request: NextRequest) {
                 status: isStale ? 'offline' : device.status,
                 security_status: device.security_status,
                 is_quarantined: device.is_quarantined,
-                is_server: device.is_server,
+                is_server: isServer,
                 last_seen: device.last_seen,
                 created_at: device.created_at,
                 updated_at: device.updated_at,

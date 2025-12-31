@@ -86,9 +86,14 @@ export function DeviceManagement() {
 
   const fetchDevices = async () => {
     try {
-      const { data, error } = await supabase.from("devices").select("*").order("created_at", { ascending: false })
+      const { data, error } = await supabase.from("devices").select("*, servers(id)").order("created_at", { ascending: false })
       if (error) throw error
-      setDevices(data || [])
+      // Map servers table presence to is_server boolean for the UI
+      const mappedData = (data || []).map((d: any) => ({
+        ...d,
+        is_server: d.servers && (Array.isArray(d.servers) ? d.servers.length > 0 : true)
+      }))
+      setDevices(mappedData)
 
       // Fetch credentials securely via API route (server-side)
       // This prevents exposure of Supabase URL and credentials in browser Network tab
@@ -197,17 +202,30 @@ export function DeviceManagement() {
 
   const handleToggleServer = async (device: Device) => {
     try {
-      const newIsServer = !device.is_server
-      const { error } = await supabase
-        .from("devices")
-        .update({ is_server: newIsServer })
-        .eq("id", device.id)
+      const isServer = device.is_server
+      let error = null
+
+      if (isServer) {
+        // Was server, so REMOVE from servers table (Demote)
+        // We need to delete by device_id.
+        const res = await supabase
+          .from("servers")
+          .delete()
+          .eq("device_id", device.id)
+        error = res.error
+      } else {
+        // Was NOT server, so ADD to servers table (Promote)
+        const res = await supabase
+          .from("servers")
+          .insert({ device_id: device.id })
+        error = res.error
+      }
 
       if (error) throw error
 
       toast({
         title: "Success",
-        description: `Device ${newIsServer ? "promoted to Server" : "demoted from Server"}`,
+        description: `Device ${isServer ? "demoted from Server" : "promoted to Server"}`,
       })
       fetchDevices()
     } catch (error: any) {

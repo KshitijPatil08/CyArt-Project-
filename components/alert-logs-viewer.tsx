@@ -116,6 +116,10 @@ export function AlertLogsViewer() {
         afterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
       } else if (params.timeRange === "30d") {
         afterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      } else if (params.timeRange === "60d") {
+        afterDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
+      } else if (params.timeRange === "90d") {
+        afterDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
       } else if (params.timeRange === "180d") {
         afterDate = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
       }
@@ -208,6 +212,10 @@ export function AlertLogsViewer() {
         return { after: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
       case "30d":
         return { after: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "60d":
+        return { after: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
+      case "90d":
+        return { after: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(), before: now.toISOString() }
       case "180d":
         // For clearing, usually we want to clear OLDER than 180 days, or just the last 180 days?
         // User said: "Discard after 180 days" - implies "Delete logs OLDER than 180 days"
@@ -511,6 +519,8 @@ export function AlertLogsViewer() {
                   <SelectItem value="24h">Last 24 hours</SelectItem>
                   <SelectItem value="7d">Last 7 days</SelectItem>
                   <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="60d">Last 60 days</SelectItem>
+                  <SelectItem value="90d">Last 90 days</SelectItem>
                   <SelectItem value="180d">Last 180 days</SelectItem>
                 </SelectContent>
               </Select>
@@ -639,6 +649,8 @@ export function AlertLogsViewer() {
                   <SelectItem value="24h">Last 24 hours</SelectItem>
                   <SelectItem value="7d">Last 7 days</SelectItem>
                   <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="60d">Last 60 days</SelectItem>
+                  <SelectItem value="90d">Last 90 days</SelectItem>
                   <SelectItem value="180d">Older than 180 days</SelectItem>
                   <SelectItem value="custom">Custom range</SelectItem>
                 </SelectContent>
