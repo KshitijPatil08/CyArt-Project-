@@ -14,6 +14,7 @@ const registerSchema = z.object({
   hostname: z.string().optional(),
   os_version: z.string().optional(),
   agent_version: z.string().optional(),
+  register_as_server: z.boolean().optional(),
 });
 
 // Load allowed origins from environment variable or use defaults
@@ -124,7 +125,8 @@ export async function POST(request: NextRequest) {
       mac_address,
       hostname,
       os_version,
-      agent_version
+      agent_version,
+      register_as_server
     } = validationResult.data
 
     // Ensure hostname is provided, use device_name as fallback
@@ -175,9 +177,6 @@ export async function POST(request: NextRequest) {
         agent_version,
         status: "online",
         // CRITICAL SECURITY FIX: Preserve existing security status and quarantine state
-        // Do NOT reset to 'secure' or release from quarantine automatically
-        // security_status: "secure", <--- REMOVED
-        // is_quarantined: false,     <--- REMOVED
         security_status: existingDevice.security_status, // Preserve existing
         is_quarantined: existingDevice.is_quarantined,   // Preserve existing
         last_seen: new Date().toISOString(),
@@ -296,6 +295,22 @@ export async function POST(request: NextRequest) {
       is_new: isNewDevice
     })
 
+    // AUTO-REGISTER AS SERVER if explicitly requested OR agent_version indicates it
+    if (register_as_server === true || agent_version?.toLowerCase().includes('server') || device_type?.toLowerCase() === 'server') {
+      console.log("[REGISTRATION] Server Registration Triggered.", { deviceId, register_as_server, agent_version })
+      const { error: serverError } = await supabase
+        .from('servers')
+        .insert({ device_id: deviceId })
+        .select()
+
+      // Ignore duplicate key error (code 23505)
+      if (serverError && serverError.code !== '23505') {
+        console.error("[REGISTRATION] Failed to register as server:", serverError)
+      } else {
+        console.log("[REGISTRATION] Successfully registered in servers table.")
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -318,11 +333,4 @@ export async function POST(request: NextRequest) {
       { status: 500, headers: getCorsHeaders(request) }
     )
   }
-}
-
-export async function GET(request: NextRequest) {
-  return NextResponse.json(
-    { error: "Method not allowed. Use POST to register a device." },
-    { status: 405, headers: getCorsHeaders(request) }
-  )
 }

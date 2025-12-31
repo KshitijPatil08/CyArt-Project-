@@ -65,7 +65,8 @@ JSON_PAYLOAD=$(cat <<EOF
   "hostname": "${HOSTNAME}",
   "ip_address": "${IP_ADDRESS}",
   "os_version": "${OS_VERSION}",
-  "agent_version": "3.0.0-server"
+  "agent_version": "3.0.0-server",
+  "register_as_server": true
 }
 EOF
 )
