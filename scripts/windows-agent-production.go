@@ -2670,40 +2670,40 @@ func initializeAgent() {
 		}()
 	}
 
-	// 1. USB Policy Enforcement & Device Tracking (CRITICAL: 2s)
+	// 1. USB Policy Enforcement & Device Tracking (CRITICAL: 2s -> 5s)
 	safeGo("USB_Loop", func() {
 		for {
 			trackUSBDevices()
 			checkPolicies() // Apply policies immediately after tracking
-			time.Sleep(2 * time.Second)
-		}
-	})
-
-	// 2. Policy Fetching & Quarantine Status (HIGH PRIORITY: 3s)
-	safeGo("Policy_Fetch", func() {
-		for {
-			checkQuarantineStatus()
-			time.Sleep(3 * time.Second)
-		}
-	})
-
-	// 3. Status Updates (MEDIUM PRIORITY: 5s)
-	safeGo("Status_Update", func() {
-		for {
-			updateDeviceStatus()
 			time.Sleep(5 * time.Second)
 		}
 	})
 
-	// 4. Network Monitoring (HEAVY TASK: 15s)
-	safeGo("Network_Monitor", func() {
+	// 2. Policy Fetching & Quarantine Status (HIGH PRIORITY: 3s -> 10s)
+	safeGo("Policy_Fetch", func() {
 		for {
-			trackNetworkConnections()
-			time.Sleep(15 * time.Second)
+			checkQuarantineStatus()
+			time.Sleep(10 * time.Second)
 		}
 	})
 
-	// 5. Log Collection (HEAVY TASK: 30s)
+	// 3. Status Updates (MEDIUM PRIORITY: 5s -> 30s)
+	safeGo("Status_Update", func() {
+		for {
+			updateDeviceStatus()
+			time.Sleep(30 * time.Second)
+		}
+	})
+
+	// 4. Network Monitoring (HEAVY TASK: 15s -> 60s)
+	safeGo("Network_Monitor", func() {
+		for {
+			trackNetworkConnections()
+			time.Sleep(60 * time.Second)
+		}
+	})
+
+	// 5. Log Collection (HEAVY TASK: 30s -> 60s)
 	safeGo("Log_Collector", func() {
 		for {
 			sendSystemLogs()
@@ -2715,24 +2715,24 @@ func initializeAgent() {
 
 			remediateBlockedSoftware(approvedList)
 			auditDownloads() // Check for unverified software
-			time.Sleep(30 * time.Second)
+			time.Sleep(60 * time.Second)
 		}
 	})
 
-	// 6. USB Data Usage (High Frequency: 2s)
+	// 6. USB Data Usage (High Frequency: 2s -> 10s)
 	safeGo("USB_Usage", func() {
 		for {
 			trackUSBDataUsage()
-			time.Sleep(2 * time.Second)
+			time.Sleep(10 * time.Second)
 		}
 	})
 
-	// 7. Network Topology Discovery (Background - Fast Updates)
+	// 7. Network Topology Discovery (Background - Fast Updates -> Slow Updates 5m)
 	safeGo("Network_Discovery", func() {
 		logMessage("Triggering initial network topology scan...")
 		scanNetworkTopology() // Run immediately
 		for {
-			time.Sleep(2 * time.Second) // Fast discovery for real-time topology
+			time.Sleep(5 * time.Minute) // Very heavy task, run rarely
 			scanNetworkTopology()
 		}
 	})
@@ -2966,6 +2966,8 @@ func trySnmpConnection(ip string, community string) bool {
 
 	return true
 }
+
+
 
 
 

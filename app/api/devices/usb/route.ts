@@ -19,7 +19,7 @@ export async function POST(req: Request) {
 
     // Connect to Supabase (server key required)
     const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_URL! ,
       process.env.SUPABASE_SERVICE_ROLE_KEY!  // use the private key here
     );
 
