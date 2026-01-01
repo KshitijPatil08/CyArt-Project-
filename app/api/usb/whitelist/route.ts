@@ -1,8 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
+// Restricted CORS (Same-origin only)
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
@@ -18,6 +18,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const activeOnly = searchParams.get("active_only") === "true";
 
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+
+    const role = user.user_metadata?.role || 'user';
+    const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
+    const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
+
     let query = supabase
       .from("authorized_usb_devices")
       .select("*")
@@ -27,14 +34,55 @@ export async function GET(request: NextRequest) {
       query = query.eq("is_active", true);
     }
 
-    const { data, error } = await query;
-
+    const { data: devices, error } = await query;
     if (error) throw error;
+
+    let filteredDevices = devices || [];
+
+    // Role-Based Filtering
+    if (isAdmin) {
+      // Admin sees all
+    } else if (isApprover) {
+      // Approver sees devices in their assigned subnets
+      const { data: assignments } = await supabase
+        .from('subnet_assignments')
+        .select('subnet_cidrs')
+        .eq('user_id', user.id);
+
+      const allowedSubnets = assignments?.flatMap((a: any) => a.subnet_cidrs || []) || [];
+
+      // We need to match authorized devices to subnets. 
+      // This is dynamic since devices can move, but we can check the IP stored in the original request or current device record.
+      // For authorized devices, we store computer_name and device_id.
+      const { data: allDevices } = await supabase
+        .from('devices')
+        .select('device_id, ip_address');
+
+      const allowedDeviceIds = new Set(
+        allDevices
+          ?.filter((d: any) => d.ip_address && allowedSubnets.some((cidr: string) => {
+            try { return require("@/lib/utils/subnet").isIpInSubnet(d.ip_address, cidr); } catch { return false; }
+          }))
+          .map((d: any) => d.device_id)
+      );
+
+      filteredDevices = filteredDevices.filter((d: any) => d.device_id && allowedDeviceIds.has(d.device_id));
+    } else {
+      // Regular user sees only devices assigned to their hostname(s)
+      // This part matches the frontend logic
+      const { data: userDevices } = await supabase
+        .from('devices')
+        .select('hostname')
+        .eq('owner', user.email);
+
+      const hostnames = new Set(userDevices?.map((d: any) => d.hostname?.toLowerCase()).filter(Boolean));
+      filteredDevices = filteredDevices.filter((d: any) => d.computer_name && hostnames.has(d.computer_name.toLowerCase()));
+    }
 
     return NextResponse.json({
       success: true,
-      count: data?.length || 0,
-      devices: data || [],
+      count: filteredDevices.length,
+      devices: filteredDevices,
     }, { headers: corsHeaders });
   } catch (error: any) {
     return NextResponse.json(
@@ -70,6 +118,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Generate fingerprint hash for manual adds
+    const crypto = await import("crypto");
+    const fingerprint = [serial_number, vendor_id || "", product_id || ""].join("|").toLowerCase();
+    const fingerprint_hash = crypto.createHash("sha256").update(fingerprint).digest("hex");
+
     const { data, error } = await supabase
       .from("authorized_usb_devices")
       .insert([
@@ -81,6 +134,7 @@ export async function POST(request: NextRequest) {
           vendor_name,
           description,
           is_active: true,
+          fingerprint_hash
         },
       ])
       .select()

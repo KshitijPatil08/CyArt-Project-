@@ -17,7 +17,7 @@ import ReactFlow, {
   Handle,
   Position,
 } from 'reactflow'
-import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network, Wifi, ShieldAlert, Search, Loader2 } from 'lucide-react'
+import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network, Wifi, ShieldAlert, Search, Loader2, User } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -99,9 +99,17 @@ interface NetworkTopologyProps {
 const SubnetNode = ({ data }: { data: any }) => {
   return (
     <div className="w-full h-full bg-slate-900/10 border-2 border-dashed border-slate-500/50 rounded-xl relative">
-      <div className="absolute -top-3 left-4 bg-slate-950 px-2 text-sm font-bold text-slate-400 flex items-center gap-2 border border-slate-800 rounded-md shadow-sm">
-        <Network className="w-4 h-4" />
-        {data.label}
+      <div className="absolute -top-3 left-4 bg-slate-950 px-2 py-0.5 text-sm font-bold text-slate-400 flex flex-col items-start gap-0 border border-slate-800 rounded-md shadow-sm">
+        <div className="flex items-center gap-2">
+          <Network className="w-4 h-4" />
+          {data.label}
+        </div>
+        {data.approver && (
+          <div className="flex items-center gap-1.5 text-[10px] text-sky-400/80 font-medium">
+            <User className="w-3 h-3" />
+            Approver: {data.approver}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -274,6 +282,7 @@ export function NetworkTopology(props: NetworkTopologyProps) {
 function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopologyProps) {
   const [topologyLogs, setTopologyLogs] = useState<TopologyLog[]>([])
   const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([])
+  const [subnetAssignments, setSubnetAssignments] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   // Fetch Topology Logs on Mount with useCallback
@@ -281,15 +290,24 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     try {
       // Don't set loading on every refresh, only initial if desired or handled elsewhere
       // setIsLoading(true) 
-      const res = await fetch("/api/logs?log_type=network_topology&limit=200")
-      const data = await res.json()
-      if (data.logs) {
+      const [logsRes, assignmentsRes] = await Promise.all([
+        fetch("/api/logs?log_type=network_topology&limit=200"),
+        fetch("/api/admin/subnets")
+      ])
+
+      const logsData = await logsRes.json()
+      if (logsData.logs) {
         // Parse raw data if it's stringified
-        const parsedLogs = data.logs.map((log: any) => ({
+        const parsedLogs = logsData.logs.map((log: any) => ({
           ...log,
           raw_data: typeof log.raw_data === 'string' ? JSON.parse(log.raw_data) : log.raw_data
         }))
         setTopologyLogs(parsedLogs)
+      }
+
+      const assignmentsData = await assignmentsRes.json()
+      if (assignmentsData.success) {
+        setSubnetAssignments(assignmentsData.assignments || [])
       }
     } catch (e) {
       console.error("Failed to fetch topology logs", e)
@@ -621,12 +639,20 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       }
 
       // 1. Add Subnet Group Node
+      // Find approver for this subnet
+      const assignment = subnetAssignments.find(a =>
+        a.subnet_cidrs.some((cidr: string) => cidr.startsWith(subnet))
+      )
+
       nodes.push({
         id: groupId,
         type: 'subnet',
         position: { x: groupBoxX, y: groupBoxY },
         style: { width: subnetWidth, height: subnetHeight },
-        data: { label: subnetLabel },
+        data: {
+          label: subnetLabel,
+          approver: assignment?.user_email
+        },
         zIndex: -1,
       })
 

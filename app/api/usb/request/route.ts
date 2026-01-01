@@ -15,13 +15,14 @@ function getRequestIp(request: NextRequest) {
 
 export const dynamic = 'force-dynamic'
 
+// Restricted CORS (Same-origin only)
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
 function getCorsHeaders(request: NextRequest) {
+    // In production, you would check origin here and return matched origin or null
     return corsHeaders;
 }
 
@@ -371,7 +372,8 @@ export async function PUT(request: NextRequest) {
                         allowed_start_time: policies?.allowed_start_time || null,
                         allowed_end_time: policies?.allowed_end_time || null,
                         expiration_date: policies?.expiration_date || null,
-                        is_read_only: policies?.is_read_only || false
+                        is_read_only: policies?.is_read_only || false,
+                        fingerprint_hash: reqData.fingerprint_hash // ADDED: Ensure duplicate detection works
                     }
                 ]);
             if (insertError) {

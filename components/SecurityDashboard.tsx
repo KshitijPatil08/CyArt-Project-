@@ -7,6 +7,7 @@ import { USBWhitelistManagement } from './usb-whitelist-management';
 import { QuarantineManagement } from './quarantine-management';
 import { SeverityRulesManagement } from './severity-rules-management';
 import { SoftwareManagement } from './software-management';
+import { ApproverDashboardWidget } from './approver-dashboard-widget';
 import { createClient } from '@/lib/supabase/client';
 
 import { Button } from '@/components/ui/button';
@@ -598,6 +599,14 @@ export default function SecurityDashboard() {
             </div>
           ))}
         </div>
+
+        {/* Approver Status Section - Visible to Admins and Approvers */}
+        {(userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin')) ||
+          userRole === 'approver' || (Array.isArray(userRole) && userRole.includes('approver'))) && (
+            <div className="mb-6">
+              <ApproverDashboardWidget />
+            </div>
+          )}
 
         {/* View Mode Toggle */}
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
