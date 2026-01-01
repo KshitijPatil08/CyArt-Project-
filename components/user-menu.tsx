@@ -54,9 +54,8 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-2" disabled={loggingOut}>
-          <User className="w-4 h-4" />
-          <span className="hidden sm:inline">{loggingOut ? 'Signing out...' : user.email}</span>
+        <Button variant="ghost" size="icon" disabled={loggingOut}>
+          <User className="w-5 h-5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
