@@ -95,28 +95,32 @@ export default function SecurityDashboard() {
 
   const fetchDevices = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/devices/list`);
-      const data = await res.json();
+      const { data, error } = await supabase
+        .from("devices")
+        .select("*, servers(id)")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
 
       // Helper function to check if device is truly online
-      // A device is online if status is 'online' AND last_seen is within the last 60 seconds
-      const isDeviceTrulyOnline = (device: Device): boolean => {
+      const isDeviceTrulyOnline = (device: any): boolean => {
         if (device.status !== 'online') return false;
         if (!device.last_seen) return false;
 
         const lastSeenTime = new Date(device.last_seen).getTime();
         const now = Date.now();
-        const OFFLINE_THRESHOLD_MS = 300 * 1000; // 5 minutes (300 seconds)
+        const OFFLINE_THRESHOLD_MS = 300 * 1000; // 5 minutes
 
         return (now - lastSeenTime) < OFFLINE_THRESHOLD_MS;
       };
 
-      const normalizedDevices = (data.devices || []).map((device: any) => ({
+      const normalizedDevices = (data || []).map((device: any) => ({
         ...device,
-        device_id: device.device_id || device.id,
-        // Override status based on last_seen for accurate real-time status
+        device_id: device.id, // Ensure ID compatibility
+        is_server: device.servers && (Array.isArray(device.servers) ? device.servers.length > 0 : true),
         status: isDeviceTrulyOnline(device) ? 'online' : 'offline',
       }));
+
       setDevices(normalizedDevices);
 
       // Auto-update server status based on devices
@@ -125,8 +129,6 @@ export default function SecurityDashboard() {
         const isAnyServerOnline = serverDevices.some((d: Device) => d.status === 'online');
         setServerStatus(isAnyServerOnline ? 'online' : 'offline');
       } else {
-        // If no specific server device is found, strictly report offline
-        // (User must register the server using the registration script)
         setServerStatus('offline');
       }
 
