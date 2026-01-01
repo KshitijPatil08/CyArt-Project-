@@ -33,6 +33,7 @@ const navigation = [
   { name: "Logs", href: "/logs", icon: FileText },
   { name: "USB Whitelist", href: "/usb-whitelist", icon: Shield },
   { name: "Quarantine", href: "/quarantine", icon: ShieldAlert },
+  { name: "Software Approvals", href: "/software-approvals", icon: ShieldCheck },
   { name: "Role Management", href: "/admin/roles", icon: ShieldCheck },
 ]
 
@@ -74,9 +75,12 @@ export function Navigation() {
 
   // Filter navigation items based on role
   const filteredNavigation = navigation.filter(item => {
+    const role = user?.user_metadata?.role
+    const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'))
+
     // Admin-only pages
     if (item.name === "Logs" || item.name === "Devices" || item.name === "Role Management") {
-      return user?.user_metadata?.role === 'admin';
+      return isAdmin;
     }
 
     // USB Whitelist and Quarantine are visible to all (regulated by component-level permissions)

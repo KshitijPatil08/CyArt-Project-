@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import ipaddr from 'ipaddr.js'
 
 export const dynamic = 'force-dynamic'
 
+// Removed wildcard CORS - API is same-origin only for security
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
@@ -86,10 +87,17 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400, headers: corsHeaders })
         }
 
-        // Validate CIDR format (basic check)
+        // Validate CIDR format using ipaddr.js for proper validation
         const subnets = subnet_cidr.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
 
-        const invalidSubnets = subnets.filter((s: string) => !s.includes('/'));
+        const invalidSubnets = subnets.filter((s: string) => {
+            try {
+                ipaddr.parseCIDR(s);
+                return false; // Valid CIDR
+            } catch {
+                return true; // Invalid CIDR
+            }
+        });
         if (invalidSubnets.length > 0) {
             return NextResponse.json({ error: `Invalid CIDR format: ${invalidSubnets.join(', ')}` }, { status: 400, headers: corsHeaders })
         }
@@ -104,18 +112,32 @@ export async function POST(request: NextRequest) {
 
         const currentRole = targetUser.user?.user_metadata?.role
         if (currentRole !== 'admin' && currentRole !== 'approver') {
-            console.log(`[Admin API] Promoting ${targetUser.user?.email} to approver...`);
-            // Update Auth Metadata
-            await adminClient.auth.admin.updateUserById(target_user_id, {
+            // Update Auth Metadata with error handling
+            const { error: authUpdateError } = await adminClient.auth.admin.updateUserById(target_user_id, {
                 user_metadata: { ...targetUser.user?.user_metadata, role: 'approver' },
                 app_metadata: { ...targetUser.user?.app_metadata, role: 'approver' }
             })
 
+            if (authUpdateError) {
+                console.error('[Admin API] Failed to update auth metadata:', authUpdateError)
+                return NextResponse.json({ error: 'Failed to update user role in auth' }, { status: 500, headers: corsHeaders })
+            }
+
             // Update Profiles Table (for frontend visibility/filtering)
-            await adminClient
+            const { error: profileUpdateError } = await adminClient
                 .from('profiles')
                 .update({ role: 'approver' })
                 .eq('id', target_user_id)
+
+            if (profileUpdateError) {
+                console.error('[Admin API] Failed to update profile:', profileUpdateError)
+                // Attempt to rollback auth update
+                await adminClient.auth.admin.updateUserById(target_user_id, {
+                    user_metadata: { ...targetUser.user?.user_metadata, role: currentRole },
+                    app_metadata: { ...targetUser.user?.app_metadata, role: currentRole }
+                })
+                return NextResponse.json({ error: 'Failed to update user profile' }, { status: 500, headers: corsHeaders })
+            }
         }
 
         // 2. Upsert Assignment (One row per user with subnets array)
@@ -198,26 +220,40 @@ export async function PUT(request: NextRequest) {
             if (subnets.length > 0) {
                 // Should be 'approver'
                 if (currentRole !== 'admin' && currentRole !== 'approver') {
-                    await adminClient.auth.admin.updateUserById(target_user_id, {
+                    const { error: authError } = await adminClient.auth.admin.updateUserById(target_user_id, {
                         user_metadata: { ...targetUser.user.user_metadata, role: 'approver' },
                         app_metadata: { ...targetUser.user.app_metadata, role: 'approver' }
                     })
-                    await adminClient
+                    if (authError) {
+                        console.error('[Admin API] Failed to promote user:', authError)
+                        return NextResponse.json({ error: 'Failed to update user role' }, { status: 500, headers: corsHeaders })
+                    }
+                    const { error: profileError } = await adminClient
                         .from('profiles')
                         .update({ role: 'approver' })
                         .eq('id', target_user_id)
+                    if (profileError) {
+                        console.error('[Admin API] Failed to update profile:', profileError)
+                    }
                 }
             } else {
                 // No subnets left -> Demote to 'user' if currently 'approver'
                 if (currentRole === 'approver') {
-                    await adminClient.auth.admin.updateUserById(target_user_id, {
+                    const { error: authError } = await adminClient.auth.admin.updateUserById(target_user_id, {
                         user_metadata: { ...targetUser.user.user_metadata, role: 'user' },
                         app_metadata: { ...targetUser.user.app_metadata, role: 'user' }
                     })
-                    await adminClient
+                    if (authError) {
+                        console.error('[Admin API] Failed to demote user:', authError)
+                        return NextResponse.json({ error: 'Failed to update user role' }, { status: 500, headers: corsHeaders })
+                    }
+                    const { error: profileError } = await adminClient
                         .from('profiles')
                         .update({ role: 'user' })
                         .eq('id', target_user_id)
+                    if (profileError) {
+                        console.error('[Admin API] Failed to update profile:', profileError)
+                    }
                 }
             }
         }

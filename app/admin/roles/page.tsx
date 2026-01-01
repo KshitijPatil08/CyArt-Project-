@@ -1,11 +1,51 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 import { Navigation } from "@/components/navigation"
 import { SubnetAssignmentManagement } from "@/components/admin/subnet-assignment"
 import { Card, CardContent } from "@/components/ui/card"
-import { ShieldCheck } from "lucide-react"
+import { ShieldCheck, Loader2 } from "lucide-react"
 
 export default function RolesPage() {
+    const [isAuthorized, setIsAuthorized] = useState(false)
+    const [loading, setLoading] = useState(true)
+    const router = useRouter()
+    const supabase = createClient()
+
+    useEffect(() => {
+        const checkAccess = async () => {
+            const { data: { user } } = await supabase.auth.getUser()
+            const role = user?.user_metadata?.role
+
+            // Check if user is admin (handle both string and array roles)
+            const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'))
+
+            if (!user || !isAdmin) {
+                router.push('/')
+                return
+            }
+
+            setIsAuthorized(true)
+            setLoading(false)
+        }
+
+        checkAccess()
+    }, [router, supabase])
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+        )
+    }
+
+    if (!isAuthorized) {
+        return null
+    }
+
     return (
         <div className="min-h-screen bg-muted/40 flex flex-col">
             <Navigation />
