@@ -1,8 +1,19 @@
 // app/api/usb/request/route.ts
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { isIpInSubnet } from "@/lib/utils/subnet"
+import { createAdminClient } from "@/lib/supabase/admin"
 import crypto from "crypto";
 import { z } from "zod";
+
+// Helper to get IP
+function getRequestIp(request: NextRequest) {
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    return forwardedFor ? forwardedFor.split(',')[0].trim() : '127.0.0.1';
+}
+
+
+export const dynamic = 'force-dynamic'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -71,24 +82,113 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
         }
 
-        const { data, error } = await supabase
+        const role = user.user_metadata?.role || 'user';
+        const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
+        const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
+
+        // Use Admin Client to bypass RLS for fetching requests.
+        // We will apply strict Application-Level filtering below.
+        const adminDb = createAdminClient();
+        const { data: requests, error } = await adminDb
             .from("usb_approval_requests")
             .select("*")
             .eq("status", "pending")
             .order("requested_at", { ascending: false });
+
         if (error) throw error;
 
-        // Enrich each request with a flag indicating whether the agent is unknown
-        const enriched = await Promise.all(
-            (data as any[]).map(async (req) => {
-                const { data: device } = await supabase
-                    .from("devices")
-                    .select("id")
-                    .eq("hostname", req.computer_name)
-                    .maybeSingle();
-                return { ...req, isUnknownAgent: !device };
-            })
-        );
+        let filteredRequests = requests || [];
+
+        // Role-Based Filtering
+        if (isAdmin) {
+            // Admin sees all (no filter)
+        } else if (isApprover) {
+            // Fetch assignments
+            const adminClient = createAdminClient();
+            const { data: assignments } = await adminClient
+                .from('subnet_assignments')
+                .select('subnet_cidrs')
+                .eq('user_id', user.id);
+
+            if (!assignments || assignments.length === 0) {
+                filteredRequests = [];
+            } else {
+                const allowedSubnets = assignments.flatMap(a => a.subnet_cidrs || []);
+
+                // Fetch all devices to identify which ones belong to the allowed subnets
+                // Use Admin Client to prevent RLS from hiding devices that we need to inspect for subnet membership.
+                const deviceAdminDb = createAdminClient();
+                const { data: allDevices } = await deviceAdminDb
+                    .from('devices')
+                    .select('device_id, hostname, ip_address');
+
+                const allowedDeviceIds = new Set<string>();
+                const allowedHostnames = new Set<string>();
+
+                if (allDevices) {
+                    allDevices.forEach(d => {
+                        // Safe Check: Ensure IP exists
+                        if (!d.ip_address) return;
+
+                        // Check Subnet Membership
+                        // (isIpInSubnet handles errors internally, but we can catch them to be safe)
+                        try {
+                            if (allowedSubnets.some(cidr => isIpInSubnet(d.ip_address, cidr))) {
+                                if (d.device_id) allowedDeviceIds.add(d.device_id);
+                                if (d.hostname) allowedHostnames.add(d.hostname.toLowerCase());
+                            }
+                        } catch (e) {
+                            // Ignore IP parsing errors (e.g. IPv6 vs IPv4)
+                        }
+                    });
+                }
+
+                filteredRequests = filteredRequests.filter(req => {
+                    // Check 1: Request comes physically from the Subnet
+                    let ipMatch = false;
+                    try {
+                        ipMatch = req.ip_address && allowedSubnets.some(cidr => isIpInSubnet(req.ip_address, cidr));
+                    } catch (e) { }
+
+                    if (ipMatch) return true;
+
+                    // Check 2: Request comes from a Device Identity that belongs to the Subnet
+                    // (Handles localhost tools, roaming, VPN, etc.)
+                    const idMatch = req.device_id && allowedDeviceIds.has(req.device_id);
+                    const hostMatch = req.computer_name && allowedHostnames.has(req.computer_name.toLowerCase());
+
+                    if (idMatch || hostMatch) {
+                        return true;
+                    }
+
+                    return false;
+                });
+            }
+        } else {
+            // Regular user - return nothing
+            filteredRequests = [];
+        }
+
+        // Optimize Entity Enrichment (Batch Fetch)
+        const hostnames = Array.from(new Set(filteredRequests.map((r: any) => r.computer_name).filter(Boolean)));
+
+        // Fetch all relevant devices in one go
+        let knownDevicesMap = new Set();
+        if (hostnames.length > 0) {
+            const { data: devices } = await supabase
+                .from("devices")
+                .select("hostname")
+                .in("hostname", hostnames);
+
+            if (devices) {
+                devices.forEach((d: any) => knownDevicesMap.add(d.hostname));
+            }
+        }
+
+        const enriched = filteredRequests.map((req: any) => ({
+            ...req,
+            isUnknownAgent: req.computer_name ? !knownDevicesMap.has(req.computer_name) : true
+        }));
         return NextResponse.json({ success: true, requests: enriched }, { headers: getCorsHeaders(request) });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) });
@@ -172,7 +272,8 @@ export async function POST(request: NextRequest) {
                 device_id,
                 computer_name, // may be undefined for unknown agents
                 fingerprint_hash,
-                status: "pending"
+                status: "pending",
+                ip_address: getRequestIp(request)
             }
         ]);
         if (error) throw error;
@@ -193,10 +294,13 @@ export async function PUT(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
         }
 
-        // Enforce Admin Role
-        const role = user.user_metadata?.role;
-        if (role !== 'admin') {
-            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: getCorsHeaders(request) });
+        // Enforce Admin or Approver Role
+        const role = user.user_metadata?.role || 'user';
+        const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
+        const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
+
+        if (!isAdmin && !isApprover) {
+            return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: getCorsHeaders(request) });
         }
 
         const body = await request.json();
@@ -212,7 +316,6 @@ export async function PUT(request: NextRequest) {
         const { id, action, policies } = validationResult.data; // action: 'approve' | 'reject'
 
         // Use Admin Client to bypass RLS for this management action
-        const { createAdminClient } = await import("@/lib/supabase/admin");
         const admin = createAdminClient();
 
         if (action === "reject") {
@@ -231,7 +334,23 @@ export async function PUT(request: NextRequest) {
                 .single();
             if (fetchError || !reqData) throw fetchError || new Error("Request not found");
 
-            console.log(`[USB API] Approving device: ${reqData.device_name} (${reqData.serial_number})`);
+            // --- RBAC Validation for Approvers ---
+            if (!isAdmin && isApprover) {
+                const { isIpInSubnet } = await import("@/lib/utils/subnet");
+                const { data: assignments } = await admin
+                    .from('subnet_assignments')
+                    .select('subnet_cidrs')
+                    .eq('user_id', user.id);
+
+                const allowedSubnets = assignments?.flatMap(a => a.subnet_cidrs || []) || [];
+                const isAllowed = reqData.ip_address && allowedSubnets.some(cidr => isIpInSubnet(reqData.ip_address, cidr));
+
+                if (!isAllowed) {
+                    return NextResponse.json({ error: "Forbidden: Request is outside your assigned subnets" }, { status: 403, headers: getCorsHeaders(request) });
+                }
+            }
+
+            console.log("Approving device: " + reqData.device_name + " (" + reqData.serial_number + ")");
 
             const { error: insertError } = await admin
                 .from("authorized_usb_devices")
