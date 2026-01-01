@@ -34,23 +34,28 @@ export function QuarantineManagement() {
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
     const [userRole, setUserRole] = useState<string | null>(null)
     const [userEmail, setUserEmail] = useState<string | null>(null)
+    const [isAdmin, setIsAdmin] = useState(false)
+    const [isApprover, setIsApprover] = useState(false)
     const { toast } = useToast()
     const supabase = createClient()
 
     useEffect(() => {
-        fetchUserRole()
+        fetchUserStatus()
     }, [])
 
     useEffect(() => {
         if (userRole) {
             fetchQuarantinedDevices()
         }
-    }, [userRole, userEmail])
+    }, [userRole])
 
-    const fetchUserRole = async () => {
+    const fetchUserStatus = async () => {
         const { data: { user } } = await supabase.auth.getUser()
-        setUserRole(user?.user_metadata?.role || 'user')
+        const role = user?.user_metadata?.role || 'user'
+        setUserRole(role)
         setUserEmail(user?.email || null)
+        setIsAdmin(role === 'admin')
+        setIsApprover(role === 'approver' || (Array.isArray(role) && role.includes('approver')))
     }
 
     const fetchQuarantinedDevices = async () => {
@@ -58,14 +63,17 @@ export function QuarantineManagement() {
             const res = await fetch("/api/devices/list")
             const data = await res.json()
 
-            // Show only quarantined devices and normalize IDs
+            // The API /api/devices/list already handles role-based filtering:
+            // - Admins see all
+            // - Approvers see own + subnets
+            // - Users see only own
+            // We just need to filter for IS_QUARANTINED.
             const quarantinedDevices = (data.devices || [])
                 .map((d: any) => ({
                     ...d,
-                    device_id: d.device_id || d.id // Ensure device_id is present
+                    device_id: d.device_id || d.id
                 }))
                 .filter((d: Device) => d.is_quarantined)
-                .filter((d: Device) => userRole === 'admin' || d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim())
 
             setDevices(quarantinedDevices)
             setLoading(false)
@@ -112,7 +120,7 @@ export function QuarantineManagement() {
                         View and release devices that have been quarantined from network access
                     </p>
                 </div>
-                {userRole === 'admin' && (
+                {(isAdmin || isApprover) && (
                     <Button
                         onClick={() => setDeviceSelectorOpen(true)}
                         className="gap-2"
@@ -152,7 +160,7 @@ export function QuarantineManagement() {
                                         <TableHead>Status</TableHead>
                                         <TableHead>Quarantine Reason</TableHead>
                                         <TableHead>Quarantined At</TableHead>
-                                        {userRole === 'admin' && <TableHead>Actions</TableHead>}
+                                        {(isAdmin || isApprover) && <TableHead>Actions</TableHead>}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -184,7 +192,7 @@ export function QuarantineManagement() {
                                             <TableCell className="text-sm text-muted-foreground">
                                                 {device.quarantined_at ? new Date(device.quarantined_at).toLocaleString() : "-"}
                                             </TableCell>
-                                            {userRole === 'admin' && (
+                                            {(isAdmin || isApprover) && (
                                                 <TableCell>
                                                     <Button
                                                         variant="outline"

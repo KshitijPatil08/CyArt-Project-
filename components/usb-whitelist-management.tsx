@@ -102,16 +102,19 @@ export function USBWhitelistManagement() {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [userDevices, setUserDevices] = useState<string[]>([]) // List of hostnames owned by user
   const [agentDevices, setAgentDevices] = useState<any[]>([]) // List of agent devices with their online/offline status
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isApprover, setIsApprover] = useState(false)
 
   const { toast } = useToast()
   const supabase = createClient()
 
   useEffect(() => {
-    checkUserRole()
+    fetchUserStatus()
     // Poll for status updates
     const interval = setInterval(() => {
       fetchLogs()
-    }, 5000)
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [])
@@ -139,12 +142,20 @@ export function USBWhitelistManagement() {
     }
   }
 
-  const checkUserRole = async () => {
+  const fetchUserStatus = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     const role = user?.user_metadata?.role || 'user'
+    const email = user?.email || null
     setUserRole(role)
+    setUserEmail(email)
 
-    if (role !== 'admin') {
+    const isA = role === 'admin' || (Array.isArray(role) && role.includes('admin'))
+    const isP = role === 'approver' || (Array.isArray(role) && role.includes('approver'))
+
+    setIsAdmin(isA)
+    setIsApprover(isP)
+
+    if (!isA) {
       // Fetch user's devices to filter the whitelist
       try {
         const res = await fetch("/api/devices/list")
@@ -166,25 +177,11 @@ export function USBWhitelistManagement() {
 
   const fetchDevices = async () => {
     try {
-      const { data, error } = await supabase
-        .from("authorized_usb_devices")
-        .select("*")
-        .order("created_at", { ascending: false })
-      if (error) throw error
-
-      let filteredData = data || []
-
-      // Client-side filtering for non-admins
-      if (userRole !== 'admin' && userDevices.length > 0) {
-        filteredData = filteredData.filter(d =>
-          d.computer_name && userDevices.includes(d.computer_name.toLowerCase())
-        )
-      } else if (userRole !== 'admin' && userDevices.length === 0) {
-        // If user owns no devices, show empty list
-        filteredData = []
+      const response = await fetch('/api/usb/whitelist')
+      const data = await response.json()
+      if (data.success) {
+        setDevices(data.devices || [])
       }
-
-      setDevices(filteredData)
     } catch (error) {
       console.error("Error fetching authorized USB devices:", error)
     } finally {
@@ -474,7 +471,7 @@ export function USBWhitelistManagement() {
           <p className="text-muted-foreground">Manage authorized USB devices and approval requests</p>
         </div>
 
-        {activeTab === "authorized" && userRole === 'admin' && (
+        {activeTab === "authorized" && isAdmin && (
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2">
@@ -562,7 +559,7 @@ export function USBWhitelistManagement() {
         >
           Authorized Devices ({devices.length})
         </button>
-        {userRole === 'admin' && (
+        {(isAdmin || isApprover) && (
           <button
             onClick={() => setActiveTab("pending")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeTab === "pending"
@@ -604,7 +601,8 @@ export function USBWhitelistManagement() {
                         <TableHead>Policies</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Created</TableHead>
-                        {userRole === 'admin' && <TableHead>Actions</TableHead>}
+
+                        {(isAdmin || isApprover) && <TableHead>Actions</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -628,7 +626,7 @@ export function USBWhitelistManagement() {
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
                               {device.is_read_only && <Badge variant="outline" className="text-xs"><Lock className="w-3 h-3 mr-1" /> Read-Only</Badge>}
-                              {device.expiration_date && <Badge variant="outline" className="text-xs"><Calendar className="w-3 h-3 mr-1" /> Exp: {new Date(device.expiration_date).toLocaleDateString()}</Badge>}
+                              {device.expiration_date && <Badge variant="outline" className="text-xs"><Calendar className="w-3 h-3 mr-1" /> Exp: {new Date(device.expiration_date).toLocaleString()}</Badge>}
                               {device.allowed_start_time && <Badge variant="outline" className="text-xs"><Clock className="w-3 h-3 mr-1" /> {device.allowed_start_time}-{device.allowed_end_time}</Badge>}
                               {!device.is_read_only && !device.expiration_date && !device.allowed_start_time && (
                                 <span className="text-xs text-muted-foreground">Unrestricted</span>
@@ -654,7 +652,7 @@ export function USBWhitelistManagement() {
                           <TableCell className="text-sm">
                             {new Date(device.created_at).toLocaleDateString()}
                           </TableCell>
-                          {userRole === 'admin' && (
+                          {(isAdmin || isApprover) && (
                             <TableCell>
                               <div className="flex gap-2">
                                 <Button
@@ -665,24 +663,28 @@ export function USBWhitelistManagement() {
                                 >
                                   <Pencil className="w-4 h-4" />
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleToggleActive(device.id, device.is_active)}
-                                  className={device.is_active ? "text-red-600 hover:text-red-700" : "text-green-600 hover:text-green-700"}
-                                  title={device.is_active ? "Block Device" : "Unblock Device"}
-                                >
-                                  {device.is_active ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDeleteDevice(device.id)}
-                                  className="text-gray-600 hover:text-gray-700"
-                                  title="Delete from whitelist"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                {isAdmin && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleToggleActive(device.id, device.is_active)}
+                                      className={device.is_active ? "text-red-600 hover:text-red-700" : "text-green-600 hover:text-green-700"}
+                                      title={device.is_active ? "Block Device" : "Unblock Device"}
+                                    >
+                                      {device.is_active ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleDeleteDevice(device.id)}
+                                      className="text-gray-600 hover:text-gray-700"
+                                      title="Delete from whitelist"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </TableCell>
                           )}

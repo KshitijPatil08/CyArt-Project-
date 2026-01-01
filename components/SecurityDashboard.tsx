@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap, ShieldAlert, Lock } from 'lucide-react';
+import { useRouter } from "next/navigation";
+import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap, ShieldAlert, Lock, UserCog } from 'lucide-react';
 import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
 import { QuarantineManagement } from './quarantine-management';
@@ -64,7 +65,8 @@ export default function SecurityDashboard() {
   const [usbEventCount, setUsbEventCount] = useState(0);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'quarantine' | 'rules' | 'software'>('list');
+  const router = useRouter();
+  const [viewMode, setViewMode] = useState<'list' | 'topology' | 'whitelist' | 'rules' | 'quarantine' | 'software'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('online');
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string>(new Date().toISOString());
@@ -74,6 +76,10 @@ export default function SecurityDashboard() {
   const [assignOwnerEmail, setAssignOwnerEmail] = useState('');
 
   const supabase = createClient();
+
+  // Helper variables for role checks
+  const isApprover = userRole === 'approver' || (Array.isArray(userRole) && userRole.includes('approver'));
+  const isAdmin = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
 
   const [authorizedUSBs, setAuthorizedUSBs] = useState<any[]>([]);
 
@@ -170,11 +176,10 @@ export default function SecurityDashboard() {
 
   const fetchAuthorizedUSBs = async () => {
     try {
-      const { data, error } = await supabase
-        .from("authorized_usb_devices")
-        .select("*");
-      if (!error && data) {
-        setAuthorizedUSBs(data);
+      const res = await fetch(`${API_URL}/api/usb/whitelist`);
+      const data = await res.json();
+      if (data.success) {
+        setAuthorizedUSBs(data.devices || data.authorizedDevices || data.data || []);
       }
     } catch (error) {
       console.error("Error fetching authorized USBs:", error);
@@ -211,7 +216,7 @@ export default function SecurityDashboard() {
           const newLog = payload.new as Log;
 
           // RBAC Filtering: If not admin, only add logs for our own devices
-          if (userRole !== 'admin') {
+          if (!isAdmin) {
             // We need the device list to check ownership
             const device = devices.find(d => d.device_id === newLog.device_id);
             if (!device || device.owner?.toLowerCase().trim() !== userEmail?.toLowerCase().trim()) {
@@ -302,67 +307,15 @@ export default function SecurityDashboard() {
 
 
 
-  const statCards = [
-    {
-      label: 'Total Devices',
-      value: userRole === 'admin'
-        ? devices.length
-        : devices.filter(d => d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim() && !d.is_server).length,
-      borderColor: 'border-l-indigo-500',
-      icon: Monitor,
-      iconColor: 'text-indigo-600 dark:text-indigo-400',
-      iconBg: 'bg-indigo-50 dark:bg-indigo-500/20',
-      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
-    },
-    {
-      label: 'Online Devices',
-      value: userRole === 'admin'
-        ? devices.filter(d => d.status === 'online' && !d.is_server).length
-        : devices.filter(d => d.status === 'online' && !d.is_server && d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim()).length,
-      borderColor: 'border-l-emerald-500',
-      icon: Network,
-      iconColor: 'text-emerald-600 dark:text-emerald-400',
-      iconBg: 'bg-emerald-50 dark:bg-emerald-500/20',
-      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
-    },
-    {
-      label: 'USB Events',
-      value: userRole === 'admin'
-        ? usbEventCount
-        : logs.filter(l => {
-          const device = devices.find(d => d.device_id === l.device_id);
-          return device &&
-            device.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim() &&
-            (l.log_type === 'hardware' || l.log_type === 'usb');
-        }).length,
-      borderColor: 'border-l-violet-500',
-      icon: Usb,
-      iconColor: 'text-violet-600 dark:text-violet-400',
-      iconBg: 'bg-violet-50 dark:bg-violet-500/20',
-      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
-    },
-    {
-      label: 'Critical Alerts',
-      value: userRole === 'admin'
-        ? alerts.filter(a => a.severity === 'critical').length
-        : alerts.filter(a => {
-          const device = devices.find(d => d.device_id === a.device_id);
-          return a.severity === 'critical' &&
-            device &&
-            device.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim();
-        }).length,
-      borderColor: 'border-l-rose-500',
-      icon: AlertCircle,
-      iconColor: 'text-rose-600 dark:text-rose-400',
-      iconBg: 'bg-rose-50 dark:bg-rose-500/20',
-      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
-    },
-  ];
-
   const filteredDevices = useMemo(() => (
     devices.filter(device => {
-      // Admin user:
-      if (userRole === 'admin') {
+      // Determine effective role
+      const isApprover = userRole === 'approver' || (Array.isArray(userRole) && userRole.includes('approver'));
+      const isAdmin = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
+
+      // Admin or Approver:
+      // Approvers receive a pre-filtered list from the API (Own + Subnet), so we trust 'devices'.
+      if (isAdmin || isApprover) {
         // Hide server devices from list (they are shown in the status card)
         if (device.is_server) return false;
 
@@ -420,6 +373,60 @@ export default function SecurityDashboard() {
     })
   ), [devices, searchQuery, userRole, userEmail]);
 
+  const statCards = [
+    {
+      label: 'Total Devices',
+      value: isAdmin
+        ? devices.length
+        : filteredDevices.filter(d => !d.is_server).length,
+      borderColor: 'border-l-indigo-500',
+      icon: Monitor,
+      iconColor: 'text-indigo-600 dark:text-indigo-400',
+      iconBg: 'bg-indigo-50 dark:bg-indigo-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
+    },
+    {
+      label: 'Online Devices',
+      value: isAdmin
+        ? devices.filter(d => d.status === 'online' && !d.is_server).length
+        : filteredDevices.filter(d => d.status === 'online' && !d.is_server).length,
+      borderColor: 'border-l-emerald-500',
+      icon: Network,
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      iconBg: 'bg-emerald-50 dark:bg-emerald-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
+    },
+    {
+      label: 'USB Events',
+      value: isAdmin
+        ? usbEventCount
+        : logs.filter(l => {
+          const device = filteredDevices.find(d => d.device_id === l.device_id);
+          return device &&
+            (l.log_type === 'hardware' || l.log_type === 'usb');
+        }).length,
+      borderColor: 'border-l-violet-500',
+      icon: Usb,
+      iconColor: 'text-violet-600 dark:text-violet-400',
+      iconBg: 'bg-violet-50 dark:bg-violet-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
+    },
+    {
+      label: 'Critical Alerts',
+      value: isAdmin
+        ? alerts.filter(a => a.severity === 'critical').length
+        : alerts.filter(a => {
+          const device = filteredDevices.find(d => d.device_id === a.device_id);
+          return a.severity === 'critical' && device;
+        }).length,
+      borderColor: 'border-l-rose-500',
+      icon: AlertCircle,
+      iconColor: 'text-rose-600 dark:text-rose-400',
+      iconBg: 'bg-rose-50 dark:bg-rose-500/20',
+      darkGradient: 'dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent',
+    },
+  ];
+
   useEffect(() => {
     if (!filteredDevices.length) {
       setSelectedDevice(null);
@@ -459,7 +466,7 @@ export default function SecurityDashboard() {
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-5 mb-8">
           {/* Status Card - Different for Admin vs Standard User */}
-          {userRole === 'admin' ? (
+          {isAdmin ? (
             // Admin: Server Status Card
             <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border/40">
               <div className="space-y-4">
@@ -599,7 +606,7 @@ export default function SecurityDashboard() {
 
         {/* View Mode Toggle */}
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             {viewMode === 'list' && (
               <div className="relative w-full sm:w-72">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -611,65 +618,69 @@ export default function SecurityDashboard() {
                 />
               </div>
             )}
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto overflow-x-auto">
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('list')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <List className="w-4 h-4" />
-              List View
-            </Button>
-            {/* Show topology for everyone, but filtered inside */}
-            <Button
-              variant={viewMode === 'topology' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('topology')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <Network className="w-4 h-4" />
-              Network Topology
-            </Button>
-            <Button
-              variant={viewMode === 'whitelist' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('whitelist')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              USB Whitelist
-            </Button>
-            <Button
-              variant={viewMode === 'quarantine' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('quarantine')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <ShieldAlert className="w-4 h-4" />
-              Quarantine
-            </Button>
-            <Button
-              variant={viewMode === 'software' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('software')}
-              className="gap-2 whitespace-nowrap"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              Software Approval
-            </Button>
-            {userRole === 'admin' && (
-              <Button
-                variant={viewMode === 'rules' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('rules')}
-                className="gap-2 whitespace-nowrap"
-              >
-                <Settings className="w-4 h-4" />
-                Rules Engine
-              </Button>
 
+            {(isAdmin || isApprover) && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={viewMode === 'list' ? "default" : "outline"}
+                  onClick={() => setViewMode('list')}
+                  className={`gap-2 ${viewMode !== 'list' ? 'border-border' : ''} transition-all`}
+                >
+                  <List className="w-4 h-4" />
+                  <span className="hidden lg:inline">List View</span>
+                  <span className="lg:hidden">List</span>
+                </Button>
+                <Button
+                  variant={viewMode === 'topology' ? "default" : "outline"}
+                  onClick={() => setViewMode('topology')}
+                  className={`gap-2 ${viewMode === 'topology' ? '' : 'border-primary/20 hover:border-primary/50 bg-primary/5 text-primary hover:bg-primary/10'} transition-all`}
+                >
+                  <Network className="w-4 h-4" />
+                  <span className="hidden lg:inline">Network Topology</span>
+                  <span className="lg:hidden">Topology</span>
+                </Button>
+                <Button
+                  variant={viewMode === 'whitelist' ? "default" : "outline"}
+                  onClick={() => setViewMode('whitelist')}
+                  className={`gap-2 ${viewMode === 'whitelist' ? '' : 'border-emerald-500/20 hover:border-emerald-500/50 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'} transition-all`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span className="hidden lg:inline">USB Whitelisted</span>
+                  <span className="lg:hidden">Whitelisted</span>
+                </Button>
+                {isAdmin && (
+                  <Button
+                    variant={viewMode === 'rules' ? "default" : "outline"}
+                    onClick={() => setViewMode('rules')}
+                    className={`gap-2 ${viewMode === 'rules' ? '' : 'border-slate-500/20 hover:border-slate-500/50 bg-slate-500/5 text-slate-600 dark:text-slate-400 hover:bg-slate-500/10'} transition-all`}
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span className="hidden lg:inline">Rules Engine</span>
+                    <span className="lg:hidden">Rules</span>
+                  </Button>
+                )}
+                <Button
+                  variant={viewMode === 'quarantine' ? "default" : "outline"}
+                  onClick={() => setViewMode('quarantine')}
+                  className={`gap-2 ${viewMode === 'quarantine' ? '' : 'border-rose-500/20 hover:border-rose-500/50 bg-rose-500/5 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10'} transition-all`}
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  <span className="hidden lg:inline">Quarantine</span>
+                  <span className="lg:hidden">Quarantine</span>
+                </Button>
+                {!isAdmin && (
+                  <Button
+                    variant={viewMode === 'software' ? "default" : "outline"}
+                    onClick={() => setViewMode('software')}
+                    className={`gap-2 ${viewMode === 'software' ? '' : 'border-indigo-500/20 hover:border-indigo-500/50 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10'} transition-all`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span className="hidden lg:inline">Software Approval</span>
+                    <span className="lg:hidden">Software</span>
+                  </Button>
+                )}
+
+              </div>
             )}
           </div>
         </div>
@@ -835,8 +846,8 @@ export default function SecurityDashboard() {
                   )}
 
 
-                  {/* Whitelisted USBs Section - ONLY FOR STANDARD USERS */}
-                  {userRole !== 'admin' && (
+                  {/* Whitelisted USBs Section - FOR ADMINS AND APPROVERS */}
+                  {(isAdmin || isApprover) && (
                     <div className="bg-card border rounded-lg shadow-sm">
                       <div className="p-4 border-b">
                         <h2 className="text-lg font-semibold text-foreground">Whitelisted USB Devices</h2>
@@ -854,8 +865,8 @@ export default function SecurityDashboard() {
                                   <div>
                                     <p className="font-medium text-sm">{usb.device_name}</p>
                                     <div className="flex gap-2 text-xs text-muted-foreground">
-                                      <span>{usb.vendor_name || 'Unknown Vendor'}</span>
-                                      {userRole === 'admin' && (
+                                      {usb.vendor_name || 'Unknown Vendor'}
+                                      {(isAdmin || isApprover) && (
                                         <>
                                           <span>•</span>
                                           <code className="bg-muted px-1 rounded">{usb.serial_number}</code>

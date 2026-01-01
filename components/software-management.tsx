@@ -35,10 +35,20 @@ export function SoftwareManagement() {
     const [authorized, setAuthorized] = useState<AuthorizedSoftware[]>([])
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
+    const [isAdmin, setIsAdmin] = useState(false)
+    const [isApprover, setIsApprover] = useState(false)
     const { toast } = useToast()
     const supabase = createClient()
 
+    const fetchUserStatus = async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        const role = user?.user_metadata?.role || 'user'
+        setIsAdmin(role === 'admin' || (Array.isArray(role) && role.includes('admin')))
+        setIsApprover(role === 'approver' || (Array.isArray(role) && role.includes('approver')))
+    }
+
     useEffect(() => {
+        fetchUserStatus()
         fetchData()
         const interval = setInterval(fetchData, 10000)
         return () => clearInterval(interval)
@@ -173,7 +183,9 @@ export function SoftwareManagement() {
                                     <TableHead className="w-[40%] font-semibold">Software Name</TableHead>
                                     <TableHead className="font-semibold">Publisher</TableHead>
                                     <TableHead className="font-semibold">Authorized At</TableHead>
-                                    <TableHead className="font-semibold text-right">Actions</TableHead>
+                                    <TableHead className="font-semibold text-right">
+                                        {isAdmin ? 'Actions' : ''}
+                                    </TableHead>
                                 </TableRow>
                             )}
                         </TableHeader>
@@ -258,14 +270,16 @@ export function SoftwareManagement() {
                                                 {new Date(app.created_at).toLocaleDateString()}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                                                    onClick={() => handleDelete(app.id)}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
+                                                {isAdmin && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                                                        onClick={() => handleDelete(app.id)}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                )}
                                             </TableCell>
                                         </TableRow>
                                     ))

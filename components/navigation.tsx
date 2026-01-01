@@ -21,7 +21,8 @@ import {
   Menu,
   X,
   Shield,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck
 } from "lucide-react"
 import Link from "next/link"
 import { UserMenu } from "./user-menu"
@@ -30,8 +31,10 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Devices", href: "/devices", icon: Monitor },
   { name: "Logs", href: "/logs", icon: FileText },
+  { name: "Software Approvals", href: "/software-approvals", icon: ShieldCheck },
   { name: "USB Whitelist", href: "/usb-whitelist", icon: Shield },
   { name: "Quarantine", href: "/quarantine", icon: ShieldAlert },
+  { name: "Role Management", href: "/admin/roles", icon: User },
 ]
 
 export function Navigation() {
@@ -48,6 +51,9 @@ export function Navigation() {
         data: { user },
       } = await supabase.auth.getUser()
       setUser(user)
+      if (user) {
+        console.log("Current User Role:", user.user_metadata?.role);
+      }
       setLoading(false)
     }
 
@@ -72,14 +78,32 @@ export function Navigation() {
 
   // Filter navigation items based on role
   const filteredNavigation = navigation.filter(item => {
-    // Admin-only pages
-    if (item.name === "Logs" || item.name === "Devices") {
-      return user?.user_metadata?.role === 'admin';
+    const role = user?.user_metadata?.role || 'user';
+    const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
+    const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
+
+    // Admin: Full access
+    if (isAdmin) return true;
+
+    // Approver: Specific pages + Tools
+    if (isApprover) {
+      return ["Dashboard", "Devices", "USB Whitelist", "Software Approvals", "Quarantine"].includes(item.name);
     }
 
-    // USB Whitelist and Quarantine are visible to all (regulated by component-level permissions)
+    // User: Standard limits 
+    // Show: Dashboard, Devices, USB Whitelist, Quarantine
+    // Hide: Logs, Role Management, Software Approvals
+    const restrictedItems = ["Logs", "Role Management", "Software Approvals"];
+    if (restrictedItems.includes(item.name)) {
+      return false;
+    }
+
     return true;
   });
+
+  const role = user?.user_metadata?.role;
+  const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
+  const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
 
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -97,23 +121,109 @@ export function Navigation() {
                 />
               </div>
               <span className="text-xl font-bold text-foreground">CyArt Security</span>
+              {/* Role Badge */}
+              {isApprover && !isAdmin && (
+                <div className="hidden md:flex ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-medium rounded-full border border-indigo-200 items-center gap-1">
+                  <Shield className="w-3 h-3" />
+                  Approver
+                </div>
+              )}
+              {isAdmin && (
+                <div className="hidden md:flex ml-2 px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded-full border border-red-200 items-center gap-1">
+                  <ShieldAlert className="w-3 h-3" />
+                  Admin
+                </div>
+              )}
+              {!isAdmin && !isApprover && (
+                <div className="hidden md:flex ml-2 px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-full border border-gray-200 items-center gap-1">
+                  <User className="w-3 h-3" />
+                  User
+                </div>
+              )}
             </Link>
 
             <div className="hidden md:flex md:gap-1">
               {filteredNavigation.map((item) => {
-                const isActive = pathname === item.href
-                return (
-                  <Link key={item.name} href={item.href}>
-                    <Button
-                      variant={isActive ? "secondary" : "ghost"}
-                      className="gap-2"
-                    >
-                      <item.icon className="w-4 h-4" />
-                      {item.name}
-                    </Button>
-                  </Link>
-                )
+                // Keep minimal items on the bar, group the rest
+                const primaryItems = isAdmin
+                  ? ["Dashboard", "Devices", "Logs"]
+                  : isApprover
+                    ? ["Dashboard", "Devices", "Software Approvals"]
+                    : ["Dashboard", "Devices"];
+                if (primaryItems.includes(item.name)) {
+                  const isActive = pathname === item.href
+                  return (
+                    <Link key={item.name} href={item.href}>
+                      <Button
+                        variant={isActive ? "secondary" : "ghost"}
+                        className="gap-2"
+                      >
+                        <item.icon className="w-4 h-4" />
+                        {item.name}
+                      </Button>
+                    </Link>
+                  )
+                }
+                return null;
               })}
+
+              {/* Admin Tools Dropdown (For Admins) */}
+              {isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="gap-2">
+                      <Menu className="w-4 h-4" />
+                      Admin Tools
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    {filteredNavigation.map((item) => {
+                      const primaryItems = ["Dashboard", "Devices", "Logs"];
+                      if (!primaryItems.includes(item.name)) {
+                        return (
+                          <Link key={item.name} href={item.href} className="w-full">
+                            <DropdownMenuItem className="gap-2 cursor-pointer">
+                              <item.icon className="w-4 h-4" />
+                              {item.name}
+                            </DropdownMenuItem>
+                          </Link>
+                        )
+                      }
+                      return null;
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+
+              {/* Security & Tools Dropdown (For Users/Approvers) */}
+              {!isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="gap-2">
+                      <ShieldCheck className="w-4 h-4" />
+                      Security & Tools
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    {filteredNavigation.map((item) => {
+                      const primaryItems = isApprover
+                        ? ["Dashboard", "Devices", "Software Approvals"]
+                        : ["Dashboard", "Devices"];
+                      if (!primaryItems.includes(item.name)) {
+                        return (
+                          <Link key={item.name} href={item.href} className="w-full">
+                            <DropdownMenuItem className="gap-2 cursor-pointer">
+                              <item.icon className="w-4 h-4" />
+                              {item.name}
+                            </DropdownMenuItem>
+                          </Link>
+                        )
+                      }
+                      return null;
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
 

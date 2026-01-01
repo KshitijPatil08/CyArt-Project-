@@ -103,6 +103,12 @@ const SubnetNode = ({ data }: { data: any }) => {
         <Network className="w-4 h-4" />
         {data.label}
       </div>
+      {data.approver && (
+        <div className="absolute -bottom-3 right-4 bg-emerald-950 px-2 text-xs font-medium text-emerald-400 flex items-center gap-1 border border-emerald-900 rounded-md shadow-sm" title={`Approved by ${data.approver}`}>
+          <ShieldAlert className="w-3 h-3" />
+          Approver: {data.approver}
+        </div>
+      )}
     </div>
   )
 }
@@ -274,6 +280,7 @@ export function NetworkTopology(props: NetworkTopologyProps) {
 function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopologyProps) {
   const [topologyLogs, setTopologyLogs] = useState<TopologyLog[]>([])
   const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([])
+  const [subnetAssignments, setSubnetAssignments] = useState<any[]>([]) // [NEW] State for assignments
   const [isLoading, setIsLoading] = useState(true)
 
   // Fetch Topology Logs on Mount with useCallback
@@ -291,17 +298,27 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         }))
         setTopologyLogs(parsedLogs)
       }
+
+      // [NEW] Fetch Subnet Assignments
+      if (userRole === 'admin') {
+        const assignRes = await fetch("/api/admin/subnets");
+        const assignData = await assignRes.json();
+        if (assignData.assignments) {
+          setSubnetAssignments(assignData.assignments);
+        }
+      }
+
     } catch (e) {
       console.error("Failed to fetch topology logs", e)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [userRole])
 
   useEffect(() => {
     fetchTopology()
-    // Auto-refresh every 15 seconds
-    const interval = setInterval(fetchTopology, 15000)
+    // Auto-refresh every 60 seconds (reduced from 15s for performance)
+    const interval = setInterval(fetchTopology, 60000)
     return () => clearInterval(interval)
   }, [fetchTopology])
 
@@ -620,13 +637,28 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         subnetLabel = subnet // It's a Team Name like "Red Team", "Engineering"
       }
 
+      // [NEW] Find Approver for this subnet
+      // Check for CIDR match (e.g. 192.168.1.0/24 matches 192.168.1)
+      const assignment = subnetAssignments.find((a: any) => {
+        if (!a.subnet_cidr) return false;
+        // Simple string match or prefix match
+        const cidrPrefix = a.subnet_cidr.split('/')[0].split('.').slice(0, 3).join('.'); // 192.168.1
+        const subnetPrefix = subnet.split('.').slice(0, 3).join('.');
+        return cidrPrefix === subnetPrefix;
+      });
+
+      const approverEmail = assignment ? assignment.user_email : null;
+
       // 1. Add Subnet Group Node
       nodes.push({
         id: groupId,
         type: 'subnet',
         position: { x: groupBoxX, y: groupBoxY },
         style: { width: subnetWidth, height: subnetHeight },
-        data: { label: subnetLabel },
+        data: {
+          label: subnetLabel,
+          approver: approverEmail // Pass to node
+        },
         zIndex: -1,
       })
 

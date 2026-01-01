@@ -77,48 +77,51 @@ export function DeviceManagement() {
     location: "",
     hostname: "",
   })
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isApprover, setIsApprover] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
   useEffect(() => {
+    fetchUserStatus()
     fetchDevices()
   }, [])
 
+  const fetchUserStatus = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const role = user?.user_metadata?.role || 'user'
+    setUserRole(role)
+    setIsAdmin(role === 'admin' || (Array.isArray(role) && role.includes('admin')))
+    setIsApprover(role === 'approver' || (Array.isArray(role) && role.includes('approver')))
+  }
+
   const fetchDevices = async () => {
     try {
-      const { data, error } = await supabase.from("devices").select("*, servers(id)").order("created_at", { ascending: false })
-      if (error) throw error
-      // Map servers table presence to is_server boolean for the UI
-      const mappedData = (data || []).map((d: any) => ({
-        ...d,
-        is_server: d.servers && (Array.isArray(d.servers) ? d.servers.length > 0 : true)
-      }))
-      setDevices(mappedData)
+      const response = await fetch('/api/devices/list')
+      const data = await response.json()
+      if (data.devices) {
+        setDevices(data.devices)
+      }
 
-      // Fetch credentials securely via API route (server-side)
-      // This prevents exposure of Supabase URL and credentials in browser Network tab
+      // Fetch credentials securely via API route
       try {
-        const response = await fetch('/api/devices/credentials')
-        if (!response.ok) {
-          throw new Error('Failed to fetch credentials')
+        const credRes = await fetch('/api/devices/credentials')
+        if (credRes.ok) {
+          const { credentials: creds } = await credRes.json()
+          const credsMap: Record<string, DeviceCredentials> = {}
+          for (const cred of creds || []) {
+            credsMap[cred.device_id] = cred
+          }
+          setCredentials(credsMap)
         }
-        const { credentials: creds } = await response.json()
-
-        // Convert array to map for easy lookup
-        const credsMap: Record<string, DeviceCredentials> = {}
-        for (const cred of creds || []) {
-          credsMap[cred.device_id] = cred
-        }
-        setCredentials(credsMap)
       } catch (credError) {
-        console.error("[v0] Error fetching credentials:", credError)
-        // Don't fail the whole operation if credentials fail
-        // Just log and continue with empty credentials
+        console.error("Error fetching credentials:", credError)
       }
 
       setLoading(false)
     } catch (error) {
-      console.error("[v0] Error fetching devices:", error)
+      console.error("Error fetching devices:", error)
       toast({ title: "Error", description: "Failed to fetch devices", variant: "destructive" })
       setLoading(false)
     }
@@ -288,86 +291,88 @@ export function DeviceManagement() {
           <h1 className="text-3xl font-bold">Device Management</h1>
           <p className="text-muted-foreground mt-1">Register and manage connected devices</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="w-4 h-4" />
-              Register Device
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Register New Device</DialogTitle>
-              <DialogDescription>Add a new device to monitor</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="device_name">Device Name</Label>
-                <Input
-                  id="device_name"
-                  placeholder="e.g., Office PC 1"
-                  value={formData.device_name}
-                  onChange={(e) => setFormData({ ...formData, device_name: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="device_type">Device Type</Label>
-                <Select
-                  value={formData.device_type}
-                  onValueChange={(value) => setFormData({ ...formData, device_type: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="windows">Windows</SelectItem>
-                    <SelectItem value="linux">Linux</SelectItem>
-                    <SelectItem value="mac">Mac</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="hostname">Hostname</Label>
-                <Input
-                  id="hostname"
-                  placeholder="e.g., OFFICE-PC-01"
-                  value={formData.hostname}
-                  onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="owner">Owner</Label>
-                <Input
-                  id="owner"
-                  placeholder="e.g., John Doe"
-                  value={formData.owner}
-                  onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="location">Location</Label>
-                <Input
-                  id="location"
-                  placeholder="e.g., Office Building A"
-                  value={formData.location}
-                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ip_address">IP Address</Label>
-                <Input
-                  id="ip_address"
-                  placeholder="e.g., 192.168.1.100"
-                  value={formData.ip_address}
-                  onChange={(e) => setFormData({ ...formData, ip_address: e.target.value })}
-                />
-              </div>
-              <Button onClick={handleAddDevice} className="w-full">
+        {isAdmin && (
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="w-4 h-4" />
                 Register Device
               </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Register New Device</DialogTitle>
+                <DialogDescription>Add a new device to monitor</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="device_name">Device Name</Label>
+                  <Input
+                    id="device_name"
+                    placeholder="e.g., Office PC 1"
+                    value={formData.device_name}
+                    onChange={(e) => setFormData({ ...formData, device_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="device_type">Device Type</Label>
+                  <Select
+                    value={formData.device_type}
+                    onValueChange={(value) => setFormData({ ...formData, device_type: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="windows">Windows</SelectItem>
+                      <SelectItem value="linux">Linux</SelectItem>
+                      <SelectItem value="mac">Mac</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="hostname">Hostname</Label>
+                  <Input
+                    id="hostname"
+                    placeholder="e.g., OFFICE-PC-01"
+                    value={formData.hostname}
+                    onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="owner">Owner</Label>
+                  <Input
+                    id="owner"
+                    placeholder="e.g., John Doe"
+                    value={formData.owner}
+                    onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="location">Location</Label>
+                  <Input
+                    id="location"
+                    placeholder="e.g., Office Building A"
+                    value={formData.location}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="ip_address">IP Address</Label>
+                  <Input
+                    id="ip_address"
+                    placeholder="e.g., 192.168.1.100"
+                    value={formData.ip_address}
+                    onChange={(e) => setFormData({ ...formData, ip_address: e.target.value })}
+                  />
+                </div>
+                <Button onClick={handleAddDevice} className="w-full">
+                  Register Device
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
@@ -448,8 +453,8 @@ export function DeviceManagement() {
                     <TableHead>Location</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Last Seen</TableHead>
-                    <TableHead>Credentials</TableHead>
-                    <TableHead>Actions</TableHead>
+                    {isAdmin && <TableHead>Credentials</TableHead>}
+                    {isAdmin && <TableHead>Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -479,116 +484,120 @@ export function DeviceManagement() {
                       <TableCell className="text-sm">
                         {device.last_seen ? new Date(device.last_seen).toLocaleString() : "Never"}
                       </TableCell>
-                      <TableCell>
-                        {credentials[device.id] ? (
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="sm">
-                                View
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Device Credentials</DialogTitle>
-                                <DialogDescription>{device.device_name}</DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label>Username</Label>
-                                  <div className="flex gap-2 mt-1">
-                                    <Input value={credentials[device.id].username} readOnly />
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => copyToClipboard(credentials[device.id].username, "Username")}
-                                    >
-                                      <Copy className="w-4 h-4" />
-                                    </Button>
+                      {isAdmin && (
+                        <TableCell>
+                          {credentials[device.id] ? (
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button variant="outline" size="sm">
+                                  View
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Device Credentials</DialogTitle>
+                                  <DialogDescription>{device.device_name}</DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4">
+                                  <div>
+                                    <Label>Username</Label>
+                                    <div className="flex gap-2 mt-1">
+                                      <Input value={credentials[device.id].username} readOnly />
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => copyToClipboard(credentials[device.id].username, "Username")}
+                                      >
+                                        <Copy className="w-4 h-4" />
+                                      </Button>
+                                    </div>
                                   </div>
-                                </div>
-                                <div>
-                                  <Label>Password</Label>
-                                  <div className="flex gap-2 mt-1">
-                                    <Input
-                                      type={showPassword[device.id] ? "text" : "password"}
-                                      value={credentials[device.id].password}
-                                      readOnly
-                                    />
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() =>
-                                        setShowPassword({ ...showPassword, [device.id]: !showPassword[device.id] })
-                                      }
-                                    >
-                                      {showPassword[device.id] ? (
-                                        <EyeOff className="w-4 h-4" />
-                                      ) : (
-                                        <Eye className="w-4 h-4" />
-                                      )}
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => copyToClipboard(credentials[device.id].password, "Password")}
-                                    >
-                                      <Copy className="w-4 h-4" />
-                                    </Button>
+                                  <div>
+                                    <Label>Password</Label>
+                                    <div className="flex gap-2 mt-1">
+                                      <Input
+                                        type={showPassword[device.id] ? "text" : "password"}
+                                        value={credentials[device.id].password}
+                                        readOnly
+                                      />
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                          setShowPassword({ ...showPassword, [device.id]: !showPassword[device.id] })
+                                        }
+                                      >
+                                        {showPassword[device.id] ? (
+                                          <EyeOff className="w-4 h-4" />
+                                        ) : (
+                                          <Eye className="w-4 h-4" />
+                                        )}
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => copyToClipboard(credentials[device.id].password, "Password")}
+                                      >
+                                        <Copy className="w-4 h-4" />
+                                      </Button>
+                                    </div>
                                   </div>
+                                  <p className="text-sm text-muted-foreground">
+                                    Use these credentials to authenticate the device agent when connecting to the API.
+                                  </p>
                                 </div>
-                                <p className="text-sm text-muted-foreground">
-                                  Use these credentials to authenticate the device agent when connecting to the API.
-                                </p>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          {device.is_quarantined ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleReleaseQuarantine(device)}
-                              className="text-green-600 hover:text-green-700"
-                              title="Release from quarantine"
-                            >
-                              <ShieldOff className="w-4 h-4" />
-                            </Button>
+                              </DialogContent>
+                            </Dialog>
                           ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleQuarantine(device)}
-                              className="text-orange-600 hover:text-orange-700"
-                              title="Quarantine device"
-                            >
-                              <Shield className="w-4 h-4" />
-                            </Button>
+                            <span className="text-muted-foreground">-</span>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(device)}
-                            className="text-blue-600 hover:text-blue-700"
-                            title="Edit Device (Team/Location)"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
+                        </TableCell>
+                      )}
+                      {isAdmin && (
+                        <TableCell>
+                          <div className="flex gap-2">
+                            {device.is_quarantined ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleReleaseQuarantine(device)}
+                                className="text-green-600 hover:text-green-700"
+                                title="Release from quarantine"
+                              >
+                                <ShieldOff className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleQuarantine(device)}
+                                className="text-orange-600 hover:text-orange-700"
+                                title="Quarantine device"
+                              >
+                                <Shield className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditDialog(device)}
+                              className="text-blue-600 hover:text-blue-700"
+                              title="Edit Device (Team/Location)"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
 
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteDevice(device.id, device.device_name)}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteDevice(device.id, device.device_name)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
