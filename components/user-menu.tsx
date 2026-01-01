@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel
 } from "@/components/ui/dropdown-menu"
-import { LogOut, User, Moon, Sun, Monitor, ShieldCheck } from "lucide-react"
+import { LogOut, User, Moon, Sun, Monitor } from "lucide-react"
 
 export function UserMenu() {
   const [user, setUser] = useState<any>(null)
@@ -67,17 +67,6 @@ export function UserMenu() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-
-        {/* Role Management Link for Admins */}
-        {user.user_metadata?.role === 'admin' && (
-          <>
-            <DropdownMenuItem onClick={() => router.push("/admin/roles")} disabled={loggingOut}>
-              <ShieldCheck className="w-4 h-4 mr-2" />
-              Role Management
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        )}
 
         <DropdownMenuLabel>Theme</DropdownMenuLabel>
         <DropdownMenuItem onClick={() => setTheme("light")} disabled={loggingOut}>

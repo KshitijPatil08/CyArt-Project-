@@ -21,7 +21,8 @@ import {
   Menu,
   X,
   Shield,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck
 } from "lucide-react"
 import Link from "next/link"
 import { UserMenu } from "./user-menu"
@@ -32,6 +33,7 @@ const navigation = [
   { name: "Logs", href: "/logs", icon: FileText },
   { name: "USB Whitelist", href: "/usb-whitelist", icon: Shield },
   { name: "Quarantine", href: "/quarantine", icon: ShieldAlert },
+  { name: "Role Management", href: "/admin/roles", icon: ShieldCheck },
 ]
 
 export function Navigation() {
@@ -73,7 +75,7 @@ export function Navigation() {
   // Filter navigation items based on role
   const filteredNavigation = navigation.filter(item => {
     // Admin-only pages
-    if (item.name === "Logs" || item.name === "Devices") {
+    if (item.name === "Logs" || item.name === "Devices" || item.name === "Role Management") {
       return user?.user_metadata?.role === 'admin';
     }
 
