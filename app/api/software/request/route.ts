@@ -5,24 +5,7 @@ import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
 import crypto from "crypto";
 import { z } from "zod";
-
-const allowedOrigins = (
-    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-        process.env.NEXT_PUBLIC_APP_URL || '',
-        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-    ]
-).filter(Boolean);
-
-function getCorsHeaders(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const isAllowed = allowedOrigins.includes(origin || '');
-    return {
-        'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-agent-key',
-        'Access-Control-Allow-Credentials': 'true',
-    };
-}
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils";
 
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
@@ -114,16 +97,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     const headers = getCorsHeaders(request);
     try {
-        // SECURITY: Verify Agent Secret Key
-        const agentKey = request.headers.get('x-agent-key');
-        const expectedKey = process.env.AGENT_SECRET_KEY;
-
-        if (expectedKey && agentKey !== expectedKey) {
-            console.error("[SOFTWARE-REQUEST] Unauthorized agent access attempt");
-            return NextResponse.json(
-                { error: "Unauthorized: Invalid Agent Key" },
-                { status: 401, headers }
-            );
+        // SECURITY: Verify Agent Secret Key (Fails shut if not configured)
+        if (!verifyAgentKey(request)) {
+            console.error("[SOFTWARE-REQUEST] Unauthorized agent access attempt or server misconfigured");
+            return unauthorizedResponse(headers);
         }
 
         const supabase = createAdminClient();

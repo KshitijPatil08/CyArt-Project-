@@ -5,6 +5,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils";
 
 const logSchema = z.object({
     device_id: z.string().min(1),
@@ -22,44 +23,20 @@ const logSchema = z.object({
     owner: z.string().optional(),
 });
 
-const allowedOrigins = (
-    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-        process.env.NEXT_PUBLIC_APP_URL || '',
-        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-    ]
-).filter(Boolean);
-
-function getCorsHeaders(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const isAllowed = allowedOrigins.includes(origin || '');
-    return {
-        'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Agent-Key',
-        'Access-Control-Allow-Credentials': 'true',
-    };
-}
-
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
-        headers: getCorsHeaders(request),
+        headers: getCorsHeaders(request, 'POST, OPTIONS'),
     });
 }
 
 export async function POST(request: NextRequest) {
-    const headers = getCorsHeaders(request);
+    const headers = getCorsHeaders(request, 'POST, OPTIONS');
     try {
-        // SECURITY: Verify Agent Secret Key
-        const agentKey = request.headers.get('x-agent-key');
-        const expectedKey = process.env.AGENT_SECRET_KEY;
-
-        if (expectedKey && agentKey !== expectedKey) {
-            console.error("[AGENT-LOG] Unauthorized agent access attempt");
-            return NextResponse.json(
-                { error: "Unauthorized: Invalid Agent Key" },
-                { status: 401, headers }
-            );
+        // SECURITY: Verify Agent Secret Key (Fails shut if not configured)
+        if (!verifyAgentKey(request)) {
+            console.error("[AGENT-LOG] Unauthorized agent access attempt or server misconfigured");
+            return unauthorizedResponse(headers);
         }
         // Use admin client (bypasses RLS)
         const supabase = createClient(

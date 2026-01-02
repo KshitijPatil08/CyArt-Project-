@@ -1,30 +1,9 @@
-// app/api/devices/list/route.ts
-// Returns list of all devices
-
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { type NextRequest, NextResponse } from "next/server"
 import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
-
-
-const allowedOrigins = (
-    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-        process.env.NEXT_PUBLIC_APP_URL || '',
-        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-    ]
-).filter(Boolean);
-
-function getCorsHeaders(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const isAllowed = allowedOrigins.includes(origin || '');
-    return {
-        'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Credentials': 'true',
-    };
-}
+import { getCorsHeaders } from "@/lib/api-utils";
 
 async function getSupabaseClient() {
     const cookieStore = await cookies()
