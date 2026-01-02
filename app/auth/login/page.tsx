@@ -33,7 +33,7 @@ export default function LoginPage() {
       const lockoutCheckResponse = await fetch("/api/auth/check-lockout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, success: false }),
+        body: JSON.stringify({ email, checkOnly: true }),
       })
 
       const lockoutData = await lockoutCheckResponse.json()
@@ -52,8 +52,14 @@ export default function LoginPage() {
       })
 
       if (error) {
-        // Login failed - the lockout check already incremented the counter
-        setError(lockoutData.message || error.message)
+        // Login failed - record the failure
+        const failureResponse = await fetch("/api/auth/check-lockout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, success: false, checkOnly: false }),
+        })
+        const failureData = await failureResponse.json()
+        setError(failureData.message || error.message)
       } else {
         // Check if user is admin - admins must use admin portal
         const role = data.user?.user_metadata?.role;
@@ -70,7 +76,7 @@ export default function LoginPage() {
         await fetch("/api/auth/check-lockout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, success: true }),
+          body: JSON.stringify({ email, success: true, checkOnly: false }),
         })
 
         router.push("/")

@@ -6,7 +6,7 @@ const MAX_FAILED_ATTEMPTS = 3
 
 export async function POST(request: Request) {
     try {
-        const { email, success } = await request.json()
+        const { email, success, checkOnly = false } = await request.json()
 
         if (!email) {
             return NextResponse.json({ error: "Email is required" }, { status: 400 })
@@ -27,6 +27,28 @@ export async function POST(request: Request) {
 
         const now = new Date()
 
+        // Check if account is currently locked (always do this if record exists)
+        if (attemptRecord?.locked_until) {
+            const lockedUntil = new Date(attemptRecord.locked_until)
+            if (now < lockedUntil) {
+                const minutesRemaining = Math.ceil((lockedUntil.getTime() - now.getTime()) / 60000)
+                return NextResponse.json(
+                    {
+                        locked: true,
+                        locked_until: attemptRecord.locked_until,
+                        minutes_remaining: minutesRemaining,
+                        message: `Account is locked. Please try again in ${minutesRemaining} minute${minutesRemaining !== 1 ? "s" : ""}.`,
+                    },
+                    { status: 423 }
+                )
+            }
+        }
+
+        // If we are only checking, stop here
+        if (checkOnly) {
+            return NextResponse.json({ locked: false, message: "Account is not locked" })
+        }
+
         // If this is a successful login, reset the attempt counter
         if (success) {
             if (attemptRecord) {
@@ -42,25 +64,8 @@ export async function POST(request: Request) {
             return NextResponse.json({ locked: false, message: "Login successful" })
         }
 
-        // Handle failed login attempt
+        // Handle failed login attempt (record mode)
         if (attemptRecord) {
-            // Check if account is currently locked
-            if (attemptRecord.locked_until) {
-                const lockedUntil = new Date(attemptRecord.locked_until)
-                if (now < lockedUntil) {
-                    const minutesRemaining = Math.ceil((lockedUntil.getTime() - now.getTime()) / 60000)
-                    return NextResponse.json(
-                        {
-                            locked: true,
-                            locked_until: attemptRecord.locked_until,
-                            minutes_remaining: minutesRemaining,
-                            message: `Account is locked. Please try again in ${minutesRemaining} minute${minutesRemaining !== 1 ? "s" : ""}.`,
-                        },
-                        { status: 423 }
-                    )
-                }
-            }
-
             // Increment attempt counter
             const newAttemptCount = attemptRecord.attempt_count + 1
             const lockAccount = newAttemptCount >= MAX_FAILED_ATTEMPTS

@@ -33,7 +33,7 @@ export default function AdminLoginPage() {
             const lockoutCheckResponse = await fetch("/api/auth/check-lockout", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, success: false }),
+                body: JSON.stringify({ email, checkOnly: true }),
             })
 
             const lockoutData = await lockoutCheckResponse.json()
@@ -51,7 +51,14 @@ export default function AdminLoginPage() {
             })
 
             if (error) {
-                setError(lockoutData.message || error.message)
+                // Login failed - record the failure
+                const failureResponse = await fetch("/api/auth/check-lockout", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, success: false, checkOnly: false }),
+                })
+                const failureData = await failureResponse.json()
+                setError(failureData.message || error.message)
             } else {
                 // Check if user is admin
                 if (data.user?.user_metadata?.role !== 'admin') {
@@ -65,7 +72,7 @@ export default function AdminLoginPage() {
                 await fetch("/api/auth/check-lockout", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email, success: true }),
+                    body: JSON.stringify({ email, success: true, checkOnly: false }),
                 })
 
                 router.push("/")
