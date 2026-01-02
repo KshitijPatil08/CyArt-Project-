@@ -641,69 +641,72 @@ export default function SecurityDashboard() {
               </div>
             )}
 
-            {(isAdmin || isApprover) && (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant={viewMode === 'list' ? "default" : "outline"}
-                  onClick={() => setViewMode('list')}
-                  className={`gap-2 ${viewMode !== 'list' ? 'border-border' : ''} transition-all`}
-                >
-                  <List className="w-4 h-4" />
-                  <span className="hidden lg:inline">List View</span>
-                  <span className="lg:hidden">List</span>
-                </Button>
-                <Button
-                  variant={viewMode === 'topology' ? "default" : "outline"}
-                  onClick={() => setViewMode('topology')}
-                  className={`gap-2 ${viewMode === 'topology' ? '' : 'border-primary/20 hover:border-primary/50 bg-primary/5 text-primary hover:bg-primary/10'} transition-all`}
-                >
-                  <Network className="w-4 h-4" />
-                  <span className="hidden lg:inline">Network Topology</span>
-                  <span className="lg:hidden">Topology</span>
-                </Button>
-                <Button
-                  variant={viewMode === 'whitelist' ? "default" : "outline"}
-                  onClick={() => setViewMode('whitelist')}
-                  className={`gap-2 ${viewMode === 'whitelist' ? '' : 'border-emerald-500/20 hover:border-emerald-500/50 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'} transition-all`}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span className="hidden lg:inline">USB Whitelisted</span>
-                  <span className="lg:hidden">Whitelisted</span>
-                </Button>
-                {isAdmin && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={viewMode === 'list' ? "default" : "outline"}
+                onClick={() => setViewMode('list')}
+                className={`gap-2 ${viewMode !== 'list' ? 'border-border' : ''} transition-all`}
+              >
+                <List className="w-4 h-4" />
+                <span className="hidden lg:inline">List View</span>
+                <span className="lg:hidden">List</span>
+              </Button>
+              <Button
+                variant={viewMode === 'topology' ? "default" : "outline"}
+                onClick={() => setViewMode('topology')}
+                className={`gap-2 ${viewMode === 'topology' ? '' : 'border-primary/20 hover:border-primary/50 bg-primary/5 text-primary hover:bg-primary/10'} transition-all`}
+              >
+                <Network className="w-4 h-4" />
+                <span className="hidden lg:inline">Network Topology</span>
+                <span className="lg:hidden">Topology</span>
+              </Button>
+
+              {(isAdmin || isApprover) && (
+                <>
                   <Button
-                    variant={viewMode === 'rules' ? "default" : "outline"}
-                    onClick={() => setViewMode('rules')}
-                    className={`gap-2 ${viewMode === 'rules' ? '' : 'border-slate-500/20 hover:border-slate-500/50 bg-slate-500/5 text-slate-600 dark:text-slate-400 hover:bg-slate-500/10'} transition-all`}
-                  >
-                    <Settings className="w-4 h-4" />
-                    <span className="hidden lg:inline">Rules Engine</span>
-                    <span className="lg:hidden">Rules</span>
-                  </Button>
-                )}
-                <Button
-                  variant={viewMode === 'quarantine' ? "default" : "outline"}
-                  onClick={() => setViewMode('quarantine')}
-                  className={`gap-2 ${viewMode === 'quarantine' ? '' : 'border-rose-500/20 hover:border-rose-500/50 bg-rose-500/5 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10'} transition-all`}
-                >
-                  <ShieldAlert className="w-4 h-4" />
-                  <span className="hidden lg:inline">Quarantine</span>
-                  <span className="lg:hidden">Quarantine</span>
-                </Button>
-                {!isAdmin && (
-                  <Button
-                    variant={viewMode === 'software' ? "default" : "outline"}
-                    onClick={() => setViewMode('software')}
-                    className={`gap-2 ${viewMode === 'software' ? '' : 'border-indigo-500/20 hover:border-indigo-500/50 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10'} transition-all`}
+                    variant={viewMode === 'whitelist' ? "default" : "outline"}
+                    onClick={() => setViewMode('whitelist')}
+                    className={`gap-2 ${viewMode === 'whitelist' ? '' : 'border-emerald-500/20 hover:border-emerald-500/50 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'} transition-all`}
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span className="hidden lg:inline">Software Approval</span>
-                    <span className="lg:hidden">Software</span>
+                    <span className="hidden lg:inline">USB Whitelisted</span>
+                    <span className="lg:hidden">Whitelisted</span>
                   </Button>
-                )}
+                  {isAdmin && (
+                    <Button
+                      variant={viewMode === 'rules' ? "default" : "outline"}
+                      onClick={() => setViewMode('rules')}
+                      className={`gap-2 ${viewMode === 'rules' ? '' : 'border-slate-500/20 hover:border-slate-500/50 bg-slate-500/5 text-slate-600 dark:text-slate-400 hover:bg-slate-500/10'} transition-all`}
+                    >
+                      <Settings className="w-4 h-4" />
+                      <span className="hidden lg:inline">Rules Engine</span>
+                      <span className="lg:hidden">Rules</span>
+                    </Button>
+                  )}
+                  <Button
+                    variant={viewMode === 'quarantine' ? "default" : "outline"}
+                    onClick={() => setViewMode('quarantine')}
+                    className={`gap-2 ${viewMode === 'quarantine' ? '' : 'border-rose-500/20 hover:border-rose-500/50 bg-rose-500/5 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10'} transition-all`}
+                  >
+                    <ShieldAlert className="w-4 h-4" />
+                    <span className="hidden lg:inline">Quarantine</span>
+                    <span className="lg:hidden">Quarantine</span>
+                  </Button>
+                </>
+              )}
 
-              </div>
-            )}
+              {!isAdmin && (
+                <Button
+                  variant={viewMode === 'software' ? "default" : "outline"}
+                  onClick={() => setViewMode('software')}
+                  className={`gap-2 ${viewMode === 'software' ? '' : 'border-indigo-500/20 hover:border-indigo-500/50 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10'} transition-all`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span className="hidden lg:inline">Software Approval</span>
+                  <span className="lg:hidden">Software</span>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
