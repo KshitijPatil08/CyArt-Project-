@@ -56,10 +56,14 @@ export default function LoginPage() {
         setError(lockoutData.message || error.message)
       } else {
         // Check if user is admin - admins must use admin portal
+<<<<<<< HEAD
         const role = data.user?.user_metadata?.role;
         const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
 
         if (isAdmin) {
+=======
+        if (data.user?.user_metadata?.role === 'admin') {
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
           await supabase.auth.signOut()
           setError("Admin accounts must use the Admin Login Portal.")
           setLoading(false)

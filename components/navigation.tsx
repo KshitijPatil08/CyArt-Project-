@@ -271,4 +271,7 @@ export function Navigation() {
     </nav>
   )
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c

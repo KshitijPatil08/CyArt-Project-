@@ -4,8 +4,11 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { type NextRequest, NextResponse } from "next/server"
+<<<<<<< HEAD
 import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
+=======
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -96,6 +99,7 @@ export async function GET(request: NextRequest) {
             )
         }
 
+<<<<<<< HEAD
         // --- Role-Based Filtering Logic ---
         const role = user.user_metadata?.role || 'user';
         const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
@@ -137,12 +141,18 @@ export async function GET(request: NextRequest) {
         // Reassign solely for the transformations below
         const processingDevices = filteredDevices;
 
+=======
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
         // Auto-update stale devices to offline status in the database
         // A device is considered stale if last_seen is older than 300 seconds (5 minutes)
         const OFFLINE_THRESHOLD_MS = 300 * 1000; // 5 minutes
         const now = Date.now()
 
+<<<<<<< HEAD
         const staleDeviceIds = (processingDevices || [])
+=======
+        const staleDeviceIds = (devices || [])
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
             .filter((device: any) => {
                 if (device.status !== 'online') return false
                 if (!device.last_seen) return true // No last_seen = stale
@@ -152,6 +162,7 @@ export async function GET(request: NextRequest) {
             })
             .map((device: any) => device.id)
 
+<<<<<<< HEAD
         // Optimization: Do NOT write to DB on GET request specific to every user load.
         // We will calculate the status 'on-the-fly' for the response. 
         // Writing to DB here causes lock contention and slows down the dashboard significantly.
@@ -161,6 +172,28 @@ export async function GET(request: NextRequest) {
         // Transform data to match expected format
         // Apply the offline status for stale devices in the response
         const transformedDevices = (processingDevices || []).map((device: any) => {
+=======
+        // Update stale devices to offline in database
+        if (staleDeviceIds.length > 0) {
+            const { error: updateError } = await supabase
+                .from("devices")
+                .update({
+                    status: 'offline',
+                    updated_at: new Date().toISOString()
+                })
+                .in("id", staleDeviceIds)
+
+            if (updateError) {
+                console.error("[DEVICES LIST] Error updating stale devices:", updateError)
+            } else {
+                console.log(`[DEVICES LIST] Marked ${staleDeviceIds.length} stale device(s) as offline`)
+            }
+        }
+
+        // Transform data to match expected format
+        // Apply the offline status for stale devices in the response
+        const transformedDevices = (devices || []).map((device: any) => {
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
             const isStale = staleDeviceIds.includes(device.id)
             const isServer = device.servers && (Array.isArray(device.servers) ? device.servers.length > 0 : true)
 

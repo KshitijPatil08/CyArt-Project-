@@ -1,0 +1,59 @@
+# Language and framework settings
+language: "en-US"
+
+# Review settings
+reviews:
+  # Enable/disable specific review types
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  
+  # Auto-review settings
+  auto_review:
+    enabled: true
+    drafts: false
+    
+  # What to review
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/*.min.js"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+
+# Code quality checks
+checks:
+  # Code style
+  naming_convention: true
+  code_duplication: true
+  complexity: true
+  
+  # Best practices
+  error_handling: true
+  security: true
+  performance: true
+  accessibility: true
+  
+  # Documentation
+  missing_documentation: true
+  todo_comments: true
+
+# Specific language settings (adjust based on your stack)
+rules:
+  # JavaScript/TypeScript
+  javascript:
+    max_line_length: 100
+    max_function_length: 50
+    max_complexity: 10
+    
+  # Python
+  python:
+    max_line_length: 88
+    max_function_length: 50
+    
+  # Add other languages as needed
+
+# Tone and style
+tone_instructions: "Be constructive and educational. Focus on code quality, maintainability, and best practices."

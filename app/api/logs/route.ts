@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const before = searchParams.get("before");
 
     const { data: { user } } = await supabase.auth.getUser();
+<<<<<<< HEAD
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
     }
@@ -73,6 +74,15 @@ export async function GET(request: NextRequest) {
       // So we will fetch all (subset) and filter in memory for the response.
     } else if (user.email) {
       // Standard User: Only own devices
+=======
+
+    let query = supabase
+      .from("logs")
+      .select("*, devices!inner(*)", { count: "exact" });
+
+    // RBAC: If not admin, only show logs for user's devices
+    if (user?.user_metadata?.role !== 'admin' && user?.email) {
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
       query = query.eq("devices.owner", user.email);
     }
 
@@ -111,12 +121,17 @@ export async function GET(request: NextRequest) {
       query = query.lte("timestamp", before);
     }
 
+<<<<<<< HEAD
     let { data, error, count } = await query
+=======
+    const { data, error, count } = await query
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
       .order("timestamp", { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) throw error;
 
+<<<<<<< HEAD
     // --- Post-fetch Filtering for Approvers ---
     if (!isAdmin && isApprover) {
       const { isIpInSubnet } = await import("@/lib/utils/subnet");
@@ -132,6 +147,8 @@ export async function GET(request: NextRequest) {
       }) || [];
     }
 
+=======
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     return NextResponse.json({
       success: true,
       count: data?.length || 0,

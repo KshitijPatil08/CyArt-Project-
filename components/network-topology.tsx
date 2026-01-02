@@ -17,11 +17,19 @@ import ReactFlow, {
   Handle,
   Position,
 } from 'reactflow'
+<<<<<<< HEAD
 import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network, Wifi, ShieldAlert, Search, Loader2 } from 'lucide-react'
+=======
+import { Monitor, Server, Laptop, Smartphone, Lock, Box, Router, Network, Wifi, ShieldAlert, Search, Loader2, User } from 'lucide-react'
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+<<<<<<< HEAD
+=======
+import { isIpInSubnet } from '@/lib/utils/subnet'
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 
 // --- Custom Error Boundary to prevent crashes ---
 class ErrorBoundary extends React.Component<
@@ -99,6 +107,7 @@ interface NetworkTopologyProps {
 const SubnetNode = ({ data }: { data: any }) => {
   return (
     <div className="w-full h-full bg-slate-900/10 border-2 border-dashed border-slate-500/50 rounded-xl relative">
+<<<<<<< HEAD
       <div className="absolute -top-3 left-4 bg-slate-950 px-2 text-sm font-bold text-slate-400 flex items-center gap-2 border border-slate-800 rounded-md shadow-sm">
         <Network className="w-4 h-4" />
         {data.label}
@@ -109,6 +118,20 @@ const SubnetNode = ({ data }: { data: any }) => {
           Approver: {data.approver}
         </div>
       )}
+=======
+      <div className="absolute -top-3 left-4 bg-slate-950 px-2 py-0.5 text-sm font-bold text-slate-400 flex flex-col items-start gap-0 border border-slate-800 rounded-md shadow-sm">
+        <div className="flex items-center gap-2">
+          <Network className="w-4 h-4" />
+          {data.label}
+        </div>
+        {data.approver && (
+          <div className="flex items-center gap-1.5 text-[10px] text-sky-400/80 font-medium">
+            <User className="w-3 h-3" />
+            Approver: {data.approver}
+          </div>
+        )}
+      </div>
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     </div>
   )
 }
@@ -280,7 +303,11 @@ export function NetworkTopology(props: NetworkTopologyProps) {
 function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopologyProps) {
   const [topologyLogs, setTopologyLogs] = useState<TopologyLog[]>([])
   const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([])
+<<<<<<< HEAD
   const [subnetAssignments, setSubnetAssignments] = useState<any[]>([]) // [NEW] State for assignments
+=======
+  const [subnetAssignments, setSubnetAssignments] = useState<any[]>([])
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
   const [isLoading, setIsLoading] = useState(true)
 
   // Fetch Topology Logs on Mount with useCallback
@@ -288,17 +315,30 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     try {
       // Don't set loading on every refresh, only initial if desired or handled elsewhere
       // setIsLoading(true) 
+<<<<<<< HEAD
       const res = await fetch("/api/logs?log_type=network_topology&limit=200&full=true")
       const data = await res.json()
       if (data.logs) {
         // Parse raw data if it's stringified
         const parsedLogs = data.logs.map((log: any) => ({
+=======
+      const [logsRes, assignmentsRes] = await Promise.all([
+        fetch("/api/logs?log_type=network_topology&limit=200"),
+        fetch("/api/admin/subnets")
+      ])
+
+      const logsData = await logsRes.json()
+      if (logsData.logs) {
+        // Parse raw data if it's stringified
+        const parsedLogs = logsData.logs.map((log: any) => ({
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
           ...log,
           raw_data: typeof log.raw_data === 'string' ? JSON.parse(log.raw_data) : log.raw_data
         }))
         setTopologyLogs(parsedLogs)
       }
 
+<<<<<<< HEAD
       // [NEW] Fetch Subnet Assignments
       if (userRole === 'admin') {
         const assignRes = await fetch("/api/admin/subnets");
@@ -308,17 +348,32 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         }
       }
 
+=======
+      const assignmentsData = await assignmentsRes.json()
+      if (assignmentsData.success) {
+        setSubnetAssignments(assignmentsData.assignments || [])
+      }
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     } catch (e) {
       console.error("Failed to fetch topology logs", e)
     } finally {
       setIsLoading(false)
     }
+<<<<<<< HEAD
   }, [userRole])
 
   useEffect(() => {
     fetchTopology()
     // Auto-refresh every 60 seconds (reduced from 15s for performance)
     const interval = setInterval(fetchTopology, 60000)
+=======
+  }, [])
+
+  useEffect(() => {
+    fetchTopology()
+    // Auto-refresh every 15 seconds
+    const interval = setInterval(fetchTopology, 15000)
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     return () => clearInterval(interval)
   }, [fetchTopology])
 
@@ -637,6 +692,7 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         subnetLabel = subnet // It's a Team Name like "Red Team", "Engineering"
       }
 
+<<<<<<< HEAD
       // [NEW] Find Approver for this subnet
       // Check for CIDR match (e.g. 192.168.1.0/24 matches 192.168.1)
       const assignment = subnetAssignments.find((a: any) => {
@@ -650,6 +706,18 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       const approverEmail = assignment ? assignment.user_email : null;
 
       // 1. Add Subnet Group Node
+=======
+      // 1. Add Subnet Group Node
+      // Find approver for this subnet group
+      // An approver is linked to this group if their assigned CIDRs cover any agent in this group
+      const assignment = subnetAssignments.find(a =>
+        a.subnet_cidrs.some((cidr: string) => {
+          // Check if any agent in this group falls into this CIDR
+          return subnetAgents.some(agent => agent.ip_address && isIpInSubnet(agent.ip_address, cidr));
+        })
+      )
+
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
       nodes.push({
         id: groupId,
         type: 'subnet',
@@ -657,7 +725,11 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         style: { width: subnetWidth, height: subnetHeight },
         data: {
           label: subnetLabel,
+<<<<<<< HEAD
           approver: approverEmail // Pass to node
+=======
+          approver: assignment?.user_email
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
         },
         zIndex: -1,
       })

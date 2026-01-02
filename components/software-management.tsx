@@ -35,6 +35,7 @@ export function SoftwareManagement() {
     const [authorized, setAuthorized] = useState<AuthorizedSoftware[]>([])
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
+<<<<<<< HEAD
     const [isAdmin, setIsAdmin] = useState(false)
     const [isApprover, setIsApprover] = useState(false)
     const { toast } = useToast()
@@ -49,6 +50,12 @@ export function SoftwareManagement() {
 
     useEffect(() => {
         fetchUserStatus()
+=======
+    const { toast } = useToast()
+    const supabase = createClient()
+
+    useEffect(() => {
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
         fetchData()
         const interval = setInterval(fetchData, 10000)
         return () => clearInterval(interval)
@@ -183,9 +190,13 @@ export function SoftwareManagement() {
                                     <TableHead className="w-[40%] font-semibold">Software Name</TableHead>
                                     <TableHead className="font-semibold">Publisher</TableHead>
                                     <TableHead className="font-semibold">Authorized At</TableHead>
+<<<<<<< HEAD
                                     <TableHead className="font-semibold text-right">
                                         {isAdmin ? 'Actions' : ''}
                                     </TableHead>
+=======
+                                    <TableHead className="font-semibold text-right">Actions</TableHead>
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
                                 </TableRow>
                             )}
                         </TableHeader>
@@ -270,6 +281,7 @@ export function SoftwareManagement() {
                                                 {new Date(app.created_at).toLocaleDateString()}
                                             </TableCell>
                                             <TableCell className="text-right">
+<<<<<<< HEAD
                                                 {isAdmin && (
                                                     <Button
                                                         variant="ghost"
@@ -280,6 +292,16 @@ export function SoftwareManagement() {
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
                                                 )}
+=======
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                                                    onClick={() => handleDelete(app.id)}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
                                             </TableCell>
                                         </TableRow>
                                     ))

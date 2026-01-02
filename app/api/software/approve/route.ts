@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
         }
 
+<<<<<<< HEAD
         // Role Detection
         const role = user.user_metadata?.role || 'user';
         const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
@@ -43,6 +44,11 @@ export async function POST(request: NextRequest) {
         if (!isAdmin && !isApprover) {
             return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
         }
+=======
+        // Check if user is admin (metadata role)
+        const role = user.user_metadata?.role;
+        if (role !== 'admin') return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: corsHeaders });
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 
         const body = await request.json();
 
@@ -78,6 +84,7 @@ export async function POST(request: NextRequest) {
                 .single();
             if (fetchError || !reqData) throw fetchError || new Error("Request not found");
 
+<<<<<<< HEAD
             // --- RBAC Validation for Approvers ---
             if (!isAdmin && isApprover) {
                 const { createAdminClient } = await import("@/lib/supabase/admin");
@@ -96,6 +103,8 @@ export async function POST(request: NextRequest) {
                 }
             }
 
+=======
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
             // Add to authorized_software
             const { error: insertError } = await supabase
                 .from("authorized_software")
@@ -175,6 +184,7 @@ export async function DELETE(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
         }
 
+<<<<<<< HEAD
         // Role Check
         const role = user.user_metadata?.role || 'user';
         const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
@@ -182,6 +192,12 @@ export async function DELETE(request: NextRequest) {
 
         if (!isAdmin && !isApprover) {
             return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
+=======
+        // Admin check
+        const role = user.user_metadata?.role;
+        if (role !== 'admin') {
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: corsHeaders });
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
         }
 
         const { searchParams } = new URL(request.url);

@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
     const resolved = searchParams.get('resolved');
 
     const { data: { user } } = await supabase.auth.getUser();
+<<<<<<< HEAD
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
     }
@@ -52,6 +53,16 @@ export async function GET(request: NextRequest) {
       // Post-fetch filtering will handle the OR condition
     } else if (user.email) {
       // Standard User: Only own devices
+=======
+
+    let query = supabase
+      .from('alerts')
+      .select('*, devices!inner(owner)')
+      .order('created_at', { ascending: false });
+
+    // RBAC: If not admin, only show alerts for user's devices
+    if (user?.user_metadata?.role !== 'admin' && user?.email) {
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
       query = query.eq('devices.owner', user.email);
     }
 
@@ -60,6 +71,7 @@ export async function GET(request: NextRequest) {
       query = query.eq('is_resolved', resolved === 'true');
     }
 
+<<<<<<< HEAD
     let { data, error } = await query;
     if (error) throw error;
 
@@ -77,6 +89,11 @@ export async function GET(request: NextRequest) {
       }) || [];
     }
 
+=======
+    const { data, error } = await query;
+    if (error) throw error;
+
+>>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     return NextResponse.json({
       success: true,
       count: data?.length || 0,
