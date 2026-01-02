@@ -47,6 +47,9 @@ export function SubnetAssignmentManagement() {
     const [isAddOpen, setIsAddOpen] = useState(false)
     const [selectedUserId, setSelectedUserId] = useState("")
     const [newSubnet, setNewSubnet] = useState("")
+    const [isEditOpen, setIsEditOpen] = useState(false)
+    const [editingAssignment, setEditingAssignment] = useState<SubnetAssignment | null>(null)
+    const [editSubnets, setEditSubnets] = useState("")
 
     const { toast } = useToast()
     const supabase = createClient()
@@ -117,6 +120,36 @@ export function SubnetAssignmentManagement() {
             setIsAddOpen(false)
             setSelectedUserId("")
             setNewSubnet("")
+            fetchAssignments()
+        } catch (error: any) {
+            toast({ title: "Error", description: error.message, variant: "destructive" })
+        } finally {
+            setSubmitting(false)
+        }
+    }
+
+    // 3.5. Handle Update Assignment
+    const handleUpdateAssignment = async () => {
+        if (!editingAssignment || !editSubnets) return
+
+        try {
+            setSubmitting(true)
+            const res = await fetch('/api/admin/subnets', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_user_id: editingAssignment.user_id,
+                    subnet_cidr: editSubnets
+                })
+            })
+
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "Failed to update assignment")
+
+            toast({ title: "Success", description: "Assignment updated." })
+            setIsEditOpen(false)
+            setEditingAssignment(null)
+            setEditSubnets("")
             fetchAssignments()
         } catch (error: any) {
             toast({ title: "Error", description: error.message, variant: "destructive" })
@@ -220,6 +253,36 @@ export function SubnetAssignmentManagement() {
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
+
+                    {/* Edit Dialog */}
+                    <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Edit Subnet Assignment</DialogTitle>
+                                <DialogDescription>
+                                    Update subnets for {editingAssignment?.user_email}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                    <Label>Subnet CIDR(s)</Label>
+                                    <Input
+                                        placeholder="192.168.1.0/24, 10.0.0.0/16"
+                                        value={editSubnets}
+                                        onChange={(e) => setEditSubnets(e.target.value)}
+                                    />
+                                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Use comma to separate multiple ranges</p>
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+                                <Button onClick={handleUpdateAssignment} disabled={submitting}>
+                                    {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
+                                    Update Assignment
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </CardHeader>
                 <CardContent>
                     <div className="bg-muted/50 rounded-lg border overflow-hidden">
@@ -263,7 +326,19 @@ export function SubnetAssignmentManagement() {
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-4 text-right">
+                                            <td className="px-4 py-4 text-right flex justify-end gap-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                                    onClick={() => {
+                                                        setEditingAssignment(assignment)
+                                                        setEditSubnets(Array.isArray(assignment.subnet_cidrs) ? assignment.subnet_cidrs.join(', ') : assignment.subnet_cidrs)
+                                                        setIsEditOpen(true)
+                                                    }}
+                                                >
+                                                    <Network className="w-4 h-4" />
+                                                </Button>
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"

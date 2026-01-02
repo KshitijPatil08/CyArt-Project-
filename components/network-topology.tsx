@@ -105,10 +105,18 @@ const SubnetNode = ({ data }: { data: any }) => {
           <Network className="w-4 h-4" />
           {data.label}
         </div>
-        {data.approver && (
-          <div className="flex items-center gap-1.5 text-[10px] text-sky-400/80 font-medium">
-            <User className="w-3 h-3" />
-            Approver: {data.approver}
+        {data.approverEmail && (
+          <div className="flex flex-col gap-0.5 mt-1 border-t border-slate-700/50 pt-1 w-full">
+            <div className="flex items-center gap-1.5 text-[10px] text-sky-400 font-semibold truncate max-w-[180px]">
+              <User className="w-3 h-3" />
+              {data.approverEmail}
+            </div>
+            {data.approverDevice && (
+              <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-medium truncate max-w-[180px]">
+                <Monitor className="w-2.5 h-2.5" />
+                {data.approverDevice}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -462,13 +470,21 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     agents.forEach(agent => {
       let subnet = 'Unknown'
 
-      // TEAM/LOCATION OVERRIDE: If a location is set, group by that instead of IP.
-      if (agent.location && agent.location.trim().length > 0) {
+      // 1. Try to find an assigned CIDR that covers this agent
+      const linkedAssignment = subnetAssignments.find(a =>
+        (a.subnet_cidrs || []).some((cidr: string) => agent.ip_address && isIpInSubnet(agent.ip_address, cidr))
+      )
+
+      if (linkedAssignment) {
+        // Use the first CIDR as the grouping key (or we could use a combined key)
+        subnet = Array.isArray(linkedAssignment.subnet_cidrs) ? linkedAssignment.subnet_cidrs[0] : linkedAssignment.subnet_cidrs
+      } else if (agent.location && agent.location.trim().length > 0) {
+        // 2. FALLBACK to Location name
         subnet = agent.location.trim()
       } else {
-        // Fallback to IP-based subnet
+        // 3. FINAL FALLBACK to IP prefix
         const ipParts = (agent.ip_address || '0.0.0.0').split('.')
-        subnet = ipParts.length === 4 ? `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}` : 'Unknown'
+        subnet = ipParts.length === 4 ? `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.x` : 'Unknown'
       }
 
       if (!subnetMap.has(subnet)) subnetMap.set(subnet, [])
@@ -639,13 +655,14 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
 
       // 1. Add Subnet Group Node
       // Find approver for this subnet group
-      // An approver is linked to this group if their assigned CIDRs cover any agent in this group
       const assignment = subnetAssignments.find(a =>
         (a.subnet_cidrs || []).some((cidr: string) => {
-          // Check if any agent in this group falls into this CIDR
           return subnetAgents.some(agent => agent.ip_address && isIpInSubnet(agent.ip_address, cidr));
         })
       )
+
+      // Find the approver's primary device name
+      const approverAgent = assignment ? devices.find(d => d.owner?.toLowerCase() === assignment.user_email?.toLowerCase()) : null
 
       nodes.push({
         id: groupId,
@@ -654,7 +671,8 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
         style: { width: subnetWidth, height: subnetHeight },
         data: {
           label: subnetLabel,
-          approver: assignment?.user_email
+          approverEmail: assignment?.user_email,
+          approverDevice: approverAgent?.device_name || approverAgent?.hostname
         },
         zIndex: -1,
       })
