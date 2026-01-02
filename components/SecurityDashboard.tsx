@@ -347,7 +347,6 @@ export default function SecurityDashboard() {
       const isAdmin = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
 
       // Admin or Approver:
-      // Approvers receive a pre-filtered list from the API (Own + Subnet), so we trust 'devices'.
       if (isAdmin || isApprover) {
         // Apply search filter
         if (!searchQuery) return true;
@@ -365,29 +364,19 @@ export default function SecurityDashboard() {
       }
 
       // Standard user:
-      // Safety check: if user email is not loaded yet, don't show anything to non-admins
       if (!userEmail) return false;
-
-      // 1. Hide server devices from list (they are strictly for status indicator)
       if (device.is_server) return false;
 
-      // 2. Only show devices owned by the user (fuzzy match)
       const ownerLower = device.owner?.toLowerCase().trim() || '';
       const emailLower = userEmail.toLowerCase().trim();
       const username = emailLower.split('@')[0];
 
-      // Match if:
-      // - Exact match
-      // - Owner contains username (e.g. owner="john-pc", email="john@...")
-      // - Email contains owner (e.g. owner="john", email="john.doe@...")
       const isMatch =
         ownerLower === emailLower ||
         ownerLower.includes(username) ||
         (ownerLower.length > 3 && emailLower.includes(ownerLower));
 
       if (!isMatch) return false;
-
-      // Search filter (with null-safety)
       if (!searchQuery) return true;
 
       const deviceName = (device.device_name || '').toLowerCase();
@@ -402,6 +391,9 @@ export default function SecurityDashboard() {
       );
     })
   ), [devices, searchQuery, userRole, userEmail]);
+
+  const serverDevices = useMemo(() => filteredDevices.filter(d => Boolean(d.is_server)), [filteredDevices]);
+  const endpointDevices = useMemo(() => filteredDevices.filter(d => !d.is_server), [filteredDevices]);
 
   const statCards = [
     {
@@ -753,42 +745,83 @@ export default function SecurityDashboard() {
             {/* Devices List */}
             <div className="lg:col-span-1">
               <div className="bg-card border rounded-lg shadow-sm lg:sticky lg:top-24">
-                <div className="p-4 border-b flex justify-between items-center">
-                  <h2 className="text-lg font-semibold text-foreground">Connected Devices</h2>
+                <div className="p-4 border-b flex justify-between items-center bg-muted/30">
+                  <h2 className="text-lg font-semibold text-foreground">Device List</h2>
                   <span className="text-xs text-muted-foreground">{filteredDevices.length} devices</span>
                 </div>
-                <div className="divide-y max-h-[420px] lg:max-h-[600px] overflow-y-auto">
+                <div className="divide-y max-h-[420px] lg:max-h-[700px] overflow-y-auto custom-scrollbar">
                   {filteredDevices.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
                       <Monitor className="w-12 h-12 mx-auto mb-2 opacity-50" />
                       <p>No devices found</p>
                     </div>
                   ) : (
-                    filteredDevices.map((device) => (
-                      <div
-                        key={device.device_id}
-                        onClick={() => setSelectedDevice(device)}
-                        className={`p-4 cursor-pointer hover:bg-accent transition-colors ${selectedDevice?.device_id === device.device_id ? 'bg-accent border-l-2 border-l-primary' : ''
-                          }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`w-2 h-2 rounded-full ${device.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
-                            }`}></span>
-                          <h3 className="font-medium text-foreground flex items-center gap-2">
-                            {device.is_server && <Server className="w-4 h-4 text-blue-500" />}
-                            {device.is_quarantined && <Lock className="w-3 h-3 text-red-500" />}
-                            {device.device_name}
-                          </h3>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{device.owner}</p>
-                        <p className="text-xs text-muted-foreground">{device.location}</p>
-                        {device.is_quarantined && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mt-1">
-                            Quarantined
-                          </span>
-                        )}
+                    <>
+                      {/* Servers Section */}
+                      {serverDevices.length > 0 && (
+                        <>
+                          <div className="px-4 py-2 bg-muted/50 text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b flex items-center gap-2">
+                            <Server className="w-3 h-3" />
+                            Infrastructure (Servers)
+                          </div>
+                          {serverDevices.map((device) => (
+                            <div
+                              key={device.device_id}
+                              onClick={() => setSelectedDevice(device)}
+                              className={`p-4 cursor-pointer hover:bg-accent transition-colors ${selectedDevice?.device_id === device.device_id ? 'bg-accent border-l-2 border-l-primary' : ''
+                                }`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`w-2 h-2 rounded-full ${device.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
+                                  }`}></span>
+                                <h3 className="font-medium text-foreground flex items-center gap-2">
+                                  <Server className="w-4 h-4 text-primary" />
+                                  {device.device_name}
+                                </h3>
+                              </div>
+                              <p className="text-sm text-muted-foreground">{device.hostname}</p>
+                              <p className="text-xs text-muted-foreground">{device.location}</p>
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      {/* Endpoints Section */}
+                      <div className="px-4 py-2 bg-muted/50 text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b border-t flex items-center gap-2">
+                        <Monitor className="w-3 h-3" />
+                        Monitored Endpoints
                       </div>
-                    ))
+                      {endpointDevices.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-muted-foreground">
+                          No endpoints connected
+                        </div>
+                      ) : (
+                        endpointDevices.map((device) => (
+                          <div
+                            key={device.device_id}
+                            onClick={() => setSelectedDevice(device)}
+                            className={`p-4 cursor-pointer hover:bg-accent transition-colors ${selectedDevice?.device_id === device.device_id ? 'bg-accent border-l-2 border-l-primary' : ''
+                              }`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`w-2 h-2 rounded-full ${device.status === 'online' ? 'bg-green-500' : 'bg-gray-500'
+                                }`}></span>
+                              <h3 className="font-medium text-foreground flex items-center gap-2">
+                                {device.is_quarantined && <Lock className="w-3 h-3 text-red-500" />}
+                                {device.device_name}
+                              </h3>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{device.owner}</p>
+                            <p className="text-xs text-muted-foreground">{device.location}</p>
+                            {device.is_quarantined && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mt-1">
+                                Quarantined
+                              </span>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -856,25 +889,6 @@ export default function SecurityDashboard() {
                       </div>
                     )}
                   </div>
-
-                  {/* Assign Owner Button - ONLY FOR ADMINS */}
-                  {userRole === 'admin' && (
-                    <div className="mt-4">
-                      <Button
-                        onClick={() => {
-                          setAssignOwnerEmail(selectedDevice.owner || '');
-                          setShowAssignOwnerDialog(true);
-                        }}
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                      >
-                        <Settings className="w-4 h-4 mr-2" />
-                        Assign Owner
-                      </Button>
-                    </div>
-                  )}
-
 
                   {/* Whitelisted USBs Section - FOR ADMINS AND APPROVERS */}
                   {(isAdmin || isApprover) && (
