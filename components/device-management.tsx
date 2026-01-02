@@ -84,8 +84,11 @@ export function DeviceManagement() {
   const supabase = createClient()
 
   useEffect(() => {
-    fetchUserStatus()
-    fetchDevices()
+    const init = async () => {
+      await fetchUserStatus()
+      await fetchDevices()
+    }
+    init()
   }, [])
 
   const fetchUserStatus = async () => {

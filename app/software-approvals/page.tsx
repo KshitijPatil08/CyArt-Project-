@@ -1,20 +1,3 @@
-<<<<<<< HEAD
-"use client"
-
-import { SoftwareManagement } from "@/components/software-management"
-import { Navigation } from "@/components/navigation"
-
-export default function SoftwareApprovalsPage() {
-    return (
-        <div className="min-h-screen flex flex-col">
-            <Navigation />
-            <main className="flex-1">
-                <SoftwareManagement />
-            </main>
-        </div>
-    )
-}
-=======
 "use client"
 
 import { useEffect, useState } from "react"
@@ -61,4 +44,3 @@ export default function SoftwareApprovalsPage() {
         </div>
     )
 }
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c

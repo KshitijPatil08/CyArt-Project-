@@ -34,52 +34,40 @@ export function QuarantineManagement() {
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
     const [userRole, setUserRole] = useState<string | null>(null)
     const [userEmail, setUserEmail] = useState<string | null>(null)
-<<<<<<< HEAD
+
     const [isAdmin, setIsAdmin] = useState(false)
     const [isApprover, setIsApprover] = useState(false)
-=======
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     const { toast } = useToast()
     const supabase = createClient()
 
     useEffect(() => {
-<<<<<<< HEAD
         fetchUserStatus()
-=======
-        fetchUserRole()
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     }, [])
+
+    const fetchUserStatus = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            const role = user?.user_metadata?.role || 'user'
+            setUserRole(role)
+            setUserEmail(user?.email || null)
+            setIsAdmin(role === 'admin' || (Array.isArray(role) && role.includes('admin')))
+            setIsApprover(role === 'approver' || (Array.isArray(role) && role.includes('approver')))
+        } catch (error) {
+            console.error("Error fetching user status:", error)
+        }
+    }
 
     useEffect(() => {
         if (userRole) {
             fetchQuarantinedDevices()
         }
-<<<<<<< HEAD
-    }, [userRole])
-
-    const fetchUserStatus = async () => {
-        const { data: { user } } = await supabase.auth.getUser()
-        const role = user?.user_metadata?.role || 'user'
-        setUserRole(role)
-        setUserEmail(user?.email || null)
-        setIsAdmin(role === 'admin')
-        setIsApprover(role === 'approver' || (Array.isArray(role) && role.includes('approver')))
-=======
     }, [userRole, userEmail])
-
-    const fetchUserRole = async () => {
-        const { data: { user } } = await supabase.auth.getUser()
-        setUserRole(user?.user_metadata?.role || 'user')
-        setUserEmail(user?.email || null)
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
-    }
 
     const fetchQuarantinedDevices = async () => {
         try {
             const res = await fetch("/api/devices/list")
             const data = await res.json()
 
-<<<<<<< HEAD
             // The API /api/devices/list already handles role-based filtering:
             // - Admins see all
             // - Approvers see own + subnets
@@ -91,16 +79,6 @@ export function QuarantineManagement() {
                     device_id: d.device_id || d.id
                 }))
                 .filter((d: Device) => d.is_quarantined)
-=======
-            // Show only quarantined devices and normalize IDs
-            const quarantinedDevices = (data.devices || [])
-                .map((d: any) => ({
-                    ...d,
-                    device_id: d.device_id || d.id // Ensure device_id is present
-                }))
-                .filter((d: Device) => d.is_quarantined)
-                .filter((d: Device) => userRole === 'admin' || d.owner?.toLowerCase().trim() === userEmail?.toLowerCase().trim())
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 
             setDevices(quarantinedDevices)
             setLoading(false)
@@ -147,11 +125,7 @@ export function QuarantineManagement() {
                         View and release devices that have been quarantined from network access
                     </p>
                 </div>
-<<<<<<< HEAD
                 {(isAdmin || isApprover) && (
-=======
-                {userRole === 'admin' && (
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
                     <Button
                         onClick={() => setDeviceSelectorOpen(true)}
                         className="gap-2"
@@ -191,11 +165,7 @@ export function QuarantineManagement() {
                                         <TableHead>Status</TableHead>
                                         <TableHead>Quarantine Reason</TableHead>
                                         <TableHead>Quarantined At</TableHead>
-<<<<<<< HEAD
                                         {(isAdmin || isApprover) && <TableHead>Actions</TableHead>}
-=======
-                                        {userRole === 'admin' && <TableHead>Actions</TableHead>}
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -227,11 +197,7 @@ export function QuarantineManagement() {
                                             <TableCell className="text-sm text-muted-foreground">
                                                 {device.quarantined_at ? new Date(device.quarantined_at).toLocaleString() : "-"}
                                             </TableCell>
-<<<<<<< HEAD
                                             {(isAdmin || isApprover) && (
-=======
-                                            {userRole === 'admin' && (
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
                                                 <TableCell>
                                                     <Button
                                                         variant="outline"

@@ -1,36 +1,3 @@
-<<<<<<< HEAD
-"use client"
-
-import { Navigation } from "@/components/navigation"
-import { SubnetAssignmentManagement } from "@/components/admin/subnet-assignment"
-import { Card, CardContent } from "@/components/ui/card"
-import { ShieldCheck } from "lucide-react"
-
-export default function RolesPage() {
-    return (
-        <div className="min-h-screen bg-muted/40 flex flex-col">
-            <Navigation />
-            <main className="flex-1 p-6 lg:p-10 space-y-6">
-                <div className="flex items-center gap-4">
-                    <div className="p-3 bg-primary/10 rounded-full">
-                        <ShieldCheck className="w-8 h-8 text-primary" />
-                    </div>
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Role Management</h1>
-                        <p className="text-muted-foreground">Manage user roles and subnet-based approval delegation.</p>
-                    </div>
-                </div>
-
-                <Card>
-                    <CardContent className="pt-6">
-                        <SubnetAssignmentManagement />
-                    </CardContent>
-                </Card>
-            </main>
-        </div>
-    )
-}
-=======
 "use client"
 
 import { useEffect, useState } from "react"
@@ -38,8 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { SubnetAssignmentManagement } from "@/components/admin/subnet-assignment"
 import { Navigation } from "@/components/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Shield, ShieldAlert, UserCheck } from "lucide-react"
 
 export default function RolesPage() {
@@ -57,8 +23,9 @@ export default function RolesPage() {
             }
 
             // Check for admin role
-            const role = user.user_metadata?.role
-            if (role !== "admin") {
+            const role = user.user_metadata?.role || 'user'
+            const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'))
+            if (!isAdmin) {
                 router.push("/")
                 return
             }
@@ -138,4 +105,3 @@ export default function RolesPage() {
         </div>
     )
 }
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c

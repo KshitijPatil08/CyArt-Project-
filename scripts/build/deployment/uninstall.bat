@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 @echo off
 REM CyArt Security Agent Uninstaller
 echo ======================================
@@ -26,32 +25,3 @@ if exist "%INSTALL_DIR%" (
 echo.
 echo Uninstallation completed.
 pause
-=======
-@echo off
-REM CyArt Security Agent Uninstaller
-echo ======================================
-echo CyArt Security Agent Uninstaller
-echo ======================================
-echo.
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    echo ERROR: Administrator privileges required!
-    pause
-    exit /b 1
-)
-echo Stopping CyArt Agent service...
-sc stop "CyArtAgent" >nul 2>&1
-timeout /t 3 /nobreak >nul
-echo Removing service...
-sc delete "CyArtAgent" >nul 2>&1
-echo Removing firewall rule...
-netsh advfirewall firewall delete rule name="CyArt Agent" >nul 2>&1
-echo Removing installation files...
-set "INSTALL_DIR=%ProgramFiles%\CyArtAgent"
-if exist "%INSTALL_DIR%" (
-    rd /s /q "%INSTALL_DIR%"
-)
-echo.
-echo Uninstallation completed.
-pause
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c

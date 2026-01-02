@@ -14,18 +14,20 @@ export default function DevicesPage() {
   useEffect(() => {
     const checkAccess = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-<<<<<<< HEAD
       if (!user) {
-        router.push('/login')
-=======
-      const role = user?.user_metadata?.role || 'user'
-
-      if (role !== 'admin') {
-        router.push('/')
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
-      } else {
-        setLoading(false)
+        router.push('/auth/login')
+        return
       }
+
+      const role = user.user_metadata?.role || 'user'
+      const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'))
+
+      if (!isAdmin) {
+        router.push('/')
+        return
+      }
+
+      setLoading(false)
     }
     checkAccess()
   }, [])

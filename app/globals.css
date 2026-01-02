@@ -1,8 +1,5 @@
 @import 'tailwindcss';
-<<<<<<< HEAD
-=======
 @import 'reactflow/dist/style.css';
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 
 @custom-variant dark (&:is(.dark *));
 
@@ -150,11 +147,4 @@
   body {
     @apply bg-background text-foreground;
   }
-<<<<<<< HEAD
 }
-
-/* ReactFlow styles */
-@import 'reactflow/dist/style.css';
-=======
-}
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c

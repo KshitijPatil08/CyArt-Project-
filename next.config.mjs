@@ -9,8 +9,6 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-<<<<<<< HEAD
-=======
   async redirects() {
     return [
       {
@@ -25,7 +23,6 @@ const nextConfig = {
       },
     ]
   },
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
   async headers() {
     return [
       {
@@ -67,7 +64,6 @@ const nextConfig = {
       }
     ]
   },
-<<<<<<< HEAD
   webpack: (config, { dev, isServer }) => {
     if (dev) {
       config.infrastructureLogging = {
@@ -79,9 +75,7 @@ const nextConfig = {
     }
     return config;
   },
-=======
   outputFileTracingRoot: new URL('.', import.meta.url).pathname,
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 }
 
 export default nextConfig

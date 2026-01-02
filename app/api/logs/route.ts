@@ -27,7 +27,6 @@ export async function GET(request: NextRequest) {
     const before = searchParams.get("before");
 
     const { data: { user } } = await supabase.auth.getUser();
-<<<<<<< HEAD
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
     }
@@ -63,26 +62,8 @@ export async function GET(request: NextRequest) {
         .eq('user_id', user.id);
 
       allowedSubnets = assignments?.flatMap(a => a.subnet_cidrs || []) || [];
-
-      // For approvers, we filter by (Owner matches EMAIL) OR (Device IP in Subnet)
-      // Since we already did devices!inner(*), we can use the joined device data.
-      // But wait, it's easier to filter the results in memory or via a complex query.
-      // For now, let's allow the query to fetch all, and we'll filter the results if needed, 
-      // OR we can try to use a filtered devices join.
-
-      // Better strategy: We can't easily do or(owner.eq, ip.in_subnet) in a single Supabase query filter.
-      // So we will fetch all (subset) and filter in memory for the response.
     } else if (user.email) {
       // Standard User: Only own devices
-=======
-
-    let query = supabase
-      .from("logs")
-      .select("*, devices!inner(*)", { count: "exact" });
-
-    // RBAC: If not admin, only show logs for user's devices
-    if (user?.user_metadata?.role !== 'admin' && user?.email) {
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
       query = query.eq("devices.owner", user.email);
     }
 
@@ -92,7 +73,6 @@ export async function GET(request: NextRequest) {
 
     if (logType && logType !== "all") {
       if (logType === "usb") {
-        // Include direct USB logs, hardware USB events, AND security logs mentioning USB
         query = query.or("log_type.eq.usb,and(log_type.eq.hardware,hardware_type.eq.usb),and(log_type.eq.security,message.ilike.%USB%)");
       } else if (logType === "network_topology" || logType === "topology") {
         query = query.or("log_type.eq.network_topology,log_type.eq.topology");
@@ -121,21 +101,15 @@ export async function GET(request: NextRequest) {
       query = query.lte("timestamp", before);
     }
 
-<<<<<<< HEAD
     let { data, error, count } = await query
-=======
-    const { data, error, count } = await query
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
       .order("timestamp", { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) throw error;
 
-<<<<<<< HEAD
     // --- Post-fetch Filtering for Approvers ---
     if (!isAdmin && isApprover) {
       const { isIpInSubnet } = await import("@/lib/utils/subnet");
-      // Filter logs: Device owner matches Approver EMAIL OR Device IP is in assigned Subnet
       data = data?.filter((log: any) => {
         const device = log.devices;
         if (!device) return false;
@@ -147,8 +121,6 @@ export async function GET(request: NextRequest) {
       }) || [];
     }
 
-=======
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
     return NextResponse.json({
       success: true,
       count: data?.length || 0,

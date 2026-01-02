@@ -1,7 +1,6 @@
 // app/api/software/request/route.ts
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
-<<<<<<< HEAD
 import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
 import crypto from "crypto";
@@ -13,11 +12,6 @@ function getRequestIp(request: NextRequest) {
 }
 
 
-=======
-import crypto from "crypto";
-import { z } from "zod";
-
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
 const softwareRequestSchema = z.object({
     name: z.string().min(1),
     publisher: z.string().optional(),
@@ -39,18 +33,13 @@ function generateSoftwareHash(data: any) {
 export async function GET(request: NextRequest) {
     try {
         const supabase = await createClient();
-<<<<<<< HEAD
         const { data: requests, error } = await supabase
-=======
-        const { data, error } = await supabase
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
             .from("software_approval_requests")
             .select("*")
             .eq("status", "pending")
             .order("requested_at", { ascending: false });
         if (error) throw error;
 
-<<<<<<< HEAD
         // AUTH CHECK
         const { data: { user } } = await supabase.auth.getUser();
         // If unauthenticated, public API might be intended? Original code didn't check.
@@ -90,9 +79,7 @@ export async function GET(request: NextRequest) {
         }
 
         return NextResponse.json({ success: true, requests: filteredRequests });
-=======
-        return NextResponse.json({ success: true, requests: data });
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
+
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -158,12 +145,9 @@ export async function POST(request: NextRequest) {
                 device_id,
                 computer_name,
                 fingerprint_hash,
-<<<<<<< HEAD
                 status: "pending",
                 ip_address: getRequestIp(request)
-=======
-                status: "pending"
->>>>>>> 478bdfe45f70ad6bff9edf5accff51b1e5aafa2c
+
             }
         ]);
         if (error) throw error;
