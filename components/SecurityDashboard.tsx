@@ -11,6 +11,7 @@ import { ApproverDashboardWidget } from './approver-dashboard-widget';
 import { createClient } from '@/lib/supabase/client';
 
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
@@ -450,13 +451,29 @@ export default function SecurityDashboard() {
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            Security Monitoring Dashboard
-          </h1>
-          <p className="text-muted-foreground">
-            Real-time USB and device monitoring
-          </p>
+        <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-3xl font-bold text-foreground">
+                Security Monitoring Dashboard
+              </h1>
+              {userRole && (
+                <Badge
+                  variant="outline"
+                  className={`px-3 py-1 uppercase tracking-widest text-[10px] font-black border-primary/30 bg-primary/5 text-primary animate-in fade-in slide-in-from-left-2 duration-500`}
+                >
+                  {userRole} Authority
+                </Badge>
+              )}
+            </div>
+            <p className="text-muted-foreground">
+              {userRole === 'admin'
+                ? 'Global administrative control over USB and network security'
+                : userRole === 'approver'
+                  ? 'Localized authority for regional USB approval requests'
+                  : 'Individual endpoint monitoring and security status'}
+            </p>
+          </div>
         </div>
 
         {/* Stats */}
