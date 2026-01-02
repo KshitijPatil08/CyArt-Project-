@@ -8,10 +8,22 @@ import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+        process.env.NEXT_PUBLIC_APP_URL || '',
+        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+    ]
+).filter(Boolean);
+
+function getCorsHeaders(request: NextRequest) {
+    const origin = request.headers.get('origin');
+    const isAllowed = allowedOrigins.includes(origin || '');
+    return {
+        'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Credentials': 'true',
+    };
 }
 
 async function getSupabaseClient() {
@@ -48,17 +60,18 @@ async function getSupabaseClient() {
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
-        headers: corsHeaders,
+        headers: getCorsHeaders(request),
     })
 }
 
 export async function GET(request: NextRequest) {
+    const headers = getCorsHeaders(request);
     try {
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
             console.error("Missing Supabase environment variables")
             return NextResponse.json(
                 { error: "Server configuration error: Missing Supabase credentials" },
-                { status: 500, headers: corsHeaders }
+                { status: 500, headers: headers }
             )
         }
 
@@ -69,7 +82,7 @@ export async function GET(request: NextRequest) {
             console.error("Failed to create Supabase client:", error)
             return NextResponse.json(
                 { error: "Failed to initialize database connection", details: error.message },
-                { status: 500, headers: corsHeaders }
+                { status: 500, headers: headers }
             )
         }
 
@@ -79,7 +92,7 @@ export async function GET(request: NextRequest) {
             console.error("[DEVICES LIST] Unauthorized access attempt")
             return NextResponse.json(
                 { error: "Unauthorized: Please log in" },
-                { status: 401, headers: corsHeaders }
+                { status: 401, headers: headers }
             )
         }
 
@@ -93,7 +106,7 @@ export async function GET(request: NextRequest) {
             console.error("[DEVICES LIST] Error fetching devices:", fetchError)
             return NextResponse.json(
                 { error: "Database query failed", details: fetchError.message },
-                { status: 500, headers: corsHeaders }
+                { status: 500, headers: headers }
             )
         }
 
@@ -195,7 +208,7 @@ export async function GET(request: NextRequest) {
                 devices: transformedDevices,
                 count: transformedDevices.length
             },
-            { status: 200, headers: corsHeaders }
+            { status: 200, headers: headers }
         )
 
     } catch (error: any) {
@@ -206,7 +219,7 @@ export async function GET(request: NextRequest) {
                 details: error?.message || "Unknown error",
                 stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
             },
-            { status: 500, headers: corsHeaders }
+            { status: 500, headers: headers }
         )
     }
 }

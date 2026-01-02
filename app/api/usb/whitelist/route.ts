@@ -1,18 +1,34 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+const allowedOrigins = (
+  process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+    process.env.NEXT_PUBLIC_APP_URL || '',
+    process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+  ]
+).filter(Boolean);
+
+function getCorsHeaders(request: NextRequest) {
+  const origin = request.headers.get('origin');
+  const isAllowed = allowedOrigins.includes(origin || '');
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
+  };
 }
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: getCorsHeaders(request),
+  });
 }
 
 // Get all authorized USB devices
 export async function GET(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
     const supabase = await createClient(); // Standard client for Auth
     const { searchParams } = new URL(request.url);
@@ -21,7 +37,7 @@ export async function GET(request: NextRequest) {
     // Auth Check
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: headers });
     }
 
     // Role Check: Handle string or array
@@ -115,21 +131,22 @@ export async function GET(request: NextRequest) {
       success: true,
       count: filteredData.length,
       devices: filteredData,
-    }, { headers: corsHeaders });
+    }, { headers: headers });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: headers }
     );
   }
 }
 
 // Add authorized USB device
 export async function POST(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: headers });
 
     // Role Check
     const role = user.user_metadata?.role || 'user';
@@ -137,7 +154,7 @@ export async function POST(request: NextRequest) {
     const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
 
     if (!isAdmin && !isApprover) {
-      return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
+      return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: headers });
     }
 
     const body = await request.json();
@@ -153,7 +170,7 @@ export async function POST(request: NextRequest) {
     if (!serial_number || !device_name) {
       return NextResponse.json(
         { error: "serial_number and device_name are required" },
-        { status: 400, headers: corsHeaders }
+        { status: 400, headers: headers }
       );
     }
 
@@ -184,21 +201,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       device: data,
-    }, { headers: corsHeaders });
+    }, { headers: headers });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: headers }
     );
   }
 }
 
 // Update authorized USB device
 export async function PUT(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: headers });
 
     // Role Check
     const role = user.user_metadata?.role || 'user';
@@ -206,7 +224,7 @@ export async function PUT(request: NextRequest) {
     const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
 
     if (!isAdmin && !isApprover) {
-      return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
+      return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: headers });
     }
 
     const body = await request.json();
@@ -215,7 +233,7 @@ export async function PUT(request: NextRequest) {
     if (!id) {
       return NextResponse.json(
         { error: "id is required" },
-        { status: 400, headers: corsHeaders }
+        { status: 400, headers: headers }
       );
     }
 
@@ -234,21 +252,22 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       success: true,
       device: data,
-    }, { headers: corsHeaders });
+    }, { headers: headers });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: headers }
     );
   }
 }
 
 // Delete authorized USB device
 export async function DELETE(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: headers });
 
     // Role Check
     const role = user.user_metadata?.role || 'user';
@@ -256,7 +275,7 @@ export async function DELETE(request: NextRequest) {
     const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
 
     if (!isAdmin && !isApprover) {
-      return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
+      return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: headers });
     }
 
     const { searchParams } = new URL(request.url);
@@ -265,7 +284,7 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json(
         { error: "id is required" },
-        { status: 400, headers: corsHeaders }
+        { status: 400, headers: headers }
       );
     }
 
@@ -278,11 +297,11 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-    }, { headers: corsHeaders });
+    }, { headers: headers });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: headers }
     );
   }
 }

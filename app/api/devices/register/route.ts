@@ -30,10 +30,10 @@ function getCorsHeaders(request: NextRequest) {
   const isAllowed = allowedOrigins.includes(origin || '');
 
   return {
-    'Access-Control-Allow-Origin': isAllowed ? origin! : 'null',
+    'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Agent-Key',
   };
 }
 
@@ -96,12 +96,25 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
+    // SECURITY: Verify Agent Secret Key
+    const agentKey = request.headers.get('x-agent-key');
+    const expectedKey = process.env.AGENT_SECRET_KEY;
+
+    if (expectedKey && agentKey !== expectedKey) {
+      console.error("[REGISTRATION] Unauthorized agent access attempt");
+      return NextResponse.json(
+        { error: "Unauthorized: Invalid Agent Key" },
+        { status: 401, headers }
+      );
+    }
+
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       console.error("Missing Supabase environment variables")
       return NextResponse.json(
         { error: "Server configuration error: Missing Supabase credentials" },
-        { status: 500, headers: getCorsHeaders(request) }
+        { status: 500, headers }
       )
     }
 
@@ -112,7 +125,7 @@ export async function POST(request: NextRequest) {
       console.error("Failed to create Supabase client:", error)
       return NextResponse.json(
         { error: "Failed to initialize database connection", details: error.message },
-        { status: 500, headers: getCorsHeaders(request) }
+        { status: 500, headers }
       )
     }
 
@@ -124,7 +137,7 @@ export async function POST(request: NextRequest) {
       console.error("Failed to parse request body:", e)
       return NextResponse.json(
         { error: "Invalid JSON body" },
-        { status: 400, headers: getCorsHeaders(request) }
+        { status: 400, headers: headers }
       )
     }
 
@@ -132,7 +145,7 @@ export async function POST(request: NextRequest) {
     if (!validationResult.success) {
       return NextResponse.json(
         { error: "Validation failed", details: validationResult.error.format() },
-        { status: 400, headers: getCorsHeaders(request) }
+        { status: 400, headers: headers }
       );
     }
 
@@ -165,7 +178,7 @@ export async function POST(request: NextRequest) {
       console.error("[REGISTRATION] Error checking existing device:", fetchError)
       return NextResponse.json(
         { error: "Database query failed", details: fetchError.message },
-        { status: 500, headers: getCorsHeaders(request) }
+        { status: 500, headers: headers }
       )
     }
 
@@ -215,7 +228,7 @@ export async function POST(request: NextRequest) {
         console.error("[REGISTRATION] Error updating device:", updateError)
         return NextResponse.json(
           { error: "Failed to update device", details: updateError.message },
-          { status: 500, headers: getCorsHeaders(request) }
+          { status: 500, headers: headers }
         )
       }
 
@@ -285,7 +298,7 @@ export async function POST(request: NextRequest) {
         console.error("[REGISTRATION] Error creating device:", insertError)
         return NextResponse.json(
           { error: "Failed to create device", details: insertError.message },
-          { status: 500, headers: getCorsHeaders(request) }
+          { status: 500, headers: headers }
         )
       }
 
@@ -343,7 +356,7 @@ export async function POST(request: NextRequest) {
         is_new_device: isNewDevice,
         message: isNewDevice ? "Device registered successfully" : "Device re-registered successfully"
       },
-      { status: isNewDevice ? 201 : 200, headers: getCorsHeaders(request) }
+      { status: isNewDevice ? 201 : 200, headers: headers }
     )
 
   } catch (error: any) {

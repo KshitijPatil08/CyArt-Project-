@@ -6,6 +6,31 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import crypto from "crypto";
 import { z } from "zod";
 
+const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+        process.env.NEXT_PUBLIC_APP_URL || '',
+        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+    ]
+).filter(Boolean);
+
+function getCorsHeaders(request: NextRequest) {
+    const origin = request.headers.get('origin');
+    const isAllowed = allowedOrigins.includes(origin || '');
+    return {
+        'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-agent-key',
+        'Access-Control-Allow-Credentials': 'true',
+    };
+}
+
+export async function OPTIONS(request: NextRequest) {
+    return new NextResponse(null, {
+        status: 200,
+        headers: getCorsHeaders(request),
+    });
+}
+
 function getRequestIp(request: NextRequest) {
     const forwardedFor = request.headers.get('x-forwarded-for');
     return forwardedFor ? forwardedFor.split(',')[0].trim() : '127.0.0.1';
@@ -31,6 +56,7 @@ function generateSoftwareHash(data: any) {
 }
 
 export async function GET(request: NextRequest) {
+    const headers = getCorsHeaders(request);
     try {
         const supabase = await createClient();
         const { data: requests, error } = await supabase
@@ -45,7 +71,7 @@ export async function GET(request: NextRequest) {
         // If unauthenticated, public API might be intended? Original code didn't check.
         // Assuming public for agents? But this is GET (Admin Dashboard).
         // Let's protect it.
-        if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
 
         const role = user.user_metadata?.role || 'user';
         const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
@@ -78,15 +104,28 @@ export async function GET(request: NextRequest) {
             filteredRequests = [];
         }
 
-        return NextResponse.json({ success: true, requests: filteredRequests });
+        return NextResponse.json({ success: true, requests: filteredRequests }, { headers });
 
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: error.message }, { status: 500, headers });
     }
 }
 
 export async function POST(request: NextRequest) {
+    const headers = getCorsHeaders(request);
     try {
+        // SECURITY: Verify Agent Secret Key
+        const agentKey = request.headers.get('x-agent-key');
+        const expectedKey = process.env.AGENT_SECRET_KEY;
+
+        if (expectedKey && agentKey !== expectedKey) {
+            console.error("[SOFTWARE-REQUEST] Unauthorized agent access attempt");
+            return NextResponse.json(
+                { error: "Unauthorized: Invalid Agent Key" },
+                { status: 401, headers }
+            );
+        }
+
         const supabase = createAdminClient();
         const body = await request.json();
 
@@ -94,7 +133,7 @@ export async function POST(request: NextRequest) {
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400 }
+                { status: 400, headers }
             );
         }
 
@@ -109,7 +148,7 @@ export async function POST(request: NextRequest) {
         if (!name || !device_id) {
             return NextResponse.json(
                 { error: "Missing required fields: name, device_id" },
-                { status: 400 }
+                { status: 400, headers }
             );
         }
 
@@ -123,7 +162,7 @@ export async function POST(request: NextRequest) {
             .eq("status", "pending")
             .maybeSingle();
         if (existingRequest) {
-            return NextResponse.json({ success: true, message: "Request already pending" });
+            return NextResponse.json({ success: true, message: "Request already pending" }, { headers });
         }
 
         // Check if already authorized
@@ -134,7 +173,7 @@ export async function POST(request: NextRequest) {
             .maybeSingle();
 
         if (existingAuth) {
-            return NextResponse.json({ success: true, message: "Software already authorized" });
+            return NextResponse.json({ success: true, message: "Software already authorized" }, { headers });
         }
 
         const { error } = await supabase.from("software_approval_requests").insert([
@@ -151,8 +190,8 @@ export async function POST(request: NextRequest) {
             }
         ]);
         if (error) throw error;
-        return NextResponse.json({ success: true, message: "Software request submitted" });
+        return NextResponse.json({ success: true, message: "Software request submitted" }, { headers });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: error.message }, { status: 500, headers });
     }
 }

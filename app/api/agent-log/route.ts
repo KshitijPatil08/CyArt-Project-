@@ -22,21 +22,45 @@ const logSchema = z.object({
     owner: z.string().optional(),
 });
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+        process.env.NEXT_PUBLIC_APP_URL || '',
+        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+    ]
+).filter(Boolean);
+
+function getCorsHeaders(request: NextRequest) {
+    const origin = request.headers.get('origin');
+    const isAllowed = allowedOrigins.includes(origin || '');
+    return {
+        'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Agent-Key',
+        'Access-Control-Allow-Credentials': 'true',
+    };
+}
 
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
-        headers: corsHeaders,
+        headers: getCorsHeaders(request),
     });
 }
 
 export async function POST(request: NextRequest) {
+    const headers = getCorsHeaders(request);
     try {
+        // SECURITY: Verify Agent Secret Key
+        const agentKey = request.headers.get('x-agent-key');
+        const expectedKey = process.env.AGENT_SECRET_KEY;
+
+        if (expectedKey && agentKey !== expectedKey) {
+            console.error("[AGENT-LOG] Unauthorized agent access attempt");
+            return NextResponse.json(
+                { error: "Unauthorized: Invalid Agent Key" },
+                { status: 401, headers }
+            );
+        }
         // Use admin client (bypasses RLS)
         const supabase = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,7 +79,7 @@ export async function POST(request: NextRequest) {
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400, headers: corsHeaders }
+                { status: 400, headers }
             );
         }
 
@@ -135,14 +159,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 error: "Failed to create log",
                 details: logError.message
-            }, { status: 500, headers: corsHeaders });
+            }, { status: 500, headers });
         }
 
         return NextResponse.json({
             success: true,
             log_id: logData?.id,
             message: "Log created successfully"
-        }, { status: 201, headers: corsHeaders });
+        }, { status: 201, headers });
 
     } catch (error: any) {
         console.error("[AGENT-LOG] API error:", error);
@@ -151,7 +175,7 @@ export async function POST(request: NextRequest) {
                 error: "Internal server error",
                 details: error?.message || "Unknown error"
             },
-            { status: 500, headers: corsHeaders }
+            { status: 500, headers }
         );
     }
 }

@@ -399,7 +399,9 @@ var (
 	// Base64 Encoded API URL for Obfuscation - DEPRECATED / FALLBACK ONLY
 	// "http://localhost:3000" -> "aHR0cDovL2xvY2FsaG9zdDozMDAw"
 	encodedAPIURL = "aHR0cHM6Ly9saWx5LXJlY3J1ZGVzY2VudC1zY2FudGx5Lm5ncm9rLWZyZWUuZGV2"
+	encodedAgentKey = "" // To be injected by build script
 	apiURL        string
+	agentKey      string
 
 	agentDir      string
 	isQuarantined = false
@@ -695,6 +697,10 @@ func init() {
 		log.Fatal("FATAL: API URL not configured. Please set CYART_API_URL environment variable or create agent.config file with server_url.")
 	}
 
+	if decodedKey, err := base64.StdEncoding.DecodeString(encodedAgentKey); err == nil {
+		agentKey = string(decodedKey)
+	}
+
 
 	loadDeviceID()
 	go captureLLDP()
@@ -918,7 +924,14 @@ func initializeDevice() error {
 	data, _ := json.Marshal(reg)
 	url := fmt.Sprintf("%s/api/devices/register", apiURL)
 
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(data)))
+	req_reg, _ := http.NewRequest("POST", url, strings.NewReader(string(data)))
+	req_reg.Header.Set("Content-Type", "application/json")
+	if agentKey != "" {
+		req_reg.Header.Set("X-Agent-Key", agentKey)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req_reg)
 	if err != nil {
 		return fmt.Errorf("connect error: %v", err)
 	}
@@ -1047,8 +1060,13 @@ func checkQuarantineStatus() {
 	}
 
 	url := fmt.Sprintf("%s/api/devices/quarantine/status?device_id=%s", apiURL, deviceID)
+	req_q, _ := http.NewRequest("GET", url, nil)
+	if agentKey != "" {
+		req_q.Header.Set("X-Agent-Key", agentKey)
+	}
+
 	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Do(req_q)
 
 	// Handle Network Error (likely if unblock failed or no internet)
 	if err != nil {
@@ -1846,6 +1864,9 @@ func updateUSBConnectionStatus(serialNumber string, status string) {
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		if agentKey != "" {
+			req.Header.Set("X-Agent-Key", agentKey)
+		}
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
@@ -2374,9 +2395,15 @@ func sendLog(entry LogEntry) {
 		data, _ := json.Marshal(entry)
 		url := fmt.Sprintf("%s/api/agent-log", apiURL)
 
+		req_l, _ := http.NewRequest("POST", url, strings.NewReader(string(data)))
+		req_l.Header.Set("Content-Type", "application/json")
+		if agentKey != "" {
+			req_l.Header.Set("X-Agent-Key", agentKey)
+		}
+
 		// Use a client with timeout for background sends
 		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Post(url, "application/json", strings.NewReader(string(data)))
+		resp, err := client.Do(req_l)
 		if err != nil {
 			logMessage("Log send error: " + err.Error())
 			return

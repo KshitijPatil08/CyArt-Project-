@@ -1,15 +1,53 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { type NextRequest, NextResponse } from "next/server"
 
+const allowedOrigins = (
+  process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+    process.env.NEXT_PUBLIC_APP_URL || '',
+    process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+  ]
+).filter(Boolean);
+
+function getCorsHeaders(request: NextRequest) {
+  const origin = request.headers.get('origin');
+  const isAllowed = allowedOrigins.includes(origin || '');
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-agent-key',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: getCorsHeaders(request),
+  });
+}
+
 // GET /api/devices/quarantine/status - Check device quarantine status
 export async function GET(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
+    // SECURITY: Verify Agent Secret Key
+    const agentKey = request.headers.get('x-agent-key');
+    const expectedKey = process.env.AGENT_SECRET_KEY;
+
+    if (expectedKey && agentKey !== expectedKey) {
+      console.error("[QUARANTINE-STATUS] Unauthorized agent access attempt");
+      return NextResponse.json(
+        { error: "Unauthorized: Invalid Agent Key" },
+        { status: 401, headers }
+      );
+    }
+
     const supabase = createAdminClient()
     const { searchParams } = new URL(request.url)
     const device_id = searchParams.get("device_id")
 
     if (!device_id) {
-      return NextResponse.json({ error: "Missing device_id" }, { status: 400 })
+      return NextResponse.json({ error: "Missing device_id" }, { status: 400, headers })
     }
 
     // Fetch Device Status & Global Policies
@@ -75,9 +113,9 @@ export async function GET(request: NextRequest) {
       usb_policies: usbPolicies,
       // Approved Software List
       approved_software: approvedSoftware
-    }, { status: 200 })
+    }, { status: 200, headers })
   } catch (error) {
     console.error("Status check error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ error: "Internal server error" }, { status: 500, headers })
   }
 }

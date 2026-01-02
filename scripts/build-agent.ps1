@@ -1,7 +1,7 @@
 # CyArt Agent - Mass Deployment Script for Windows
 # This script compiles the agent and creates deployment packages
 
-Param([string]$ServerUrl)
+Param([string]$ServerUrl, [string]$AgentSecretKey)
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  CyArt Agent Builder" -ForegroundColor Cyan
@@ -25,6 +25,15 @@ else {
 if ([string]::IsNullOrWhiteSpace($SERVER_URL)) {
     Write-Host "Error: Server URL is required!" -ForegroundColor Red
     exit 1
+}
+
+# Prompt for agent secret key if not provided
+if ([string]::IsNullOrWhiteSpace($AgentSecretKey)) {
+    Write-Host "Enter your Agent Secret Key (leave blank if none):" -ForegroundColor Yellow
+    $AGENT_KEY = Read-Host "Agent Secret Key"
+}
+else {
+    $AGENT_KEY = $AgentSecretKey
 }
 
 # Build the agent as Windows executable
@@ -54,12 +63,18 @@ catch {
     Write-Host "Warning: go get failed." -ForegroundColor Yellow
 }
 
-# Update the DEFAULT_API_URL in the source code
+# Update the DEFAULT_API_URL and AGENT_KEY in the source code
 $srcFile = Join-Path $SCRIPT_DIR "windows-agent-production.go"
-Write-Host "Configuring server URL in source..." -ForegroundColor Yellow
+Write-Host "Configuring server URL and agent key in source..." -ForegroundColor Yellow
 $agentCode = Get-Content $srcFile -Raw
 $encodedServerUrl = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($SERVER_URL))
 $newCode = $agentCode -replace 'encodedAPIURL\s*=\s*".*?"', ('encodedAPIURL = "' + $encodedServerUrl + '"')
+
+if (![string]::IsNullOrWhiteSpace($AGENT_KEY)) {
+    $encodedKey = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($AGENT_KEY))
+    $newCode = $newCode -replace 'encodedAgentKey\s*=\s*".*?"', ('encodedAgentKey = "' + $encodedKey + '"')
+}
+
 Set-Content -Path $srcFile -Value $newCode -Encoding UTF8
 
 # Compile Windows agent

@@ -15,21 +15,29 @@ function getRequestIp(request: NextRequest) {
 
 export const dynamic = 'force-dynamic'
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
+const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+        process.env.NEXT_PUBLIC_APP_URL || '',
+        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
+    ]
+).filter(Boolean);
 
 function getCorsHeaders(request: NextRequest) {
-    return corsHeaders;
+    const origin = request.headers.get('origin');
+    const isAllowed = allowedOrigins.includes(origin || '');
+    return {
+        'Access-Control-Allow-Origin': isAllowed ? origin! : (allowedOrigins[0] || '*'),
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-agent-key',
+        'Access-Control-Allow-Credentials': 'true',
+    };
 }
 
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
         headers: getCorsHeaders(request),
-    })
+    });
 }
 
 const usbRequestSchema = z.object({
@@ -73,13 +81,14 @@ function generateFingerprintHash(data: any) {
 
 // GET: Fetch pending USB approval requests and flag unknown agents
 export async function GET(request: NextRequest) {
+    const headers = getCorsHeaders(request);
     try {
         const supabase = await createClient();
 
         // AUTH CHECK
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
         }
 
         const role = user.user_metadata?.role || 'user';
@@ -197,21 +206,28 @@ export async function GET(request: NextRequest) {
 
 // POST: Agent submits a new USB request (allow unknown agents)
 export async function POST(request: NextRequest) {
+    const headers = getCorsHeaders(request);
     try {
+        // SECURITY: Verify Agent Secret Key
+        const agentKey = request.headers.get('x-agent-key');
+        const expectedKey = process.env.AGENT_SECRET_KEY;
+
+        if (expectedKey && agentKey !== expectedKey) {
+            console.error("[USB-REQUEST] Unauthorized agent access attempt");
+            return NextResponse.json(
+                { error: "Unauthorized: Invalid Agent Key" },
+                { status: 401, headers }
+            );
+        }
+
         const supabase = createAdminClient();
-
-        // NOTE: Agent submission might be unauthenticated if it's a new agent.
-        // For now, we allow POST but protect GET/PUT via auth checks.
-        // TODO: Implement device token header validation to secure this endpoint while
-        // allowing unknown agents to register on first submission.
-
         const body = await request.json();
 
         const validationResult = usbRequestSchema.safeParse(body);
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400, headers: getCorsHeaders(request) }
+                { status: 400, headers }
             );
         }
 
@@ -245,7 +261,7 @@ export async function POST(request: NextRequest) {
             .eq("status", "pending")
             .maybeSingle();
         if (existingRequest) {
-            return NextResponse.json({ success: true, message: "Request already pending" }, { headers: getCorsHeaders(request) });
+            return NextResponse.json({ success: true, message: "Request already pending" }, { headers });
         }
 
         // Prevent creating a request for a device that is already authorized
@@ -256,7 +272,7 @@ export async function POST(request: NextRequest) {
             .eq("is_active", true)
             .maybeSingle();
         if (existingAuth) {
-            return NextResponse.json({ success: true, message: "Device already authorized" }, { headers: getCorsHeaders(request) });
+            return NextResponse.json({ success: true, message: "Device already authorized" }, { headers });
         }
 
         const { error } = await supabase.from("usb_approval_requests").insert([
@@ -277,21 +293,22 @@ export async function POST(request: NextRequest) {
             }
         ]);
         if (error) throw error;
-        return NextResponse.json({ success: true, message: "Request submitted successfully" }, { headers: getCorsHeaders(request) });
+        return NextResponse.json({ success: true, message: "Request submitted successfully" }, { headers });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) });
+        return NextResponse.json({ error: error.message }, { status: 500, headers });
     }
 }
 
 // PUT: Admin approves or rejects a request
 export async function PUT(request: NextRequest) {
+    const headers = getCorsHeaders(request);
     try {
         const supabase = await createClient();
 
         // AUTH CHECK - Admin only
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
         }
 
         // Enforce Admin or Approver Role
@@ -309,7 +326,7 @@ export async function PUT(request: NextRequest) {
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400, headers: getCorsHeaders(request) }
+                { status: 400, headers: headers }
             );
         }
 
