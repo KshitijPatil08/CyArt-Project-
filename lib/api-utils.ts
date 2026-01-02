@@ -10,6 +10,11 @@ const allowedOrigins = (
     ]
 ).filter(Boolean);
 
+// Runtime validation to catch misconfiguration in production
+if (allowedOrigins.length === 0 && process.env.NODE_ENV === 'production') {
+    console.error("[SECURITY] CORS configuration error: No allowed origins defined. API will be inaccessible from browsers due to credential requirements.");
+}
+
 /**
  * Returns the CORS headers for a given request.
  * Validates the Origin header against the allowed origins list.
