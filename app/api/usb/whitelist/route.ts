@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { isIpInSubnet } from "@/lib/utils/subnet";
 
 // Restricted CORS (Same-origin only)
 const corsHeaders = {
@@ -56,17 +57,24 @@ export async function GET(request: NextRequest) {
       // For authorized devices, we store computer_name and device_id.
       const { data: allDevices } = await supabase
         .from('devices')
-        .select('device_id, ip_address');
+        .select('device_id, ip_address, hostname');
 
-      const allowedDeviceIds = new Set(
-        allDevices
-          ?.filter((d: any) => d.ip_address && allowedSubnets.some((cidr: string) => {
-            try { return require("@/lib/utils/subnet").isIpInSubnet(d.ip_address, cidr); } catch { return false; }
-          }))
-          .map((d: any) => d.device_id)
+      const allowedDeviceIds = new Set<string>();
+      const allowedHostnames = new Set<string>();
+
+      allDevices?.forEach((d: any) => {
+        if (d.ip_address && allowedSubnets.some((cidr: string) => {
+          try { return isIpInSubnet(d.ip_address, cidr); } catch { return false; }
+        })) {
+          if (d.device_id) allowedDeviceIds.add(d.device_id);
+          if (d.hostname) allowedHostnames.add(d.hostname.toLowerCase());
+        }
+      });
+
+      filteredDevices = filteredDevices.filter((d: any) =>
+        (d.device_id && allowedDeviceIds.has(d.device_id)) ||
+        (d.computer_name && allowedHostnames.has(d.computer_name.toLowerCase()))
       );
-
-      filteredDevices = filteredDevices.filter((d: any) => d.device_id && allowedDeviceIds.has(d.device_id));
     } else {
       // Regular user sees only devices assigned to their hostname(s)
       // This part matches the frontend logic

@@ -21,20 +21,29 @@ export async function GET(request: NextRequest) {
         const supabase = await createClient()
         const { data: { session } } = await supabase.auth.getSession()
         const user = session?.user
+        const role = user?.user_metadata?.role || 'user';
+        const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
+        const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
 
-        // 1. Check Auth & Admin Role
-        if (!user || user.user_metadata?.role !== 'admin') {
-            console.log("[Admin API] 403 Unauthorized. User:", user?.email, "Role:", user?.user_metadata?.role);
+        // 1. Check Auth & Role (Admin or Approver)
+        if (!user || (!isAdmin && !isApprover)) {
+            console.log("[Admin API] 403 Unauthorized. User:", user?.email, "Role:", role);
             return NextResponse.json({ error: "Unauthorized" }, { status: 403, headers: corsHeaders })
         }
 
         const adminClient = createAdminClient()
 
         // 2. Fetch Assignments
-        const { data: assignments, error } = await adminClient
+        let query = adminClient
             .from('subnet_assignments')
-            .select('*')
-            .order('created_at', { ascending: false })
+            .select('*');
+
+        // If not admin, only fetch their own assignments
+        if (!isAdmin) {
+            query = query.eq('user_id', user.id);
+        }
+
+        const { data: assignments, error } = await query.order('created_at', { ascending: false })
 
         if (error) throw error
 

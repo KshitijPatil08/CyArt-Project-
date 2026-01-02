@@ -22,6 +22,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { isIpInSubnet } from '@/lib/utils/subnet'
 
 // --- Custom Error Boundary to prevent crashes ---
 class ErrorBoundary extends React.Component<
@@ -639,9 +640,13 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
       }
 
       // 1. Add Subnet Group Node
-      // Find approver for this subnet
+      // Find approver for this subnet group
+      // An approver is linked to this group if their assigned CIDRs cover any agent in this group
       const assignment = subnetAssignments.find(a =>
-        a.subnet_cidrs.some((cidr: string) => cidr.startsWith(subnet))
+        a.subnet_cidrs.some((cidr: string) => {
+          // Check if any agent in this group falls into this CIDR
+          return subnetAgents.some(agent => agent.ip_address && isIpInSubnet(agent.ip_address, cidr));
+        })
       )
 
       nodes.push({
