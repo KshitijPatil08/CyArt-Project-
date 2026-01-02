@@ -9,6 +9,20 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  async redirects() {
+    return [
+      {
+        source: '/login',
+        destination: '/auth/login',
+        permanent: true,
+      },
+      {
+        source: '/admin/login',
+        destination: '/auth/admin/login',
+        permanent: true,
+      },
+    ]
+  },
   async headers() {
     return [
       {
@@ -50,6 +64,7 @@ const nextConfig = {
       }
     ]
   },
+  outputFileTracingRoot: new URL('.', import.meta.url).pathname,
 }
 
 export default nextConfig

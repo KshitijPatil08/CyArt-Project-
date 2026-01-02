@@ -15,14 +15,13 @@ function getRequestIp(request: NextRequest) {
 
 export const dynamic = 'force-dynamic'
 
-// Restricted CORS (Same-origin only)
 const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
 function getCorsHeaders(request: NextRequest) {
-    // In production, you would check origin here and return matched origin or null
     return corsHeaders;
 }
 
@@ -344,7 +343,42 @@ export async function PUT(request: NextRequest) {
                     .eq('user_id', user.id);
 
                 const allowedSubnets = assignments?.flatMap(a => a.subnet_cidrs || []) || [];
-                const isAllowed = reqData.ip_address && allowedSubnets.some(cidr => isIpInSubnet(reqData.ip_address, cidr));
+
+                // Check 1: Request comes physically from the Subnet
+                let isAllowed = false;
+                try {
+                    isAllowed = reqData.ip_address && allowedSubnets.some(cidr => isIpInSubnet(reqData.ip_address, cidr));
+                } catch (e) { }
+
+                // Check 2: Request comes from a Device Identity that belongs to the Subnet
+                // Aligns with GET logic to handle roaming, localhost tools, etc.
+                if (!isAllowed && allowedSubnets.length > 0) {
+                    const { data: allDevices } = await admin
+                        .from('devices')
+                        .select('device_id, hostname, ip_address');
+
+                    if (allDevices) {
+                        const allowedDeviceIds = new Set<string>();
+                        const allowedHostnames = new Set<string>();
+
+                        allDevices.forEach(d => {
+                            if (!d.ip_address) return;
+                            try {
+                                if (allowedSubnets.some(cidr => isIpInSubnet(d.ip_address, cidr))) {
+                                    if (d.device_id) allowedDeviceIds.add(d.device_id);
+                                    if (d.hostname) allowedHostnames.add(d.hostname.toLowerCase());
+                                }
+                            } catch (e) { }
+                        });
+
+                        const idMatch = reqData.device_id && allowedDeviceIds.has(reqData.device_id);
+                        const hostMatch = reqData.computer_name && allowedHostnames.has(reqData.computer_name.toLowerCase());
+
+                        if (idMatch || hostMatch) {
+                            isAllowed = true;
+                        }
+                    }
+                }
 
                 if (!isAllowed) {
                     return NextResponse.json({ error: "Forbidden: Request is outside your assigned subnets" }, { status: 403, headers: getCorsHeaders(request) });
@@ -372,8 +406,7 @@ export async function PUT(request: NextRequest) {
                         allowed_start_time: policies?.allowed_start_time || null,
                         allowed_end_time: policies?.allowed_end_time || null,
                         expiration_date: policies?.expiration_date || null,
-                        is_read_only: policies?.is_read_only || false,
-                        fingerprint_hash: reqData.fingerprint_hash // ADDED: Ensure duplicate detection works
+                        is_read_only: policies?.is_read_only || false
                     }
                 ]);
             if (insertError) {
