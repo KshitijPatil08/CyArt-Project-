@@ -50,6 +50,8 @@ export function SubnetAssignmentManagement() {
     const [isEditOpen, setIsEditOpen] = useState(false)
     const [editingAssignment, setEditingAssignment] = useState<SubnetAssignment | null>(null)
     const [editSubnets, setEditSubnets] = useState("")
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+    const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
 
     const { toast } = useToast()
     const supabase = createClient()
@@ -158,17 +160,24 @@ export function SubnetAssignmentManagement() {
         }
     }
 
-    // 4. Handle Delete Assignment
-    const handleDelete = async (user_id: string) => {
-        if (!confirm("Are you sure? This will remove the user's subnet access. If no subnets remain, they will be demoted to 'user'.")) return
+    // 4. Handle Delete Request
+    const handleDelete = (user_id: string) => {
+        setDeletingUserId(user_id)
+        setIsDeleteOpen(true)
+    }
+
+    // 4.5. Confirm Delete
+    const confirmDelete = async () => {
+        if (!deletingUserId) return
 
         try {
+            setSubmitting(true)
             // We use PUT with empty subnets to handle demotion correctly through our logic
             const res = await fetch('/api/admin/subnets', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    target_user_id: user_id,
+                    target_user_id: deletingUserId,
                     subnet_cidr: ""
                 })
             })
@@ -176,10 +185,14 @@ export function SubnetAssignmentManagement() {
             if (!res.ok) throw new Error("Failed to delete")
 
             toast({ title: "Success", description: "Assignment removed." })
+            setIsDeleteOpen(false)
+            setDeletingUserId(null)
             fetchAssignments()
         } catch (error) {
             console.error("Delete error:", error);
             toast({ title: "Error", description: "Failed to remove assignment", variant: "destructive" })
+        } finally {
+            setSubmitting(false)
         }
     }
 
@@ -279,6 +292,30 @@ export function SubnetAssignmentManagement() {
                                 <Button onClick={handleUpdateAssignment} disabled={submitting}>
                                     {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
                                     Update Assignment
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* Delete Confirmation Dialog */}
+                    <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2 text-red-600">
+                                    <Shield className="w-5 h-5" />
+                                    Confirm Removal
+                                </DialogTitle>
+                                <DialogDescription className="py-2">
+                                    Are you sure? This will remove the user's subnet access. If no subnets remain, they will be demoted to 'user'.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter className="gap-2 sm:gap-0">
+                                <Button variant="outline" onClick={() => setIsDeleteOpen(false)} disabled={submitting}>
+                                    Cancel
+                                </Button>
+                                <Button variant="destructive" onClick={confirmDelete} disabled={submitting}>
+                                    {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                                    Remove Access
                                 </Button>
                             </DialogFooter>
                         </DialogContent>

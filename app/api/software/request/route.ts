@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
     try {
-        const supabase = await createClient();
+        const supabase = createAdminClient();
         const body = await request.json();
 
         const validationResult = softwareRequestSchema.safeParse(body);

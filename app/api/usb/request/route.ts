@@ -198,7 +198,7 @@ export async function GET(request: NextRequest) {
 // POST: Agent submits a new USB request (allow unknown agents)
 export async function POST(request: NextRequest) {
     try {
-        const supabase = await createClient();
+        const supabase = createAdminClient();
 
         // NOTE: Agent submission might be unauthenticated if it's a new agent.
         // For now, we allow POST but protect GET/PUT via auth checks.

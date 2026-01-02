@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff, Edit } from "lucide-react"
+import { AlertCircle, Plus, Trash2, Copy, Eye, EyeOff, Shield, ShieldOff, Edit, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { QuarantineDialog } from "./quarantine-dialog"
 import { ReleaseDialog } from "./release-dialog"
@@ -77,6 +77,8 @@ export function DeviceManagement() {
     location: "",
     hostname: "",
   })
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [deletingDeviceData, setDeletingDeviceData] = useState<{ id: string; name: string } | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isApprover, setIsApprover] = useState(false)
@@ -183,14 +185,20 @@ export function DeviceManagement() {
     }
   }
 
-  const handleDeleteDevice = async (deviceId: string, deviceName: string) => {
-    if (!confirm(`Delete "${deviceName}" and all related records?`)) return
+  const handleDeleteDevice = (deviceId: string, deviceName: string) => {
+    setDeletingDeviceData({ id: deviceId, name: deviceName })
+    setIsDeleteOpen(true)
+  }
+
+  const confirmDeleteDevice = async () => {
+    if (!deletingDeviceData) return
 
     try {
+      setLoading(true)
       const response = await fetch("/api/devices/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ device_id: deviceId, purge_logs: true }),
+        body: JSON.stringify({ device_id: deletingDeviceData.id, purge_logs: true }),
       })
 
       if (!response.ok) {
@@ -199,10 +207,14 @@ export function DeviceManagement() {
       }
 
       toast({ title: "Success", description: "Device deleted successfully" })
+      setIsDeleteOpen(false)
+      setDeletingDeviceData(null)
       fetchDevices()
     } catch (error) {
       console.error("[v0] Error deleting device:", error)
       toast({ title: "Error", description: "Failed to delete device", variant: "destructive" })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -429,6 +441,29 @@ export function DeviceManagement() {
             </div>
             <Button onClick={handleUpdateDevice} className="w-full">
               Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" />
+              Confirm Deletion
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deletingDeviceData?.name}</strong>? This will purge all related logs and records permanently.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button variant="outline" onClick={() => setIsDeleteOpen(false)} disabled={loading}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteDevice} disabled={loading}>
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Delete Permanently
             </Button>
           </div>
         </DialogContent>
