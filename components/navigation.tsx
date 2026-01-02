@@ -88,9 +88,9 @@ export function Navigation() {
     }
 
     // User: Standard limits 
-    // Show: Dashboard, Devices, USB Whitelist, Quarantine
-    // Hide: Logs, Role Management, Software Approvals
-    const restrictedItems = ["Logs", "Role Management", "Software Approvals"];
+    // Show: Dashboard, USB Whitelist, Quarantine
+    // Hide: Logs, Role Management, Software Approvals, Devices
+    const restrictedItems = ["Logs", "Role Management", "Software Approvals", "Devices"];
     if (restrictedItems.includes(item.name)) {
       return false;
     }
@@ -146,7 +146,7 @@ export function Navigation() {
                   ? ["Dashboard", "Devices", "Logs"]
                   : isApprover
                     ? ["Dashboard", "Devices", "Software Approvals"]
-                    : ["Dashboard", "Devices"];
+                    : ["Dashboard"];
                 if (primaryItems.includes(item.name)) {
                   const isActive = pathname === item.href
                   return (
@@ -205,7 +205,7 @@ export function Navigation() {
                     {filteredNavigation.map((item) => {
                       const primaryItems = isApprover
                         ? ["Dashboard", "Devices", "Software Approvals"]
-                        : ["Dashboard", "Devices"];
+                        : ["Dashboard"];
                       if (!primaryItems.includes(item.name)) {
                         return (
                           <Link key={item.name} href={item.href} className="w-full">

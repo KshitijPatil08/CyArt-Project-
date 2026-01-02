@@ -732,9 +732,9 @@ export default function SecurityDashboard() {
                 Visual representation of connected devices. Green connections indicate online devices, gray indicates offline.
               </p>
               <NetworkTopology
-                devices={userRole === 'admin'
+                devices={isAdmin || isApprover
                   ? devices
-                  : [...filteredDevices, ...devices.filter(d => d.is_server)]
+                  : filteredDevices.filter(d => !d.is_server)
                 }
                 userRole={userRole || 'user'}
               />

@@ -21,8 +21,9 @@ export default function DevicesPage() {
 
       const role = user.user_metadata?.role || 'user'
       const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'))
+      const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'))
 
-      if (!isAdmin) {
+      if (!isAdmin && !isApprover) {
         router.push('/')
         return
       }
