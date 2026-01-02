@@ -103,7 +103,7 @@ export default function SecurityDashboard() {
     setServerUpdatedAt(new Date().toISOString());
   };
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://v0-project1-r9.vercel.app';
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
   const fetchDevices = async () => {
     try {
@@ -349,9 +349,6 @@ export default function SecurityDashboard() {
       // Admin or Approver:
       // Approvers receive a pre-filtered list from the API (Own + Subnet), so we trust 'devices'.
       if (isAdmin || isApprover) {
-        // Hide server devices from list (they are shown in the status card)
-        if (device.is_server) return false;
-
         // Apply search filter
         if (!searchQuery) return true;
 

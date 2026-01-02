@@ -119,7 +119,10 @@ export async function GET(request: NextRequest) {
 
             // 2. Filter: Show device if (Owner Matches) OR (IP in Assigned Subnet)
             filteredDevices = filteredDevices.filter((d: any) => {
-                const isOwner = d.owner === user.email;
+                const ownerEmail = d.owner?.toLowerCase().trim();
+                const userEmail = user.email?.toLowerCase().trim();
+                const isOwner = ownerEmail === userEmail;
+
                 // Check ownership first (fastest)
                 if (isOwner) return true;
 
@@ -131,7 +134,11 @@ export async function GET(request: NextRequest) {
             });
         } else {
             // Standard User: Only own devices
-            filteredDevices = filteredDevices.filter((d: any) => d.owner === user.email);
+            filteredDevices = filteredDevices.filter((d: any) => {
+                const ownerEmail = d.owner?.toLowerCase().trim();
+                const userEmail = user.email?.toLowerCase().trim();
+                return ownerEmail === userEmail;
+            });
         }
 
         // Auto-update stale devices to offline status (on-the-fly)
