@@ -48,7 +48,21 @@ export function verifyAgentKey(request: NextRequest): boolean {
         return false;
     }
 
-    return agentKey === expectedKey;
+    // Use a timing-safe comparison to avoid leaking information via timing side-channels.
+    // Simple constant-time string comparison implementation that works in edge and node runtimes.
+    function timingSafeEqual(a?: string | null, b?: string | null) {
+        if (!a || !b) return false;
+        let mism = 0;
+        const len = Math.max(a.length, b.length);
+        for (let i = 0; i < len; i++) {
+            const ac = a.charCodeAt(i) || 0;
+            const bc = b.charCodeAt(i) || 0;
+            mism |= ac ^ bc;
+        }
+        return mism === 0;
+    }
+
+    return timingSafeEqual(agentKey, expectedKey);
 }
 
 /**

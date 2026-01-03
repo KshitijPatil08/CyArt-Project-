@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
 
 // GET: List authorized software
 export async function GET(request: NextRequest) {
-    const headers = getCorsHeaders(request, 'GET, DELETE, OPTIONS');
+    const headers = getCorsHeaders(request, 'GET, OPTIONS');
 
     try {
         const supabase = await createClient();

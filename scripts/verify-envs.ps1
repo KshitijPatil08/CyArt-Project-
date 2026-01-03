@@ -2,7 +2,8 @@ Param()
 $required = @('SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY','JWT_SECRET','AGENT_SECRET_KEY','APP_URL')
 $missing = @()
 foreach ($v in $required) {
-    if (-not ${env:$v}) { $missing += $v }
+    $val = [Environment]::GetEnvironmentVariable($v)
+    if ([string]::IsNullOrEmpty($val)) { $missing += $v }
 }
 if ($missing.Count -gt 0) {
     Write-Host "Missing required environment variables: $($missing -join ', ')" -ForegroundColor Yellow

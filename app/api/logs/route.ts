@@ -7,6 +7,7 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
@@ -126,24 +127,25 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: getCorsHeaders(request) }
+      { status: 500, headers }
     );
   }
 }
 
 export async function DELETE(request: NextRequest) {
+  const headers = getCorsHeaders(request, 'DELETE, OPTIONS');
   try {
     const supabase = await createClient();
     const body = await request.json();
     const { data: { user } } = await supabase.auth.getUser();
     if (user?.user_metadata?.role !== 'admin') {
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: getCorsHeaders(request) });
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers });
     }
 
     const { after, before } = body;
 
     if (!after && !before) {
-      return NextResponse.json({ error: "Time range required" }, { status: 400, headers: getCorsHeaders(request) });
+      return NextResponse.json({ error: "Time range required" }, { status: 400, headers });
     }
 
     let query = supabase.from("logs").delete();
@@ -162,11 +164,11 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       success: true,
       deleted: data?.length || 0,
-    }, { headers: getCorsHeaders(request) });
+    }, { headers });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: getCorsHeaders(request) }
+      { status: 500, headers }
     );
   }
 }
