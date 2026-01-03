@@ -44,6 +44,9 @@ export async function middleware(request: NextRequest) {
       if (count > MAX_REQUESTS) {
         return NextResponse.json({ error: "Too many requests" }, { status: 429 })
       }
+      // If Redis check succeeded and did not exceed the limit, return early
+      // to avoid double-counting in the in-memory fallback.
+      return await updateSession(request)
     } catch (e) {
       // If Redis fails, fall back to in-memory limiter below
       console.error("Redis rate limit failed, falling back to in-memory limiter:", e)
