@@ -12,8 +12,12 @@ $env:SUPABASE_ANON_KEY = $env:NEXT_PUBLIC_SUPABASE_ANON_KEY
 # For safety, do NOT print full secret values to stdout. Print masked previews instead.
 function Mask-Secret([string]$s) {
 	if (-not $s) { return "(empty)" }
-	if ($s.Length -le 8) { return $s }
-	return $s.Substring(0,6) + '...' + $s.Substring($s.Length - 4)
+	# Always mask secrets to avoid accidental exposure of short test values.
+	$len = $s.Length
+	if ($len -le 8) {
+		return $s.Substring(0,1) + '...' + $s.Substring($len - 1)
+	}
+	return $s.Substring(0,4) + '...' + $s.Substring($len - 4)
 }
 
 Write-Output "SUPABASE_URL (preview) = $(Mask-Secret($env:SUPABASE_URL))"

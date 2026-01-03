@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const after = searchParams.get("after");
     const before = searchParams.get("before");
 
-    const headers = getCorsHeaders(request)
+    // `headers` already computed above; reuse it here.
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
