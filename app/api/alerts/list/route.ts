@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
       alerts: data || []
     }, { headers });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+    const headers = getCorsHeaders(request)
+    return NextResponse.json({ error: error.message }, { status: 500, headers });
   }
 }

@@ -12,7 +12,7 @@ const softwareApproveSchema = z.object({
 
 
 export async function POST(request: NextRequest) {
-    const corsHeaders = getCorsHeaders(request, 'POST, OPTIONS');
+    const headers = getCorsHeaders(request, 'POST, OPTIONS');
 
     try {
         const supabase = await createClient();
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
         // AUTH CHECK
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
         }
 
         // Role Detection
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
         const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
 
         if (!isAdmin && !isApprover) {
-            return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
+            return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers });
         }
 
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400, headers: corsHeaders }
+                { status: 400, headers: headers }
             );
         }
 
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
                 .update({ status: "rejected" })
                 .eq("id", id);
             if (error) throw error;
-            return NextResponse.json({ success: true, message: "Request rejected" }, { headers: corsHeaders });
+            return NextResponse.json({ success: true, message: "Request rejected" }, { headers: headers });
         }
 
         if (action === "approve") {
@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
                 const allowedSubnets = assignments?.flatMap(a => a.subnet_cidrs || []) || [];
                 const isAllowed = reqData.ip_address && allowedSubnets.some(cidr => isIpInSubnet(reqData.ip_address, cidr));
 
-                if (!isAllowed) {
-                    return NextResponse.json({ error: "Forbidden: Request is outside your assigned subnets" }, { status: 403, headers: corsHeaders });
+                    if (!isAllowed) {
+                    return NextResponse.json({ error: "Forbidden: Request is outside your assigned subnets" }, { status: 403, headers });
                 }
             }
 
@@ -106,24 +106,18 @@ export async function POST(request: NextRequest) {
                 .update({ status: "approved" })
                 .eq("id", id);
 
-            return NextResponse.json({ success: true, message: "Software approved successfully" }, { headers: corsHeaders });
+            return NextResponse.json({ success: true, message: "Software approved successfully" }, { headers });
         }
 
-        return NextResponse.json({ error: "Invalid action" }, { status: 400, headers: corsHeaders });
+        return NextResponse.json({ error: "Invalid action" }, { status: 400, headers });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+        return NextResponse.json({ error: error.message }, { status: 500, headers });
     }
 }
 
 // GET: List authorized software
 export async function GET(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
+    const headers = getCorsHeaders(request, 'GET, DELETE, OPTIONS');
 
     try {
         const supabase = await createClient();
@@ -131,7 +125,7 @@ export async function GET(request: NextRequest) {
         // AUTH CHECK - Require authentication for listing software
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
         }
 
         const { data, error } = await supabase
@@ -140,21 +134,15 @@ export async function GET(request: NextRequest) {
             .order("created_at", { ascending: false });
         if (error) throw error;
 
-        return NextResponse.json({ success: true, software: data }, { headers: corsHeaders });
+        return NextResponse.json({ success: true, software: data }, { headers });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+        return NextResponse.json({ error: error.message }, { status: 500, headers });
     }
 }
 
 // DELETE: Remove authorized software
 export async function DELETE(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
+    const headers = getCorsHeaders(request, 'DELETE, OPTIONS');
 
     try {
         const supabase = await createClient();
@@ -162,7 +150,7 @@ export async function DELETE(request: NextRequest) {
         // AUTH CHECK
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
         }
 
         // Role Check
@@ -171,14 +159,14 @@ export async function DELETE(request: NextRequest) {
         const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
 
         if (!isAdmin && !isApprover) {
-            return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
+            return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers });
         }
 
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
 
         if (!id) {
-            return NextResponse.json({ error: "id is required" }, { status: 400, headers: corsHeaders });
+            return NextResponse.json({ error: "id is required" }, { status: 400, headers });
         }
 
         const { error } = await supabase
@@ -188,21 +176,13 @@ export async function DELETE(request: NextRequest) {
 
         if (error) throw error;
 
-        return NextResponse.json({ success: true, message: "Software authorization removed" }, { headers: corsHeaders });
+        return NextResponse.json({ success: true, message: "Software authorization removed" }, { headers });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+        return NextResponse.json({ error: error.message }, { status: 500, headers });
     }
 }
 
 export async function OPTIONS(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    return NextResponse.json({}, {
-        headers: {
-            'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-            'Access-Control-Allow-Credentials': 'true',
-            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        }
-    });
+    return NextResponse.json({}, { headers: getCorsHeaders(request, 'GET, POST, DELETE, OPTIONS') });
 }
 

@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const { device_id, status, security_status } = body
 
     if (!device_id || !status) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400, headers: corsHeaders })
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400, headers })
     }
 
     const { data, error } = await supabase
@@ -40,9 +40,9 @@ export async function POST(request: NextRequest) {
 
     console.log(`[STATUS] Device ${device_id} updated: status=${status}, last_seen=${new Date().toISOString()}`)
 
-    return NextResponse.json({ success: true, data }, { status: 200, headers: corsHeaders })
+    return NextResponse.json({ success: true, data }, { status: 200, headers })
   } catch (error) {
     console.error("[STATUS] Update error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500, headers: corsHeaders })
+    return NextResponse.json({ error: "Internal server error" }, { status: 500, headers })
   }
 }
