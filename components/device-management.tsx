@@ -157,13 +157,14 @@ export function DeviceManagement() {
 
       toast({ title: "Success", description: "Device registered successfully" })
 
-      // Update local state temporarily to show credentials immediately
+      // Do NOT store or display raw plaintext passwords in the UI.
+      // The API now returns redacted passwords; store a redacted marker instead.
       setCredentials(prev => ({
         ...prev,
         [device.id]: {
           device_id: device.id,
           username: newCreds.username,
-          password: newCreds.password // Display the raw password return from action
+          password: 'REDACTED'
         }
       }))
 
@@ -540,11 +541,12 @@ export function DeviceManagement() {
                                   <div>
                                     <Label>Username</Label>
                                     <div className="flex gap-2 mt-1">
-                                      <Input value={credentials[device.id].username} readOnly />
+                                      <Input value={credentials[device.id]?.username ?? ''} readOnly />
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => copyToClipboard(credentials[device.id].username, "Username")}
+                                        onClick={() => copyToClipboard(credentials[device.id]?.username ?? '', "Username")}
+                                        disabled={!credentials[device.id]?.username}
                                       >
                                         <Copy className="w-4 h-4" />
                                       </Button>
@@ -555,7 +557,7 @@ export function DeviceManagement() {
                                     <div className="flex gap-2 mt-1">
                                       <Input
                                         type={showPassword[device.id] ? "text" : "password"}
-                                        value={credentials[device.id].password}
+                                        value={credentials[device.id]?.password ?? ''}
                                         readOnly
                                       />
                                       <Button
@@ -564,6 +566,7 @@ export function DeviceManagement() {
                                         onClick={() =>
                                           setShowPassword({ ...showPassword, [device.id]: !showPassword[device.id] })
                                         }
+                                        disabled={!credentials[device.id] || credentials[device.id].password === 'REDACTED'}
                                       >
                                         {showPassword[device.id] ? (
                                           <EyeOff className="w-4 h-4" />
@@ -574,7 +577,8 @@ export function DeviceManagement() {
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => copyToClipboard(credentials[device.id].password, "Password")}
+                                        onClick={() => copyToClipboard(credentials[device.id]?.password ?? '', "Password")}
+                                        disabled={!credentials[device.id] || credentials[device.id].password === 'REDACTED'}
                                       >
                                         <Copy className="w-4 h-4" />
                                       </Button>

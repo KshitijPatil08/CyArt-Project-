@@ -10,20 +10,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { type NextRequest, NextResponse } from "next/server";
 import { checkAndCreateAlerts } from "@/lib/alerts";
 import { trackDataTransfer } from "@/lib/trackers";
+import { getCorsHeaders } from "@/lib/api-utils";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json({}, { headers: getCorsHeaders(request) });
 }
 
 
 export async function POST(request: NextRequest) {
   try {
+    const headers = getCorsHeaders(request)
     const supabase = createAdminClient();
     const body = await request.json();
 
@@ -361,7 +357,7 @@ export async function POST(request: NextRequest) {
       success: true,
       log_id: logData?.id,
       message: "Log created successfully"
-    }, { status: 201, headers: corsHeaders });
+    }, { status: 201, headers });
 
 
   } catch (error: any) {

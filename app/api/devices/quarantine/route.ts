@@ -57,7 +57,7 @@ export async function PUT(request: NextRequest) {
 
     // Trigger hardware lock
     try {
-      const hardwareLockResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/devices/hardware-lock`, {
+      const hardwareLockResponse = await fetch(`${process.env.APP_URL || 'http://localhost:3000'}/api/devices/hardware-lock`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -151,7 +151,7 @@ export async function DELETE(request: NextRequest) {
 
     // Trigger hardware unlock
     try {
-      const hardwareUnlockResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/devices/hardware-lock`, {
+      const hardwareUnlockResponse = await fetch(`${process.env.APP_URL || 'http://localhost:3000'}/api/devices/hardware-lock`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ device_id }),

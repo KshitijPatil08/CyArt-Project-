@@ -13,54 +13,9 @@ const scanSchema = z.object({
     protocol: z.enum(['snmp', 'ssdp', 'lldp'])
 });
 
-// Simple In-Memory Rate Limiter (Note: Resets on server restart/lambda cold start)
-// In production, use Redis (e.g., Upstash) for distributed state.
-const rateLimitMap = new Map<string, number>();
-const WINDOW_MS = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 10;
-
-function checkRateLimit(ip: string): boolean {
-    const now = Date.now();
-    const lastReqTime = rateLimitMap.get(ip) || 0;
-
-    // Cleanup old entries (simple)
-    if (now - lastReqTime > WINDOW_MS) {
-        rateLimitMap.delete(ip);
-    }
-
-    // Count requests (simplified for demo: just store count in value if we want strict counting, 
-    // but let's just use timestamp for now to enforce interval? No, user wants rate limit.
-    // Proper implementation needs {count, startTime}. Let's do simple leaky bucket or fixed window.)
-
-    // Actually, let's keep it simple: Map<IP, {count, startTime}>
-    // But for this patch, let's just allow it for now and verify logic.
-    // ... refactoring to simple valid implementation:
-
-    return true; // Placeholder for logic inside handler to avoid global state complexity here
-}
-
-const rateLimit = new Map<string, { count: number, resetTime: number }>();
-
 export async function POST(request: Request) {
     try {
-        // 1. Rate Limiting
-        const ip = request.headers.get('x-forwarded-for') || 'unknown';
-        const now = Date.now();
-        const limitData = rateLimit.get(ip) || { count: 0, resetTime: now + WINDOW_MS };
-
-        if (now > limitData.resetTime) {
-            limitData.count = 0;
-            limitData.resetTime = now + WINDOW_MS;
-        }
-
-        if (limitData.count >= MAX_REQUESTS) {
-            return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
-        }
-
-        limitData.count++;
-        rateLimit.set(ip, limitData);
-
-        // 2. Authentication
+        // Authentication
         const supabase = await createClient();
         const { data: { user }, error: authError } = await supabase.auth.getUser();
 

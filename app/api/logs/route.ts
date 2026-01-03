@@ -1,14 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { getCorsHeaders } from "@/lib/api-utils";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
-
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json({}, { headers: getCorsHeaders(request) });
 }
 
 export async function GET(request: NextRequest) {
@@ -26,9 +21,10 @@ export async function GET(request: NextRequest) {
     const after = searchParams.get("after");
     const before = searchParams.get("before");
 
+    const headers = getCorsHeaders(request)
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
     }
 
     const full = searchParams.get("full") === "true";
@@ -126,7 +122,7 @@ export async function GET(request: NextRequest) {
       count: data?.length || 0,
       total: count ?? data?.length ?? 0,
       logs: data || [],
-    }, { headers: corsHeaders });
+    }, { headers });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },

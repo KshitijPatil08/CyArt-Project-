@@ -1,27 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
+import { getCorsHeaders } from "@/lib/api-utils"
 import jwt from "jsonwebtoken"
 import bcrypt from "bcrypt"
 import { z } from "zod"
 
-// Load allowed origins from environment variable or use defaults
-const allowedOrigins = (
-  process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-    process.env.NEXT_PUBLIC_APP_URL || '',
-    process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-  ]
-).filter(Boolean);
-
-function getCorsHeaders(request: NextRequest) {
-  const origin = request.headers.get('origin');
-  const isAllowed = allowedOrigins.includes(origin || '');
-  return {
-    'Access-Control-Allow-Origin': isAllowed ? origin! : 'null',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Credentials': 'true',
-  }
-}
+// CORS headers are provided by `getCorsHeaders` in `lib/api-utils`
 
 export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, { status: 200, headers: getCorsHeaders(request) })

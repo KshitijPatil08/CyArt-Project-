@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
  */
 const allowedOrigins = (
     process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-        process.env.NEXT_PUBLIC_APP_URL || '',
+        process.env.APP_URL || '',
         process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
     ]
 ).filter(Boolean);

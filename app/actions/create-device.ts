@@ -51,13 +51,17 @@ export async function createDeviceAction(formData: any) {
 
         if (credError) throw credError
 
+        // IMPORTANT: Do NOT return raw plaintext passwords in API responses.
+        // The system previously returned the raw password here for one-time display.
+        // For security, return a redacted marker. If you need a one-time secret
+        // display, implement a secure vault or ephemeral retrieval mechanism.
         return {
             success: true,
             data: {
                 device: deviceData,
                 credentials: {
                     username,
-                    password: rawPassword // Return raw password ONE TIME only for display
+                    password: 'REDACTED'
                 }
             }
         }

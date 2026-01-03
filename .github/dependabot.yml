@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "@upstash/redis"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "dependencies"
+      - "security"

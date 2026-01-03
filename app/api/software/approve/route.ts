@@ -1,6 +1,7 @@
 // app/api/software/approve/route.ts
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { getCorsHeaders } from "@/lib/api-utils";
 import { z } from "zod";
 
 const softwareApproveSchema = z.object({
@@ -9,22 +10,9 @@ const softwareApproveSchema = z.object({
     owner_email: z.string().email().optional().or(z.literal(''))
 });
 
-// Load allowed origins from environment variable or use defaults
-const allowedOrigins = (
-    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-        process.env.NEXT_PUBLIC_APP_URL || '',
-        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-    ]
-).filter(Boolean);
 
 export async function POST(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
+    const corsHeaders = getCorsHeaders(request, 'POST, OPTIONS');
 
     try {
         const supabase = await createClient();

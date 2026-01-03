@@ -1,20 +1,20 @@
 import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils";
 
 export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 200,
-    headers: corsHeaders,
+    headers: getCorsHeaders(request, 'POST, OPTIONS'),
   })
 }
 
 export async function POST(request: NextRequest) {
+  const headers = getCorsHeaders(request, 'POST, OPTIONS')
+  // Require agent authentication for status updates
+  if (!verifyAgentKey(request)) {
+    return unauthorizedResponse(headers)
+  }
   try {
     const supabase = await createClient()
     const body = await request.json()

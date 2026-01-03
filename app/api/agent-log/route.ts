@@ -2,7 +2,8 @@
 // Dedicated endpoint for agents to send logs without user authentication
 // Uses service role key for authorization
 
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin'
+import crypto from 'crypto'
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils";
@@ -39,16 +40,7 @@ export async function POST(request: NextRequest) {
             return unauthorizedResponse(headers);
         }
         // Use admin client (bypasses RLS)
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!,
-            {
-                auth: {
-                    autoRefreshToken: false,
-                    persistSession: false,
-                },
-            }
-        );
+        const supabase = createAdminClient();
 
         const body = await request.json();
 

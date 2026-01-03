@@ -108,7 +108,8 @@ CREATE TABLE public.authorized_usb_devices (
 ```
 
 ### Step 1.3: API Keys
-Save these securely: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,`ADMIN_SECRET_CODE`.
+Save these securely. Server-only keys (do NOT expose to browser): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
+Client/public keys (safe to expose in browser): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 
 ---
 
@@ -146,12 +147,32 @@ nano .env.local
 ```
 **Content**:
 ```env
+# Server-only (do NOT expose these to the browser)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=eyJh... (server anon key)
+SUPABASE_SERVICE_ROLE_KEY=eyJh... (service role key - server only)
+
+# Public (browser) keys for client usage
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh...
-SUPABASE_SERVICE_ROLE_KEY=eyJh...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh... (public anon key)
+
 ADMIN_SECRET_CODE=ChangeMeToSomethingSecure123!
 CYART_Server_URL=http://your-server-ip:3000
 ```
+
+### Step 2.3.1: Secret Rotation (Post-deploy)
+
+After deploying with the new `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY`, rotate secrets as follows:
+
+1. Generate new Supabase keys in the Supabase dashboard (anon and service role).
+2. Add the new keys to your hosting provider's secret store as `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`.
+3. Deploy the application so it picks up the new values.
+4. Test critical flows (login, device registration, agent check-ins, admin pages).
+5. If all good, revoke the old keys in the Supabase dashboard.
+
+Also rotate `JWT_SECRET` and `AGENT_SECRET_KEY` when updating Supabase keys. Plan for session invalidation if you rotate `JWT_SECRET` (e.g., enforce re-login or short expiry during rotation).
+
+Include secret rotation in regular operational runbooks and ensure only authorized operators can access the secret store.
 
 ### Step 2.4: Launch
 ```bash

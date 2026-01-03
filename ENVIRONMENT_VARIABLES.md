@@ -77,6 +77,43 @@ SUPABASE_SERVICE_ROLE_KEY=your-prod-service-key
 NEXT_PUBLIC_APP_URL=https://your-production-domain.com
 ALLOWED_ORIGINS=https://your-production-domain.com,https://www.your-production-domain.com
 JWT_SECRET=your-secure-production-secret
+
+## Supabase (Server-side)
+
+# Server-only (do NOT expose these to the browser)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key-here
+
+## Upstash Redis (Rate Limiting - optional)
+UPSTASH_REDIS_REST_URL=https://<rest-url>.upstash.io
+UPSTASH_REDIS_REST_TOKEN=<your-upstash-token>
+RATE_LIMIT_MAX_REQUESTS=500
+
+## Agent secret (used by agents to authenticate)
+AGENT_SECRET_KEY=replace-with-secure-random-string
+
+Notes:
+- Migrate from `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `SUPABASE_URL` and `SUPABASE_ANON_KEY` for server-side usage.
+- Do NOT commit secrets to source control. Use your hosting provider's secret store.
+
+## Secret Rotation (Recommended)
+
+Rotation policy (recommended): rotate Supabase keys and server secrets quarterly or immediately after any suspected compromise.
+
+Steps to rotate Supabase keys safely:
+1. In the Supabase dashboard, generate a new `anon` key and a new `service_role` key.
+2. Add them to your hosting provider's secret store as `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` and set `SUPABASE_URL` if it changed.
+3. Deploy the application (use a maintenance window if needed) so servers pick up the new keys.
+4. Verify critical functionality (login, device registration, admin flows).
+5. After verification, revoke the old keys in the Supabase dashboard.
+
+Rotate other server secrets:
+- `JWT_SECRET`: create a new cryptographically-random secret, deploy, and perform a controlled session invalidation if needed.
+- `AGENT_SECRET_KEY`: rotate and update bundled agents or provide a migration path (agents should support fetching a new key from a secure management system).
+
+Notes:
+- Do not publish or store keys in source control. Use environment variables or secret managers (Vercel, AWS Secrets Manager, Azure Key Vault, or similar).
+- Consider an ephemeral secret delivery mechanism (vault) for one-time device credentials instead of returning passwords through APIs.
 ```
 
 ## Vercel Deployment

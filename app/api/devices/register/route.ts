@@ -20,7 +20,7 @@ const registerSchema = z.object({
 
 // Admin client for bypassing RLS during server registration
 async function getAdminSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseUrl = process.env.SUPABASE_URL
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
   if (!supabaseUrl || !supabaseServiceKey) {
@@ -40,8 +40,8 @@ async function getAdminSupabaseClient() {
 
 async function getSupabaseClient() {
   const cookieStore = await cookies()
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseUrl = process.env.SUPABASE_URL
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Missing Supabase environment variables')
@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
       return unauthorizedResponse(headers);
     }
 
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      console.error("Missing Supabase environment variables")
+    if (!process.env.SUPABASE_URL) {
+      console.error("Missing SUPABASE_URL environment variable")
       return NextResponse.json(
         { error: "Server configuration error: Missing Supabase credentials" },
         { status: 500, headers }

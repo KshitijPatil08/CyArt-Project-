@@ -1,16 +1,7 @@
 // app/api/devices/credentials/route.ts
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-function getCorsHeaders(request: NextRequest) {
-    return corsHeaders;
-}
+import { getCorsHeaders } from "@/lib/api-utils";
 
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
@@ -74,10 +65,10 @@ export async function GET(request: NextRequest) {
                 );
             }
 
-            // Fetch the credentials
+            // Fetch the credentials (do NOT return raw passwords) - return metadata only
             const { data: credentials, error: credError } = await supabase
                 .from("device_credentials")
-                .select("device_id, username, password")
+                .select("device_id, username")
                 .eq("device_id", deviceId)
                 .single();
 
@@ -89,7 +80,7 @@ export async function GET(request: NextRequest) {
             }
 
             return NextResponse.json(
-                { success: true, credential: credentials },
+                { success: true, credential: { device_id: credentials.device_id, username: credentials.username, password: "REDACTED" } },
                 { headers: getCorsHeaders(request) }
             );
         }
@@ -102,7 +93,7 @@ export async function GET(request: NextRequest) {
             // Admin can fetch all credentials
             const { data: credentials, error: credError } = await supabase
                 .from("device_credentials")
-                .select("device_id, username, password");
+                .select("device_id, username");
 
             if (credError) {
                 return NextResponse.json(
@@ -111,8 +102,11 @@ export async function GET(request: NextRequest) {
                 );
             }
 
+            // Mask passwords - do not expose raw passwords via API
+            const masked = (credentials || []).map((c: any) => ({ device_id: c.device_id, username: c.username, password: 'REDACTED' }));
+
             return NextResponse.json(
-                { success: true, credentials: credentials || [] },
+                { success: true, credentials: masked },
                 { headers: getCorsHeaders(request) }
             );
         } else {
@@ -142,7 +136,7 @@ export async function GET(request: NextRequest) {
             // Fetch credentials for user's devices
             const { data: credentials, error: credError } = await supabase
                 .from("device_credentials")
-                .select("device_id, username, password")
+                .select("device_id, username")
                 .in("device_id", deviceIds);
 
             if (credError) {
@@ -152,8 +146,10 @@ export async function GET(request: NextRequest) {
                 );
             }
 
+            const masked = (credentials || []).map((c: any) => ({ device_id: c.device_id, username: c.username, password: 'REDACTED' }));
+
             return NextResponse.json(
-                { success: true, credentials: credentials || [] },
+                { success: true, credentials: masked },
                 { headers: getCorsHeaders(request) }
             );
         }

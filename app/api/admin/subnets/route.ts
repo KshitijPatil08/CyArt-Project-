@@ -1,22 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getCorsHeaders } from "@/lib/api-utils"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import ipaddr from "ipaddr.js"
 
 export const dynamic = 'force-dynamic'
 
-/**
- * Helper to generate CORS headers. 
- * For security, we restrict to same-origin or explicit allow-list.
- */
-function getCorsHeaders(request: NextRequest) {
-    const origin = request.headers.get('origin')
-    return {
-        'Access-Control-Allow-Origin': origin || '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    }
-}
+// Use centralized CORS helper (validates origin against allow-list)
 
 /**
  * Validates a CIDR string using ipaddr.js
