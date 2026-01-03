@@ -155,7 +155,7 @@ export function DeviceManagement() {
       const device = result.data.device;
       const newCreds = result.data.credentials;
 
-      toast({ title: "Success", description: "Device registered successfully" })
+
 
       // Update local state temporarily to show credentials immediately
       setCredentials(prev => ({
@@ -206,7 +206,7 @@ export function DeviceManagement() {
         throw new Error(error?.error || "Delete failed")
       }
 
-      toast({ title: "Success", description: "Device deleted successfully" })
+
       setIsDeleteOpen(false)
       setDeletingDeviceData(null)
       fetchDevices()
@@ -248,7 +248,7 @@ export function DeviceManagement() {
 
       if (error) throw error
 
-      toast({ title: "Success", description: "Device updated successfully" })
+
       setIsEditOpen(false)
       fetchDevices()
     } catch (error: any) {

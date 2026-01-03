@@ -157,10 +157,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate fingerprint hash
+    // Generate fingerprint hash (Synchronized with request API format)
     const crypto = await import("crypto");
-    const fingerprint = [serial_number, vendor_id || "", product_id || ""].join("|").toLowerCase();
+    // Ensure 6-field format: Serial|VID|PID|Class|HardwareID|DeviceID
+    const fingerprint = [
+      serial_number || "",
+      vendor_id || "",
+      product_id || "",
+      "", // device_class (unknown for manual add)
+      "", // hardware_id (unknown for manual add)
+      ""  // device_id (unknown for manual add)
+    ].join("|").toLowerCase();
     const fingerprint_hash = crypto.createHash("sha256").update(fingerprint).digest("hex");
+
+    // Use Admin Client to bypass RLS and find existing records reliably (ANY status)
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const adminClient = createAdminClient();
+
+    const { data: existing, error: selectError } = await adminClient
+      .from("authorized_usb_devices")
+      .select("id")
+      .ilike("serial_number", serial_number.trim())
+      .limit(1);
+
+    if (selectError) {
+      console.error("[USB Whitelist] Error checking duplicates:", selectError);
+    }
+
+    if (existing && existing.length > 0) {
+      return NextResponse.json(
+        { error: "Device already whitelisted", code: "DUPLICATE_WHITELIST" },
+        { status: 409, headers: corsHeaders }
+      );
+    }
 
     const { data, error } = await supabase
       .from("authorized_usb_devices")

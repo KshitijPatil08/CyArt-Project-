@@ -395,39 +395,47 @@ export function SubnetAssignmentManagement() {
             </Card>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-indigo-50/50 border-indigo-100 flex-1">
+                <Card className="flex-1">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-bold text-indigo-900 uppercase">Delegation Logic</CardTitle>
+                        <CardTitle className="text-sm font-bold uppercase flex items-center gap-2">
+                            <Shield className="w-4 h-4 text-indigo-500" />
+                            Delegation Logic
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-xs text-indigo-800 leading-relaxed">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
                             When a user is assigned subnets, they are automatically granted the <strong>Approver</strong> role.
                             This allows them to approve USB requests originating from devices within those IP ranges.
                         </p>
                     </CardContent>
                 </Card>
 
-                <Card className="bg-emerald-50/50 border-emerald-100 flex-1">
+                <Card className="flex-1">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-bold text-emerald-900 uppercase">Sync Status</CardTitle>
+                        <CardTitle className="text-sm font-bold uppercase flex items-center gap-2">
+                            <RefreshCcw className="w-4 h-4 text-emerald-500" />
+                            Sync Status
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="flex items-center gap-2 text-xs text-emerald-800">
-                            <RefreshCcw className="w-3 h-3 text-emerald-600" />
+                        <div className="flex items-center gap-2 text-xs font-medium text-foreground">
                             <span>Real-time enforcement enabled</span>
                         </div>
-                        <p className="text-[10px] text-emerald-700 mt-2">
+                        <p className="text-[10px] text-muted-foreground mt-2">
                             Updates to assignments take effect immediately across all dashboard sessions.
                         </p>
                     </CardContent>
                 </Card>
 
-                <Card className="bg-slate-50 border-slate-200 flex-1">
+                <Card className="flex-1">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-bold text-slate-900 uppercase">Visibility</CardTitle>
+                        <CardTitle className="text-sm font-bold uppercase flex items-center gap-2">
+                            <Network className="w-4 h-4 text-slate-500" />
+                            Visibility
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-xs text-slate-700 leading-relaxed">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
                             Approvers can only see devices and logs for their assigned subnets plus their own devices.
                             Admins retain global visibility.
                         </p>

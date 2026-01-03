@@ -90,7 +90,7 @@ export function SoftwareManagement() {
             })
             const data = await res.json()
             if (data.success) {
-                toast({ title: "Success", description: `Software ${action}ed successfully` })
+
                 fetchData()
             } else {
                 throw new Error(data.error)
@@ -111,7 +111,7 @@ export function SoftwareManagement() {
                 throw new Error(data.error || 'Failed to delete authorization')
             }
 
-            toast({ title: "Success", description: "Authorization removed" })
+
             fetchData()
         } catch (error: any) {
             toast({ title: "Error", description: error.message, variant: "destructive" })
@@ -129,7 +129,7 @@ export function SoftwareManagement() {
     )
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -173,7 +173,7 @@ export function SoftwareManagement() {
                 />
             </div>
 
-            <Card className="border-border/40 shadow-sm">
+            <Card className="border-border shadow-sm">
                 <CardContent className="p-0">
                     <Table>
                         <TableHeader className="bg-muted/30">

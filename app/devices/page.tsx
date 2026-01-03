@@ -23,10 +23,8 @@ export default function DevicesPage() {
       const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'))
       const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'))
 
-      if (!isAdmin && !isApprover) {
-        router.push('/')
-        return
-      }
+      // Allow all authenticated users to see the devices page
+      // Access control (who sees which devices) is handled by the API
 
       setLoading(false)
     }

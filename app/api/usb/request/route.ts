@@ -116,35 +116,27 @@ export async function GET(request: NextRequest) {
                 const allowedSubnets = assignments.flatMap(a => a.subnet_cidrs || []);
 
                 // Fetch all devices to identify which ones belong to the allowed subnets
-                // Use Admin Client to prevent RLS from hiding devices that we need to inspect for subnet membership.
                 const deviceAdminDb = createAdminClient();
                 const { data: allDevices } = await deviceAdminDb
                     .from('devices')
-                    .select('device_id, hostname, ip_address');
+                    .select('id, hostname, ip_address');
 
                 const allowedDeviceIds = new Set<string>();
                 const allowedHostnames = new Set<string>();
 
                 if (allDevices) {
                     allDevices.forEach(d => {
-                        // Safe Check: Ensure IP exists
                         if (!d.ip_address) return;
-
-                        // Check Subnet Membership
-                        // (isIpInSubnet handles errors internally, but we can catch them to be safe)
                         try {
                             if (allowedSubnets.some(cidr => isIpInSubnet(d.ip_address, cidr))) {
-                                if (d.device_id) allowedDeviceIds.add(d.device_id);
+                                if (d.id) allowedDeviceIds.add(d.id);
                                 if (d.hostname) allowedHostnames.add(d.hostname.toLowerCase());
                             }
-                        } catch (e) {
-                            // Ignore IP parsing errors (e.g. IPv6 vs IPv4)
-                        }
+                        } catch (e) { }
                     });
                 }
 
                 filteredRequests = filteredRequests.filter(req => {
-                    // Check 1: Request comes physically from the Subnet
                     let ipMatch = false;
                     try {
                         ipMatch = req.ip_address && allowedSubnets.some(cidr => isIpInSubnet(req.ip_address, cidr));
@@ -152,21 +144,35 @@ export async function GET(request: NextRequest) {
 
                     if (ipMatch) return true;
 
-                    // Check 2: Request comes from a Device Identity that belongs to the Subnet
-                    // (Handles localhost tools, roaming, VPN, etc.)
                     const idMatch = req.device_id && allowedDeviceIds.has(req.device_id);
                     const hostMatch = req.computer_name && allowedHostnames.has(req.computer_name.toLowerCase());
 
-                    if (idMatch || hostMatch) {
-                        return true;
-                    }
-
-                    return false;
+                    return !!(idMatch || hostMatch);
                 });
             }
         } else {
-            // Regular user - return nothing
-            filteredRequests = [];
+            // Regular User Strategy:
+            // 1. Fetch user's devices to get their IDs
+            const { data: userDevices } = await supabase
+                .from('devices')
+                .select('id')
+                .eq('owner', user.email);
+
+            if (!userDevices || userDevices.length === 0) {
+                filteredRequests = [];
+            } else {
+                const userDeviceIds = userDevices.map(d => d.id);
+
+                // 2. Fetch ALL requests (all statuses) for these devices
+                const { data: userRequests, error: userRequestsError } = await adminDb
+                    .from("usb_approval_requests")
+                    .select("*")
+                    .in("device_id", userDeviceIds)
+                    .order("requested_at", { ascending: false });
+
+                if (userRequestsError) throw userRequestsError;
+                filteredRequests = userRequests || [];
+            }
         }
 
         // Optimize Entity Enrichment (Batch Fetch)
@@ -383,6 +389,20 @@ export async function PUT(request: NextRequest) {
                 if (!isAllowed) {
                     return NextResponse.json({ error: "Forbidden: Request is outside your assigned subnets" }, { status: 403, headers: getCorsHeaders(request) });
                 }
+            }
+
+            // Ensure this serial number isn't already whitelisted (active or inactive)
+            const { data: existingAuth } = await admin
+                .from("authorized_usb_devices")
+                .select("id")
+                .ilike("serial_number", reqData.serial_number.trim())
+                .limit(1);
+
+            if (existingAuth && existingAuth.length > 0) {
+                return NextResponse.json(
+                    { error: "Device already whitelisted", code: "DUPLICATE_WHITELIST" },
+                    { status: 409, headers: getCorsHeaders(request) }
+                );
             }
 
             console.log("Approving device: " + reqData.device_name + " (" + reqData.serial_number + ")");

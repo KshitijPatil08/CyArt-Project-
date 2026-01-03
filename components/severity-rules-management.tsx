@@ -69,7 +69,7 @@ export function SeverityRulesManagement() {
 
             if (error) throw error
 
-            toast({ title: "Success", description: "Rule added successfully" })
+
             setNewKeyword("")
             setNewSeverity("critical")
             fetchRules()
@@ -89,7 +89,7 @@ export function SeverityRulesManagement() {
 
             if (error) throw error
 
-            toast({ title: "Success", description: "Rule deleted successfully" })
+
             setRules(rules.filter(r => r.id !== id))
         } catch (error) {
             toast({ title: "Error", description: "Failed to delete rule", variant: "destructive" })
@@ -107,7 +107,7 @@ export function SeverityRulesManagement() {
     }
 
     return (
-        <div className="space-y-6 p-6">
+        <div className="space-y-6">
             <Card className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-background border-primary/10">
                 <CardHeader>
                     <div className="flex items-center gap-2">

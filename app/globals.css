@@ -4,43 +4,43 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Professional enterprise palette - inspired by modern SaaS apps */
+  /* Bright and clean enterprise palette - Pure white focus */
 
-  /* Refined blue-gray background for sophistication */
-  --background: oklch(0.96 0.008 250);
+  /* Pure white background with minimal tint */
+  --background: oklch(0.99 0.002 250);
   --foreground: oklch(0.12 0.01 250);
 
-  /* Bright white cards with subtle blue tint for depth */
-  --card: oklch(0.995 0.003 250);
+  /* Solid white cards for maximum brightness */
+  --card: oklch(1 0 0);
   --card-foreground: oklch(0.12 0.01 250);
 
-  /* Popovers slightly elevated */
-  --popover: oklch(0.99 0.003 250);
+  /* Elevated elements */
+  --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.12 0.01 250);
 
-  /* Deep indigo primary - professional and trustworthy */
+  /* Deep indigo primary - maintains professionalism */
   --primary: oklch(0.42 0.15 265);
   --primary-foreground: oklch(0.99 0 0);
 
-  /* Cool blue-gray secondary */
-  --secondary: oklch(0.92 0.012 250);
+  /* Very light secondary for subtle grouping */
+  --secondary: oklch(0.97 0.005 250);
   --secondary-foreground: oklch(0.25 0.02 250);
 
-  /* Refined muted with blue undertone */
-  --muted: oklch(0.93 0.01 250);
-  --muted-foreground: oklch(0.48 0.015 250);
+  /* Neutralized muted tones */
+  --muted: oklch(0.96 0.005 250);
+  --muted-foreground: oklch(0.40 0.01 250);
 
-  /* Subtle blue accent for interactive elements */
-  --accent: oklch(0.90 0.02 250);
+  /* Subtle accent for hover states */
+  --accent: oklch(0.94 0.01 250);
   --accent-foreground: oklch(0.25 0.02 250);
 
-  /* Professional red for destructive actions */
+  /* Consistent professional destructive */
   --destructive: oklch(0.55 0.22 25);
   --destructive-foreground: oklch(0.99 0 0);
 
-  /* Strong, defined borders with blue-gray tone */
-  --border: oklch(0.80 0.015 250);
-  --input: oklch(0.88 0.012 250);
+  /* Refined, high-contrast borders */
+  --border: oklch(0.88 0.01 250);
+  --input: oklch(0.90 0.01 250);
   --ring: oklch(0.50 0.12 265);
 
   /* Chart colors remain vibrant */
@@ -51,14 +51,14 @@
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
 
-  /* Sidebar with refined blue-gray */
-  --sidebar: oklch(0.97 0.008 250);
+  /* Sidebar aligned with new brightness */
+  --sidebar: oklch(0.985 0.003 250);
   --sidebar-foreground: oklch(0.12 0.01 250);
   --sidebar-primary: oklch(0.42 0.15 265);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.92 0.012 250);
+  --sidebar-accent: oklch(0.96 0.005 250);
   --sidebar-accent-foreground: oklch(0.25 0.02 250);
-  --sidebar-border: oklch(0.80 0.015 250);
+  --sidebar-border: oklch(0.88 0.01 250);
   --sidebar-ring: oklch(0.50 0.12 265);
 }
 
