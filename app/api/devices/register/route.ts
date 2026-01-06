@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     // CRITICAL FIX: Check if device exists by hostname
     const { data: existingDevice, error: fetchError } = await supabase
       .from("devices")
-      .select("id, readable_id, device_name, status, owner, security_status, is_quarantined")
+      .select("id, readable_id, device_name, device_type, status, owner, security_status, is_quarantined")
       .eq("hostname", finalHostname)
       .maybeSingle()
 
@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
       // Build update object with all fields
       const updateData: any = {
         device_name,
-        device_type,
+        device_type: existingDevice.device_type === 'server' ? 'server' : device_type,
         owner: existingDevice.owner || owner,
         location,
         hostname: finalHostname,

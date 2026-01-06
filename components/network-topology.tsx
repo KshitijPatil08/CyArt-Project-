@@ -346,12 +346,10 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     // --- HELPER to check if IP already placed ---
     const placedIps = new Set<string>()
 
-    // 1. Identify Main Server
+    // 1. Identify Servers
     // STRICT SERVER DETECTION: Only accept explicit is_server flag or exact device_type match.
-    // REMOVED loose name matching (d.device_name.includes('server')) per user request.
-    const servers = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server')
-    const mainServer = servers.length > 0 ? servers[0] : null
-    const mainServerId = mainServer ? mainServer.device_id : 'virtual-server'
+    const serversArr = devices.filter(d => d.is_server || d.device_type?.toLowerCase() === 'server')
+    const primaryServerId = serversArr.length > 0 ? serversArr[0].device_id : 'virtual-server'
 
     // 2. Identify Infrastructure Nodes (Switches / APs) from Logs
     const infrastructureMap = new Map<string, Node>() // ID -> Node
@@ -464,7 +462,7 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     })
 
     // 3. Group Agents by Subnet (Fallback for those without LLDP/WiFi logs)
-    const agents = devices.filter(d => !servers.includes(d))
+    const agents = devices.filter(d => !d.is_server && d.device_type?.toLowerCase() !== 'server')
     const subnetMap = new Map<string, Device[]>()
 
     agents.forEach(agent => {
@@ -495,21 +493,30 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
     const CENTER_X = 0
     const CENTER_Y = 0
 
-    // Place Main Server
-    if (mainServer) {
-      nodes.push({
-        id: mainServer.device_id,
-        type: 'device',
-        position: { x: CENTER_X, y: CENTER_Y },
-        data: {
-          label: mainServer.device_name,
-          ipAddress: mainServer.ip_address,
-          status: mainServer.status,
-          deviceType: 'server',
-          isQuarantined: mainServer.is_quarantined,
-          userRole: userRole,
-        },
-        zIndex: 100,
+    // Place Servers
+    if (serversArr.length > 0) {
+      const SERVER_RADIUS = serversArr.length > 1 ? 120 : 0
+      const SERVER_ANGLE_STEP = (2 * Math.PI) / (serversArr.length || 1)
+
+      serversArr.forEach((server, idx) => {
+        const angle = idx * SERVER_ANGLE_STEP
+        const sX = CENTER_X + SERVER_RADIUS * Math.cos(angle)
+        const sY = CENTER_Y + SERVER_RADIUS * Math.sin(angle)
+
+        nodes.push({
+          id: server.device_id,
+          type: 'device',
+          position: { x: sX, y: sY },
+          data: {
+            label: server.device_name,
+            ipAddress: server.ip_address,
+            status: server.status,
+            deviceType: 'server',
+            isQuarantined: server.is_quarantined,
+            userRole: userRole,
+          },
+          zIndex: 100,
+        })
       })
     } else {
       nodes.push({
@@ -699,16 +706,29 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
               parentNode: groupId,
               extent: 'parent',
             })
-            // Link Server -> Gateway
-            edges.push({
-              id: `link-${mainServerId}-${gwId}`,
-              source: mainServerId,
-              target: gwId,
-              type: 'default',
-              style: { stroke: '#0ea5e9', strokeWidth: 2 },
-              animated: true,
-              zIndex: 50,
+            // Link Servers -> Gateway (All servers connect to the backbone)
+            serversArr.forEach(server => {
+              edges.push({
+                id: `link-${server.device_id}-${gwId}`,
+                source: server.device_id,
+                target: gwId,
+                type: 'default',
+                style: { stroke: '#0ea5e9', strokeWidth: 2 },
+                animated: true,
+                zIndex: 50,
+              })
             })
+            if (serversArr.length === 0) {
+              edges.push({
+                id: `link-virtual-server-${gwId}`,
+                source: 'virtual-server',
+                target: gwId,
+                type: 'default',
+                style: { stroke: '#0ea5e9', strokeWidth: 2 },
+                animated: true,
+                zIndex: 50,
+              })
+            }
           }
         })
         currentY += LAYER_HEIGHT
@@ -739,10 +759,10 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
                 zIndex: 45,
               })
             } else {
-              // No Gateway? Connect directly to Server (Fallback)
+              // No Gateway? Connect directly to Primary Server (Fallback)
               edges.push({
-                id: `link-${mainServerId}-${nodeId}`,
-                source: mainServerId,
+                id: `link-${primaryServerId}-${nodeId}`,
+                source: primaryServerId,
                 target: nodeId,
                 type: 'default',
                 style: { stroke: '#0ea5e9', strokeWidth: 2 },
@@ -791,17 +811,25 @@ function NetworkTopologyInternal({ devices, userRole = 'user' }: NetworkTopology
           // Intelligent Fallback
           if (hasLevel2) targetId = level2Nodes[0] // Prefer AP/Switch
           else if (hasGateway) targetId = gateways[0] // Then Gateway
-          else targetId = mainServerId // Finally Server
+          else {
+            // Stable pick: Connect to a server based on agent's ID to prevent toggling
+            if (serversArr.length > 0) {
+              const hash = agent.device_id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+              targetId = serversArr[hash % serversArr.length].device_id;
+            } else {
+              targetId = 'virtual-server'
+            }
+          }
         }
 
         const isOnline = agent.status === 'online'
         const infraNode = infrastructureMap.get(targetId!)
         const isWireless = infraNode?.data.deviceType === 'wifi_ap'
-        const isDirectToServer = targetId === mainServerId
+        const isDirectToServer = serversArr.some(s => s.device_id === targetId) || targetId === 'virtual-server'
 
         edges.push({
           id: `link-${targetId}-${agent.device_id}`,
-          source: targetId || 'virtual-server',
+          source: targetId || primaryServerId,
           target: agent.device_id,
           type: isWireless ? 'wireless' : (isDirectToServer ? 'default' : 'wired'),
           animated: isOnline,
