@@ -1,6 +1,7 @@
 // app/api/software/approve/route.ts
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin"
 import { z } from "zod";
 
 const softwareApproveSchema = z.object({
@@ -9,23 +10,14 @@ const softwareApproveSchema = z.object({
     owner_email: z.string().email().optional().or(z.literal(''))
 });
 
-// Load allowed origins from environment variable or use defaults
-const allowedOrigins = (
-    process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-        process.env.NEXT_PUBLIC_APP_URL || '',
-        process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-    ]
-).filter(Boolean);
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
+}
 
 export async function POST(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
-
     try {
         const supabase = await createClient();
 
@@ -44,9 +36,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Forbidden: Admin or Approver access required" }, { status: 403, headers: corsHeaders });
         }
 
-
         const body = await request.json();
-
         const validationResult = softwareApproveSchema.safeParse(body);
         if (!validationResult.success) {
             return NextResponse.json(
@@ -55,14 +45,11 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const { id, action, owner_email } = validationResult.data; // action: 'approve' | 'reject'
-
-        if (!id || !action) {
-            return NextResponse.json({ error: "Missing id or action" }, { status: 400 });
-        }
+        const { id, action, owner_email } = validationResult.data;
+        const adminClient = createAdminClient();
 
         if (action === "reject") {
-            const { error } = await supabase
+            const { error } = await adminClient
                 .from("software_approval_requests")
                 .update({ status: "rejected" })
                 .eq("id", id);
@@ -71,8 +58,8 @@ export async function POST(request: NextRequest) {
         }
 
         if (action === "approve") {
-            // Get the request data
-            const { data: reqData, error: fetchError } = await supabase
+            // Get the request data using admin client
+            const { data: reqData, error: fetchError } = await adminClient
                 .from("software_approval_requests")
                 .select("*")
                 .eq("id", id)
@@ -81,25 +68,56 @@ export async function POST(request: NextRequest) {
 
             // --- RBAC Validation for Approvers ---
             if (!isAdmin && isApprover) {
-                const { createAdminClient } = await import("@/lib/supabase/admin");
                 const { isIpInSubnet } = await import("@/lib/utils/subnet");
-                const adminClient = createAdminClient();
                 const { data: assignments } = await adminClient
                     .from('subnet_assignments')
                     .select('subnet_cidrs')
                     .eq('user_id', user.id);
 
                 const allowedSubnets = assignments?.flatMap(a => a.subnet_cidrs || []) || [];
-                const isAllowed = reqData.ip_address && allowedSubnets.some(cidr => isIpInSubnet(reqData.ip_address, cidr));
+
+                // Check 1: Request comes physically from the Subnet
+                let isAllowed = false;
+                try {
+                    isAllowed = reqData.ip_address && allowedSubnets.some(cidr => isIpInSubnet(reqData.ip_address, cidr));
+                } catch (e) { }
+
+                // Check 2: Request comes from a Device Identity that belongs to the Subnet
+                if (!isAllowed && allowedSubnets.length > 0) {
+                    const { data: allDevices } = await adminClient
+                        .from('devices')
+                        .select('device_id, hostname, ip_address');
+
+                    if (allDevices) {
+                        const allowedDeviceIds = new Set<string>();
+                        const allowedHostnames = new Set<string>();
+
+                        allDevices.forEach(d => {
+                            if (!d.ip_address) return;
+                            try {
+                                if (allowedSubnets.some(cidr => isIpInSubnet(d.ip_address, cidr))) {
+                                    if (d.device_id) allowedDeviceIds.add(d.device_id);
+                                    if (d.hostname) allowedHostnames.add(d.hostname.toLowerCase());
+                                }
+                            } catch (e) { }
+                        });
+
+                        const idMatch = reqData.device_id && allowedDeviceIds.has(reqData.device_id);
+                        const hostMatch = reqData.computer_name && allowedHostnames.has(reqData.computer_name.toLowerCase());
+
+                        if (idMatch || hostMatch) {
+                            isAllowed = true;
+                        }
+                    }
+                }
 
                 if (!isAllowed) {
                     return NextResponse.json({ error: "Forbidden: Request is outside your assigned subnets" }, { status: 403, headers: corsHeaders });
                 }
             }
 
-
-            // Add to authorized_software
-            const { error: insertError } = await supabase
+            // Add to authorized_software using admin client
+            const { error: insertError } = await adminClient
                 .from("authorized_software")
                 .insert([
                     {
@@ -112,8 +130,8 @@ export async function POST(request: NextRequest) {
                 ]);
             if (insertError) throw insertError;
 
-            // Mark request as approved
-            await supabase
+            // Mark request as approved using admin client
+            await adminClient
                 .from("software_approval_requests")
                 .update({ status: "approved" })
                 .eq("id", id);
@@ -127,20 +145,11 @@ export async function POST(request: NextRequest) {
     }
 }
 
-// GET: List authorized software
 export async function GET(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
-
     try {
         const supabase = await createClient();
 
-        // AUTH CHECK - Require authentication for listing software
+        // AUTH CHECK
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
@@ -158,16 +167,7 @@ export async function GET(request: NextRequest) {
     }
 }
 
-// DELETE: Remove authorized software
 export async function DELETE(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
-
     try {
         const supabase = await createClient();
 
@@ -193,7 +193,8 @@ export async function DELETE(request: NextRequest) {
             return NextResponse.json({ error: "id is required" }, { status: 400, headers: corsHeaders });
         }
 
-        const { error } = await supabase
+        const adminClient = createAdminClient();
+        const { error } = await adminClient
             .from("authorized_software")
             .delete()
             .eq("id", id);
@@ -207,14 +208,9 @@ export async function DELETE(request: NextRequest) {
 }
 
 export async function OPTIONS(request: NextRequest) {
-    const origin = request.headers.get('origin');
-    return NextResponse.json({}, {
-        headers: {
-            'Access-Control-Allow-Origin': allowedOrigins.includes(origin || '') ? origin! : allowedOrigins[0] || '',
-            'Access-Control-Allow-Credentials': 'true',
-            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        }
+    return new NextResponse(null, {
+        status: 200,
+        headers: corsHeaders,
     });
 }
 
