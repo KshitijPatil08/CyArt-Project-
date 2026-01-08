@@ -1,4 +1,4 @@
-# SCCM Deployment Script for CyArt Agent
+﻿# SCCM Deployment Script for CyArt Agent
 $INSTALL_DIR = "$env:ProgramFiles\CyArtAgent"
 $AGENT_EXE = "CyArtAgent.exe"
 $service = Get-Service -Name "CyArtAgent" -ErrorAction SilentlyContinue
@@ -10,8 +10,7 @@ New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
 Copy-Item ".\$AGENT_EXE" -Destination "$INSTALL_DIR\$AGENT_EXE" -Force
 if ($service) {
     Start-Service -Name "CyArtAgent"
-}
-else {
+} else {
     sc.exe create "CyArtAgent" binPath= "`"$INSTALL_DIR\$AGENT_EXE`"" start= auto DisplayName= "CyArt Security Agent"
     sc.exe description "CyArtAgent" "CyArt Device Tracking and Security Monitoring Agent"
     sc.exe start "CyArtAgent"

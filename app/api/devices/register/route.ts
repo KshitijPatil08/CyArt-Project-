@@ -186,10 +186,23 @@ export async function POST(request: NextRequest) {
         mac_address
       })
 
+
+      // Check if device is registered as a server to prevent role toggling
+      // Use admin client to ensure we can read the servers table regardless of RLS
+      const adminSupabaseForCheck = await getAdminSupabaseClient()
+      const { data: serverRecord } = await adminSupabaseForCheck
+        .from('servers')
+        .select('id')
+        .eq('device_id', deviceId)
+        .maybeSingle()
+
+      const isRecordedServer = !!serverRecord || existingDevice.device_type === 'server' || existingDevice.device_type === 'Server'
+      const finalDeviceType = isRecordedServer ? 'server' : device_type
+
       // Build update object with all fields
       const updateData: any = {
         device_name,
-        device_type: existingDevice.device_type === 'server' ? 'server' : device_type,
+        device_type: finalDeviceType,
         owner: existingDevice.owner || owner,
         location,
         hostname: finalHostname,

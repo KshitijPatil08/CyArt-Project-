@@ -1184,9 +1184,16 @@ func checkPolicies() {
 			}
 		}
 
-		// If no specific policy, continue (device inherits global policies only)
+		// If no specific policy, BLOCK IT (Zero Trust Default Deny)
 		if policy == nil {
-			continue
+			shouldBlock = true
+			blockReason = fmt.Sprintf("Unauthorized Device (Not Whitelisted): %s", serial)
+			
+			// We break here because if ANY connected device is unauthorized, we must block USB storage entirely 
+			// to be safe (since we block via global service/driver disable). 
+			// Granular blocking (per device) is handled by the PnP disable loop in blockUSBStorage,
+			// but determining *whether* to block relies on this flag.
+			break 
 		}
 
 		// Check 1: Active Status
@@ -2966,6 +2973,8 @@ func trySnmpConnection(ip string, community string) bool {
 
 	return true
 }
+
+
 
 
 
