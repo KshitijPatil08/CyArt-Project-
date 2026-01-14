@@ -2,15 +2,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
 
-function getCorsHeaders(request: NextRequest) {
-    return corsHeaders;
-}
+import { getCorsHeaders } from "@/lib/api-utils"
 
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {

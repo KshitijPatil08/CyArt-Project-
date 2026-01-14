@@ -1,9 +1,22 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { type NextRequest, NextResponse } from "next/server";
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils"
+
+export async function OPTIONS(request: NextRequest) {
+    return new NextResponse(null, {
+        status: 200,
+        headers: getCorsHeaders(request),
+    })
+}
 
 // GET /api/usb/check?serial_number=...&computer_name=...&device_name=...
 // Used by agents to verify if a USB device is authorized and fetch its policies
 export async function GET(request: NextRequest) {
+    // 1. Verify Agent Key
+    if (!verifyAgentKey(request)) {
+        return unauthorizedResponse()
+    }
+
     try {
         const supabase = createAdminClient();
         const { searchParams } = new URL(request.url);
@@ -12,7 +25,7 @@ export async function GET(request: NextRequest) {
         const device_name = searchParams.get("device_name") || "Unknown Device";
 
         if (!serial_number) {
-            return NextResponse.json({ error: "Missing serial_number" }, { status: 400 });
+            return NextResponse.json({ error: "Missing serial_number" }, { status: 400, headers: getCorsHeaders(request) });
         }
 
         console.log(`[USB CHECK] Checking: ${device_name} (${serial_number}) for ${computer_name}`);
@@ -31,7 +44,7 @@ export async function GET(request: NextRequest) {
                     authorized: false,
                     is_quarantined: true,
                     message: "USB access blocked: This computer is currently in quarantine."
-                }, { status: 200 });
+                }, { status: 200, headers: getCorsHeaders(request) });
             }
         }
 
@@ -52,7 +65,7 @@ export async function GET(request: NextRequest) {
                     return NextResponse.json({
                         authorized: false,
                         message: `Access Blocked by Security Rule: ${rule.keyword}`
-                    }, { status: 200 });
+                    }, { status: 200, headers: getCorsHeaders(request) });
                 }
             }
         }
@@ -65,7 +78,7 @@ export async function GET(request: NextRequest) {
 
         if (fetchError) {
             console.error("[USB CHECK] Error fetching devices:", fetchError);
-            return NextResponse.json({ error: "Failed to fetch whitelist" }, { status: 500 });
+            return NextResponse.json({ error: "Failed to fetch whitelist" }, { status: 500, headers: getCorsHeaders(request) });
         }
 
         // 4. Biometric matching (bi-directional STARTS WITH check)
@@ -102,7 +115,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({
                 authorized: false,
                 message: "Device not found in whitelist or restricted to another computer"
-            }, { status: 200 });
+            }, { status: 200, headers: getCorsHeaders(request) });
         }
 
         // 5. Return authorization status and policies
@@ -118,11 +131,11 @@ export async function GET(request: NextRequest) {
                 allowed_start_time: matchingDevice.allowed_start_time || null,
                 allowed_end_time: matchingDevice.allowed_end_time || null
             }
-        }, { status: 200 });
+        }, { status: 200, headers: getCorsHeaders(request) });
 
     } catch (error: any) {
         console.error("[USB CHECK] Internal error:", error);
-        return NextResponse.json({ error: "Internal server error", details: error.message }, { status: 500 });
+        return NextResponse.json({ error: "Internal server error", details: error.message }, { status: 500, headers: getCorsHeaders(request) });
     }
 }
 

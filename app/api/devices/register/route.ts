@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod";
 import crypto from 'crypto';
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from '@/lib/api-utils';
 
 const registerSchema = z.object({
   device_name: z.string().min(1),
@@ -17,25 +18,7 @@ const registerSchema = z.object({
   register_as_server: z.boolean().optional(),
 });
 
-// Load allowed origins from environment variable or use defaults
-const allowedOrigins = (
-  process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
-    process.env.NEXT_PUBLIC_APP_URL || '',
-    process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : ''
-  ]
-).filter(Boolean);
-
-function getCorsHeaders(request: NextRequest) {
-  const origin = request.headers.get('origin');
-  const isAllowed = allowedOrigins.includes(origin || '');
-
-  return {
-    'Access-Control-Allow-Origin': isAllowed ? origin! : 'null',
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  };
-}
+// CORS headers managed via lib/api-utils
 
 // Admin client for bypassing RLS during server registration
 async function getAdminSupabaseClient() {
@@ -96,6 +79,9 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!verifyAgentKey(request)) {
+    return unauthorizedResponse();
+  }
   try {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       console.error("Missing Supabase environment variables")

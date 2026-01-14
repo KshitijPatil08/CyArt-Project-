@@ -5,6 +5,7 @@ import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
 import crypto from "crypto";
 import { z } from "zod";
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils"
 
 // Helper to get IP
 function getRequestIp(request: NextRequest) {
@@ -12,18 +13,7 @@ function getRequestIp(request: NextRequest) {
     return forwardedFor ? forwardedFor.split(',')[0].trim() : '127.0.0.1';
 }
 
-
 export const dynamic = 'force-dynamic'
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
-
-function getCorsHeaders(request: NextRequest) {
-    return corsHeaders;
-}
 
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
@@ -197,13 +187,13 @@ export async function GET(request: NextRequest) {
 
 // POST: Agent submits a new USB request (allow unknown agents)
 export async function POST(request: NextRequest) {
+    // 1. Verify Agent Key (New agents MUST provide the key even if not registered)
+    if (!verifyAgentKey(request)) {
+        return unauthorizedResponse()
+    }
+
     try {
         const supabase = createAdminClient();
-
-        // NOTE: Agent submission might be unauthenticated if it's a new agent.
-        // For now, we allow POST but protect GET/PUT via auth checks.
-        // TODO: Implement device token header validation to secure this endpoint while
-        // allowing unknown agents to register on first submission.
 
         const body = await request.json();
 

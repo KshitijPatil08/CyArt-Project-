@@ -36,6 +36,15 @@ ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com,https://admi
 ```bash
 # JWT Secret for device authentication (Required)
 JWT_SECRET=your-secure-random-string-here
+
+# Agent Secret Key (Required)
+# Must match the 'AgentKey' in the agent's config or environment variable.
+# Used to authenticate agent-to-server requests (e.g. status updates, USB requests).
+AGENT_SECRET_KEY=your-secure-agent-key-here
+
+# Admin Secret Code (Optional)
+# Used for specific admin overrides or emergency access endpoints.
+ADMIN_SECRET_CODE=your-secure-admin-code-here
 ```
 
 ### Go Agent Configuration
@@ -45,6 +54,7 @@ The Windows agent requires one of the following:
 **Option 1: Environment Variable**
 ```bash
 CYART_API_URL=https://your-domain.com
+CYART_AGENT_KEY=your-secure-agent-key-here
 ```
 
 **Option 2: Configuration File**
@@ -52,7 +62,8 @@ CYART_API_URL=https://your-domain.com
 Create `agent.config` in the agent directory (`C:\ProgramData\CyArtAgent\`):
 ```json
 {
-  "server_url": "https://your-domain.com"
+  "server_url": "https://your-domain.com",
+  "agent_key": "your-secure-agent-key-here"
 }
 ```
 

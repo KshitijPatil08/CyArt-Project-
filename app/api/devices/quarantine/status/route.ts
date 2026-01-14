@@ -1,15 +1,28 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { type NextRequest, NextResponse } from "next/server"
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils"
+
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: getCorsHeaders(request),
+  })
+}
 
 // GET /api/devices/quarantine/status - Check device quarantine status
 export async function GET(request: NextRequest) {
+  // 1. Verify Agent Key
+  if (!verifyAgentKey(request)) {
+    return unauthorizedResponse()
+  }
+
   try {
     const supabase = createAdminClient()
     const { searchParams } = new URL(request.url)
     const device_id = searchParams.get("device_id")
 
     if (!device_id) {
-      return NextResponse.json({ error: "Missing device_id" }, { status: 400 })
+      return NextResponse.json({ error: "Missing device_id" }, { status: 400, headers: getCorsHeaders(request) })
     }
 
     // Fetch Device Status & Global Policies
@@ -75,9 +88,9 @@ export async function GET(request: NextRequest) {
       usb_policies: usbPolicies,
       // Approved Software List
       approved_software: approvedSoftware
-    }, { status: 200 })
+    }, { status: 200, headers: getCorsHeaders(request) })
   } catch (error) {
     console.error("Status check error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ error: "Internal server error" }, { status: 500, headers: getCorsHeaders(request) })
   }
 }

@@ -1,5 +1,13 @@
 import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
+import { getCorsHeaders } from "@/lib/api-utils"
+
+export async function OPTIONS(request: NextRequest) {
+    return new NextResponse(null, {
+        status: 200,
+        headers: getCorsHeaders(request),
+    })
+}
 
 // POST /api/devices/hardware-lock - Lock hardware on a device
 export async function POST(request: NextRequest) {
@@ -9,13 +17,13 @@ export async function POST(request: NextRequest) {
 
         const { data: { user } } = await supabase.auth.getUser()
         if (user?.user_metadata?.role !== 'admin') {
-            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: getCorsHeaders(request) })
         }
 
         const { device_id, lock_network = true, lock_usb = true } = body
 
         if (!device_id) {
-            return NextResponse.json({ error: "Missing device_id" }, { status: 400 })
+            return NextResponse.json({ error: "Missing device_id" }, { status: 400, headers: getCorsHeaders(request) })
         }
 
         // Get device information
@@ -26,7 +34,7 @@ export async function POST(request: NextRequest) {
             .single()
 
         if (deviceError || !device) {
-            return NextResponse.json({ error: "Device not found" }, { status: 404 })
+            return NextResponse.json({ error: "Device not found" }, { status: 404, headers: getCorsHeaders(request) })
         }
 
         // TODO: Send lock command to device agent
@@ -69,10 +77,10 @@ export async function POST(request: NextRequest) {
             message: "Hardware lock command sent",
             data,
             note: "Agent integration required for actual hardware control"
-        }, { status: 200 })
+        }, { status: 200, headers: getCorsHeaders(request) })
     } catch (error) {
         console.error("Hardware lock error:", error)
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+        return NextResponse.json({ error: "Internal server error" }, { status: 500, headers: getCorsHeaders(request) })
     }
 }
 
@@ -84,13 +92,13 @@ export async function DELETE(request: NextRequest) {
 
         const { data: { user } } = await supabase.auth.getUser()
         if (user?.user_metadata?.role !== 'admin') {
-            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: getCorsHeaders(request) })
         }
 
         const { device_id } = body
 
         if (!device_id) {
-            return NextResponse.json({ error: "Missing device_id" }, { status: 400 })
+            return NextResponse.json({ error: "Missing device_id" }, { status: 400, headers: getCorsHeaders(request) })
         }
 
         // Get device information
@@ -101,7 +109,7 @@ export async function DELETE(request: NextRequest) {
             .single()
 
         if (deviceError || !device) {
-            return NextResponse.json({ error: "Device not found" }, { status: 404 })
+            return NextResponse.json({ error: "Device not found" }, { status: 404, headers: getCorsHeaders(request) })
         }
 
         // TODO: Send unlock command to device agent
@@ -135,9 +143,9 @@ export async function DELETE(request: NextRequest) {
             message: "Hardware unlock command sent",
             data,
             note: "Agent integration required for actual hardware control"
-        }, { status: 200 })
+        }, { status: 200, headers: getCorsHeaders(request) })
     } catch (error) {
         console.error("Hardware unlock error:", error)
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+        return NextResponse.json({ error: "Internal server error" }, { status: 500, headers: getCorsHeaders(request) })
     }
 }

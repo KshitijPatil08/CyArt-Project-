@@ -1,9 +1,22 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils"
+
+export async function OPTIONS(request: NextRequest) {
+    return new NextResponse(null, {
+        status: 200,
+        headers: getCorsHeaders(request),
+    })
+}
 
 // POST /api/usb/connection-status
 // Update connection status for authorized USB devices
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+    // 1. Verify Agent Key
+    if (!verifyAgentKey(request)) {
+        return unauthorizedResponse()
+    }
+
     try {
         const supabase = createAdminClient()
         const body = await request.json()
@@ -13,14 +26,14 @@ export async function POST(request: Request) {
         if (!serial_number || !connection_status || !computer_name) {
             return NextResponse.json(
                 { error: 'Missing required fields: serial_number, connection_status, computer_name' },
-                { status: 400 }
+                { status: 400, headers: getCorsHeaders(request) }
             )
         }
 
         if (!['connected', 'disconnected'].includes(connection_status)) {
             return NextResponse.json(
                 { error: 'connection_status must be "connected" or "disconnected"' },
-                { status: 400 }
+                { status: 400, headers: getCorsHeaders(request) }
             )
         }
 
@@ -31,7 +44,7 @@ export async function POST(request: Request) {
 
         if (fetchError) {
             console.error('Error fetching USB devices:', fetchError)
-            return NextResponse.json({ error: fetchError.message }, { status: 500 })
+            return NextResponse.json({ error: fetchError.message }, { status: 500, headers: getCorsHeaders(request) })
         }
 
         // 2. Find the matching device using bi-directional STARTS WITH check
@@ -64,14 +77,14 @@ export async function POST(request: Request) {
 
             if (updateError) {
                 console.error('Error updating USB connection status:', updateError)
-                return NextResponse.json({ error: updateError.message }, { status: 500 })
+                return NextResponse.json({ error: updateError.message }, { status: 500, headers: getCorsHeaders(request) })
             }
 
             return NextResponse.json({
                 success: true,
                 message: `Connection status updated to ${connection_status} (Matched: ${targetSerial})`,
                 updated_count: 1
-            })
+            }, { headers: getCorsHeaders(request) })
         }
 
         // If device doesn't exist, log a warning but return success
@@ -80,10 +93,10 @@ export async function POST(request: Request) {
             success: true,
             message: `Device not found in database (serial: ${serial_number})`,
             warning: 'Device may not be whitelisted'
-        })
+        }, { headers: getCorsHeaders(request) })
 
     } catch (error: any) {
         console.error('Connection status update error:', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) })
     }
 }

@@ -5,14 +5,9 @@ import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
 import crypto from "crypto";
 import { z } from "zod";
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils"
 
 export const dynamic = 'force-dynamic'
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
 
 function getRequestIp(request: NextRequest) {
     const forwardedFor = request.headers.get('x-forwarded-for');
@@ -22,7 +17,7 @@ function getRequestIp(request: NextRequest) {
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
-        headers: corsHeaders,
+        headers: getCorsHeaders(request),
     })
 }
 
@@ -51,7 +46,7 @@ export async function GET(request: NextRequest) {
         // AUTH CHECK
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
         }
 
         const role = user.user_metadata?.role || 'user';
@@ -152,14 +147,19 @@ export async function GET(request: NextRequest) {
             isUnknownAgent: req.computer_name ? !knownDevicesMap.has(req.computer_name) : true
         }));
 
-        return NextResponse.json({ success: true, requests: enriched }, { headers: corsHeaders });
+        return NextResponse.json({ success: true, requests: enriched }, { headers: getCorsHeaders(request) });
 
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+        return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) });
     }
 }
 
 export async function POST(request: NextRequest) {
+    // 1. Verify Agent Key
+    if (!verifyAgentKey(request)) {
+        return unauthorizedResponse()
+    }
+
     try {
         const supabase = createAdminClient();
         const body = await request.json();
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400, headers: corsHeaders }
+                { status: 400, headers: getCorsHeaders(request) }
             );
         }
 
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
             .eq("status", "pending")
             .maybeSingle();
         if (existingRequest) {
-            return NextResponse.json({ success: true, message: "Request already pending" }, { headers: corsHeaders });
+            return NextResponse.json({ success: true, message: "Request already pending" }, { headers: getCorsHeaders(request) });
         }
 
         // Check if already authorized
@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
             .maybeSingle();
 
         if (existingAuth) {
-            return NextResponse.json({ success: true, message: "Software already authorized" }, { headers: corsHeaders });
+            return NextResponse.json({ success: true, message: "Software already authorized" }, { headers: getCorsHeaders(request) });
         }
 
         const { error } = await supabase.from("software_approval_requests").insert([
@@ -217,8 +217,8 @@ export async function POST(request: NextRequest) {
             }
         ]);
         if (error) throw error;
-        return NextResponse.json({ success: true, message: "Software request submitted" }, { headers: corsHeaders });
+        return NextResponse.json({ success: true, message: "Software request submitted" }, { headers: getCorsHeaders(request) });
     } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+        return NextResponse.json({ error: error.message }, { status: 500, headers: getCorsHeaders(request) });
     }
 }

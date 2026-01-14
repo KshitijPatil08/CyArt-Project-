@@ -396,10 +396,9 @@ var (
 	owner      string
 	location   string
 
-	// Base64 Encoded API URL for Obfuscation - DEPRECATED / FALLBACK ONLY
-	// "http://localhost:3000" -> "aHR0cDovL2xvY2FsaG9zdDozMDAw"
-	encodedAPIURL = "aHR0cHM6Ly9saWx5LXJlY3J1ZGVzY2VudC1zY2FudGx5Lm5ncm9rLWZyZWUuZGV2"
+	// Base64 Encoded API URL for Obfuscation - REMOVED
 	apiURL        string
+	agentKey      string // Agent Authentication Key
 
 	agentDir      string
 	isQuarantined = false
@@ -582,6 +581,7 @@ type LogEntry struct {
 
 type Config struct {
 	ServerURL string `json:"server_url"`
+	AgentKey  string `json:"agent_key"`
 }
 
 type UsbPolicy struct {
@@ -684,15 +684,21 @@ func init() {
 	location = "Office"
 
 	// Load API URL from configuration (REQUIRED - no hardcoded fallback)
-	if cfgURL := loadOrDetectServerURL(); cfgURL != "" {
+	if cfgURL, cfgKey := loadConfig(); cfgURL != "" {
 		apiURL = cfgURL
-		logMessage("Loaded API URL from config: " + apiURL)
+		agentKey = cfgKey
+		logMessage("Loaded configuration from file.")
 	} else if envURL := os.Getenv("CYART_API_URL"); envURL != "" {
 		apiURL = envURL
-		logMessage("Loaded API URL from Environment: " + apiURL)
+		agentKey = os.Getenv("CYART_AGENT_KEY")
+		logMessage("Loaded configuration from Environment.")
 	} else {
 		// NO FALLBACK - Configuration is required
-		log.Fatal("FATAL: API URL not configured. Please set CYART_API_URL environment variable or create agent.config file with server_url.")
+		log.Fatal("FATAL: API URL not configured. Please set CYART_API_URL environment variable or create agent.config file.")
+	}
+	
+	if agentKey == "" && apiURL != "" {
+	    logMessage("WARNING: No Agent Key configured. Agent may be rejected by server.")
 	}
 
 
@@ -744,8 +750,9 @@ func detectServer() string {
 		}
 	}
 
-	decoded, _ := base64.StdEncoding.DecodeString(encodedAPIURL)
-	return string(decoded)
+	// decoded, _ := base64.StdEncoding.DecodeString(encodedAPIURL)
+	// return string(decoded)
+	return ""
 }
 
 func testConnection(url string) bool {
@@ -789,24 +796,30 @@ func getLocalIP() string {
 	return ip.IP.String()
 }
 
-func loadOrDetectServerURL() string {
+func loadConfig() (string, string) {
 	path := filepath.Join(agentDir, CONFIG_FILE)
 	if data, err := os.ReadFile(path); err == nil {
 		var cfg Config
 		if json.Unmarshal(data, &cfg) == nil {
 			if cfg.ServerURL != "" {
-				logMessage("Loaded server URL from config")
-				return strings.TrimSpace(cfg.ServerURL)
+				return strings.TrimSpace(cfg.ServerURL), strings.TrimSpace(cfg.AgentKey)
 			}
 		}
 	}
+	
+	// If no config, try auto-detect? 
+	// For production security, auto-detect is risky. We'll skip it or limit it.
+	// But let's keep the logic if it returns a string.
 	url := detectServer()
-	saveConfig(url)
-	return strings.TrimSpace(url)
+	if url != "" {
+		saveConfig(url, "")
+		return strings.TrimSpace(url), ""
+	}
+	return "", ""
 }
 
-func saveConfig(url string) {
-	cfg := Config{ServerURL: url}
+func saveConfig(url string, key string) {
+	cfg := Config{ServerURL: url, AgentKey: key}
 	data, _ := json.Marshal(cfg)
 	os.WriteFile(filepath.Join(agentDir, CONFIG_FILE), data, 0644)
 }
@@ -918,7 +931,17 @@ func initializeDevice() error {
 	data, _ := json.Marshal(reg)
 	url := fmt.Sprintf("%s/api/devices/register", apiURL)
 
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(data)))
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(data)))
+	if err != nil {
+		return fmt.Errorf("create request error: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if agentKey != "" {
+		req.Header.Set("x-agent-key", agentKey)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("connect error: %v", err)
 	}
@@ -1047,8 +1070,17 @@ func checkQuarantineStatus() {
 	}
 
 	url := fmt.Sprintf("%s/api/devices/quarantine/status?device_id=%s", apiURL, deviceID)
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return
+	}
+	if agentKey != "" {
+		req.Header.Set("x-agent-key", agentKey)
+	}
+	
 	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Do(req)
 
 	// Handle Network Error (likely if unblock failed or no internet)
 	if err != nil {
@@ -1853,6 +1885,9 @@ func updateUSBConnectionStatus(serialNumber string, status string) {
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		if agentKey != "" {
+			req.Header.Set("x-agent-key", agentKey)
+		}
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
@@ -2383,7 +2418,17 @@ func sendLog(entry LogEntry) {
 
 		// Use a client with timeout for background sends
 		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Post(url, "application/json", strings.NewReader(string(data)))
+		
+		req, err := http.NewRequest("POST", url, strings.NewReader(string(data)))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if agentKey != "" {
+			req.Header.Set("x-agent-key", agentKey)
+		}
+		
+		resp, err := client.Do(req)
 		if err != nil {
 			logMessage("Log send error: " + err.Error())
 			return
@@ -2417,7 +2462,19 @@ func updateDeviceStatus() {
 
 	data, _ := json.Marshal(s)
 	url := fmt.Sprintf("%s/api/devices/status", apiURL)
-	http.Post(url, "application/json", strings.NewReader(string(data)))
+	
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(data)))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		if agentKey != "" {
+			req.Header.Set("x-agent-key", agentKey)
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}
 }
 
 // ----------------- main service wrapper -----------------
@@ -2581,7 +2638,18 @@ func auditDownloads() {
 						"computer_name": getHostname(),
 					}
 					jsonBody, _ := json.Marshal(reqBody)
-					http.Post(fmt.Sprintf("%s/api/software/request", apiURL), "application/json", bytes.NewBuffer(jsonBody))
+					jsonBody, _ := json.Marshal(reqBody)
+					
+					req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/software/request", apiURL), bytes.NewBuffer(jsonBody))
+					req.Header.Set("Content-Type", "application/json")
+					if agentKey != "" {
+						req.Header.Set("x-agent-key", agentKey)
+					}
+					client := &http.Client{Timeout: 10 * time.Second}
+					resp, err := client.Do(req)
+					if err == nil {
+						resp.Body.Close()
+					}
 				}()
 			} else {
 				// Valid software
@@ -2973,6 +3041,7 @@ func trySnmpConnection(ip string, community string) bool {
 
 	return true
 }
+
 
 
 

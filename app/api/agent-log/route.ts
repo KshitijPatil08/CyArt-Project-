@@ -5,6 +5,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from '@/lib/api-utils';
 
 const logSchema = z.object({
     device_id: z.string().min(1),
@@ -22,20 +23,17 @@ const logSchema = z.object({
     owner: z.string().optional(),
 });
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
-        headers: corsHeaders,
+        headers: getCorsHeaders(request),
     });
 }
 
 export async function POST(request: NextRequest) {
+    if (!verifyAgentKey(request)) {
+        return unauthorizedResponse();
+    }
     try {
         // Use admin client (bypasses RLS)
         const supabase = createClient(
@@ -55,7 +53,7 @@ export async function POST(request: NextRequest) {
         if (!validationResult.success) {
             return NextResponse.json(
                 { error: "Validation failed", details: validationResult.error.format() },
-                { status: 400, headers: corsHeaders }
+                { status: 400, headers: getCorsHeaders(request) }
             );
         }
 
@@ -135,14 +133,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 error: "Failed to create log",
                 details: logError.message
-            }, { status: 500, headers: corsHeaders });
+            }, { status: 500, headers: getCorsHeaders(request) });
         }
 
         return NextResponse.json({
             success: true,
             log_id: logData?.id,
             message: "Log created successfully"
-        }, { status: 201, headers: corsHeaders });
+        }, { status: 201, headers: getCorsHeaders(request) });
 
     } catch (error: any) {
         console.error("[AGENT-LOG] API error:", error);
@@ -150,8 +148,6 @@ export async function POST(request: NextRequest) {
             {
                 error: "Internal server error",
                 details: error?.message || "Unknown error"
-            },
-            { status: 500, headers: corsHeaders }
-        );
+            }, { status: 500, headers: getCorsHeaders(request) });
     }
 }

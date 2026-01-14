@@ -1,19 +1,19 @@
 // app/api/devices/usb/route.ts
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+import { getCorsHeaders, verifyAgentKey, unauthorizedResponse } from "@/lib/api-utils"
 
 // Handles CORS preflight
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: getCorsHeaders(request) });
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  // 1. Verify Agent Key
+  if (!verifyAgentKey(req)) {
+    return unauthorizedResponse()
+  }
+
   try {
     const body = await req.json();
 
@@ -30,21 +30,21 @@ export async function POST(req: Request) {
 
     if (error) {
       console.error("Supabase insert error:", error);
-      return new NextResponse(JSON.stringify({ ok: false, error: error.message }), {
+      return NextResponse.json({ ok: false, error: error.message }, {
         status: 500,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        headers: getCorsHeaders(req)
       });
     }
 
-    return new NextResponse(JSON.stringify({ ok: true }), {
+    return NextResponse.json({ ok: true }, {
       status: 200,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      headers: getCorsHeaders(req)
     });
   } catch (err) {
     console.error("POST /api/devices/usb error:", err);
-    return new NextResponse(JSON.stringify({ ok: false, error: String(err) }), {
+    return NextResponse.json({ ok: false, error: String(err) }, {
       status: 500,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      headers: getCorsHeaders(req)
     });
   }
 }
