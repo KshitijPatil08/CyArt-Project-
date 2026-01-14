@@ -10,15 +10,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { type NextRequest, NextResponse } from "next/server";
 import { checkAndCreateAlerts } from "@/lib/alerts";
 import { trackDataTransfer } from "@/lib/trackers";
+import { getCorsHeaders } from "@/lib/api-utils";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json({}, { headers: getCorsHeaders(request) });
 }
 
 
@@ -48,7 +43,7 @@ export async function POST(request: NextRequest) {
     if (!device_id || !log_type || !message || !timestamp) {
       return NextResponse.json(
         { error: "Missing required fields: device_id, log_type, message, timestamp" },
-        { status: 400, headers: corsHeaders }
+        { status: 400, headers: getCorsHeaders(request) }
 
       );
     }
@@ -66,7 +61,7 @@ export async function POST(request: NextRequest) {
       console.error("[LOG] Error checking device:", deviceCheckError);
       return NextResponse.json(
         { error: "Failed to verify device", details: deviceCheckError.message },
-        { status: 500, headers: corsHeaders }
+        { status: 500, headers: getCorsHeaders(request) }
 
       );
     }
@@ -114,7 +109,7 @@ export async function POST(request: NextRequest) {
             details: autoRegisterError.message,
             hint: "Please register the device using /api/devices/register endpoint"
           },
-          { status: 400, headers: corsHeaders }
+          { status: 400, headers: getCorsHeaders(request) }
 
         );
       }
@@ -160,7 +155,7 @@ export async function POST(request: NextRequest) {
       // If identical message and less than 60 seconds, skip
       if (lastLog.message === message && timeDiff < 60) {
         console.log("[LOG] Duplicate log detected, skipping:", message);
-        return NextResponse.json({ success: true, message: "Duplicate log skipped" }, { status: 200, headers: corsHeaders });
+        return NextResponse.json({ success: true, message: "Duplicate log skipped" }, { status: 200, headers: getCorsHeaders(request) });
 
       }
     }
@@ -266,7 +261,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         error: "Failed to create log",
         details: logError.message
-      }, { status: 500, headers: corsHeaders });
+      }, { status: 500, headers: getCorsHeaders(request) });
     }
 
     console.log("[LOG] Log created successfully:", logData.id);
@@ -361,7 +356,7 @@ export async function POST(request: NextRequest) {
       success: true,
       log_id: logData?.id,
       message: "Log created successfully"
-    }, { status: 201, headers: corsHeaders });
+    }, { status: 201, headers: getCorsHeaders(request) });
 
 
   } catch (error: any) {
@@ -371,7 +366,7 @@ export async function POST(request: NextRequest) {
         error: "Internal server error",
         details: error?.message || "Unknown error"
       },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: getCorsHeaders(request) }
 
     );
   }

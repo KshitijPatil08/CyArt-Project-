@@ -1,14 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { getCorsHeaders } from "@/lib/api-utils";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
-
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json({}, { headers: getCorsHeaders(request) });
 }
 
 export async function GET(request: NextRequest) {
@@ -28,7 +23,7 @@ export async function GET(request: NextRequest) {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: getCorsHeaders(request) });
     }
 
     const full = searchParams.get("full") === "true";
@@ -126,11 +121,11 @@ export async function GET(request: NextRequest) {
       count: data?.length || 0,
       total: count ?? data?.length ?? 0,
       logs: data || [],
-    }, { headers: corsHeaders });
+    }, { headers: getCorsHeaders(request) });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: getCorsHeaders(request) }
     );
   }
 }
@@ -141,13 +136,13 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const { data: { user } } = await supabase.auth.getUser();
     if (user?.user_metadata?.role !== 'admin') {
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: corsHeaders });
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403, headers: getCorsHeaders(request) });
     }
 
     const { after, before } = body;
 
     if (!after && !before) {
-      return NextResponse.json({ error: "Time range required" }, { status: 400, headers: corsHeaders });
+      return NextResponse.json({ error: "Time range required" }, { status: 400, headers: getCorsHeaders(request) });
     }
 
     let query = supabase.from("logs").delete();
@@ -166,11 +161,11 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       success: true,
       deleted: data?.length || 0,
-    }, { headers: corsHeaders });
+    }, { headers: getCorsHeaders(request) });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: getCorsHeaders(request) }
     );
   }
 }

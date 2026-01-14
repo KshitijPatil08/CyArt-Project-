@@ -6,13 +6,7 @@ import { cookies } from 'next/headers'
 import { type NextRequest, NextResponse } from "next/server"
 import { isIpInSubnet } from "@/lib/utils/subnet"
 import { createAdminClient } from "@/lib/supabase/admin"
-
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
+import { getCorsHeaders } from "@/lib/api-utils"
 
 async function getSupabaseClient() {
     const cookieStore = await cookies()
@@ -48,7 +42,7 @@ async function getSupabaseClient() {
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
-        headers: corsHeaders,
+        headers: getCorsHeaders(request),
     })
 }
 
@@ -58,7 +52,7 @@ export async function GET(request: NextRequest) {
             console.error("Missing Supabase environment variables")
             return NextResponse.json(
                 { error: "Server configuration error: Missing Supabase credentials" },
-                { status: 500, headers: corsHeaders }
+                { status: 500, headers: getCorsHeaders(request) }
             )
         }
 
@@ -69,7 +63,7 @@ export async function GET(request: NextRequest) {
             console.error("Failed to create Supabase client:", error)
             return NextResponse.json(
                 { error: "Failed to initialize database connection", details: error.message },
-                { status: 500, headers: corsHeaders }
+                { status: 500, headers: getCorsHeaders(request) }
             )
         }
 
@@ -79,7 +73,7 @@ export async function GET(request: NextRequest) {
             console.error("[DEVICES LIST] Unauthorized access attempt")
             return NextResponse.json(
                 { error: "Unauthorized: Please log in" },
-                { status: 401, headers: corsHeaders }
+                { status: 401, headers: getCorsHeaders(request) }
             )
         }
 
@@ -93,7 +87,7 @@ export async function GET(request: NextRequest) {
             console.error("[DEVICES LIST] Error fetching devices:", fetchError)
             return NextResponse.json(
                 { error: "Database query failed", details: fetchError.message },
-                { status: 500, headers: corsHeaders }
+                { status: 500, headers: getCorsHeaders(request) }
             )
         }
 
@@ -195,7 +189,7 @@ export async function GET(request: NextRequest) {
                 devices: transformedDevices,
                 count: transformedDevices.length
             },
-            { status: 200, headers: corsHeaders }
+            { status: 200, headers: getCorsHeaders(request) }
         )
 
     } catch (error: any) {
@@ -206,7 +200,7 @@ export async function GET(request: NextRequest) {
                 details: error?.message || "Unknown error",
                 stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
             },
-            { status: 500, headers: corsHeaders }
+            { status: 500, headers: getCorsHeaders(request) }
         )
     }
 }

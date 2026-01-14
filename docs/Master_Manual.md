@@ -1,330 +1,349 @@
-# CyArt Master Integration & Deployment Manual
+# CyArt Security Suite: Master Documentation (Consolidated)
 
-**Version**: 8.0.0-MASTER-FULL
-**Classification**: System Administrator / DevOps
-**Scope**: End-to-End Deployment, Architecture, and Operations
-**Date**: December 2025
-
----
-
-# SECTION 1: ARCHITECTURE & SOLUTION SUMMARY
-*Executive Overview of the CyArt Security Platform.*
-
-## 1.1 The Requirements vs. Delivery
-*   **Requirement**: "Server in local dedicated infrastructure (Physical), Dashboard global."
-    *   **delivered**: Hybrid Architecture. Global Next.js Dashboard + Local Physical API Server.
-*   **Requirement**: "Windows agent as .exe."
-    *   **Delivered**: `CyArtAgent.exe` (Compiled Go binary). No external dependencies.
-*   **Requirement**: "Quarantine malicious devices."
-    *   **Delivered**: Kernel-level Network disabling + USB Storage blocking.
-
-## 1.2 Architecture Diagram
-```ascii
-[Internet] User (Global Dashboard) -> [Cloud/Local] Database
-                                             ^
-                                             |
-[Intranet] Physical Server (API) <-> [Intranet] Agents (PCs)
-```
-
----
----
-
-# SECTION 2: FILE MANIFEST & PROJECT OVERVIEW
-*Identify these critical files before starting.*
-
-### 2.1 The Backend (Server)
-*   `app/` - Next.js Source Code (Dashboard UI, API Routes).
-*   `middleware.ts` - Security Gatekeeper (Auth & Session Management).
-*   `lib/supabase/` - Database Connection Logic.
-*   `.env.local` - **CRITICAL**: Stores API Keys and Admin Secrets.
-
-### 2.2 The Agents (Endpoints)
-*   `scripts/windows-agent-production.go` - **Master Source** for Windows.
-*   `scripts/linux-agent.sh` - Bash script for Linux Servers.
-*   `scripts/mac-agent.sh` - Bash script for macOS Clients.
-
-### 2.3 The Utilities
-*   `scripts/build-agent.ps1` - **The Factory**. Compiles the Agent logic into an `.exe`.
-*   `scripts/register-server.sh` - Registers the backend server itself as a node.
-*   `scripts/usb_request_gui.ps1` - User Interface for requesting USB access from the admin.
-
----
----
-
-# SECTION 3: DEPLOYMENT GUIDE (LEVEL 1 - 5)
-*Follow these levels sequentially to build the infrastructure.*
-
-## LEVEL 1: DATABASE INFRASTRUCTURE (THE BRAIN)
-*You must establish the database before the server.*
-
-### Step 1.1: Create Project
-1.  Log in to Supabase (or local Postgres).
-2.  Create Project: `CyArt-Production`.
-
-### Step 1.2: Schema Initialization (Run in SQL Editor)
-
-**Block A: The Devices Table**
-```sql
-CREATE TABLE public.devices (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    device_id TEXT NOT NULL UNIQUE,
-    device_name TEXT,
-    hostname TEXT,
-    ip_address TEXT,
-    mac_address TEXT,
-    os_version TEXT,
-    status TEXT DEFAULT 'offline',
-    is_quarantined BOOLEAN DEFAULT FALSE,
-    last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    owner TEXT,
-    location TEXT
-);
-ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
-```
-
-**Block B: The Logs Table**
-```sql
-CREATE TABLE public.logs (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    device_id TEXT REFERENCES public.devices(device_id),
-    log_type TEXT,
-    message TEXT,
-    severity TEXT, -- 'info', 'warning', 'critical'
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-```
-
-**Block C: USB Whitelist Policies**
-```sql
-CREATE TABLE public.authorized_usb_devices (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    serial_number TEXT NOT NULL,
-    vendor_id TEXT,
-    product_id TEXT,
-    name TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_read_only BOOLEAN DEFAULT FALSE
-);
-```
-
-### Step 1.3: API Keys
-Save these securely: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,`ADMIN_SECRET_CODE`.
+**Version**: 10.0.0-COMPLETE
+**Date**: January 2026
+**Classification**: COMPLETE SYSTEM MANIFEST
 
 ---
 
-## LEVEL 2: APPLICATION SERVER (THE BODY)
-*Deploying to your Physical/Dedicated Server.*
+## 📖 Table of Contents
 
-**Prerequisites**: Ubuntu 22.04 LTS, 4 vCores, 8GB RAM.
-
-### Step 2.1: System Prep
-```bash
-sudo apt update && sudo apt upgrade -y
-# Install Node.js 18
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt install -y nodejs
-# Install PM2
-sudo npm install -g pm2
-```
-```bash
-# Install Ngrok
-# For VM install Server with Ngrok
-sudo apt install snap ngrok
-ngrok config add-authtoken <your-authtoken>
-```
-### Step 2.2: Code Installation
-```bash
-git clone https://github.com/KshitijPatil08/CyArt-Project-.git /var/www/cyart
-cd /var/www/cyart
-npm install --legacy-peer-deps
-```
-
-### Step 2.3: Secrets Configuration
-Create `.env.local`:
-```bash
-nano .env.local
-```
-**Content**:
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh...
-SUPABASE_SERVICE_ROLE_KEY=eyJh...
-ADMIN_SECRET_CODE=ChangeMeToSomethingSecure123!
-AGENT_SECRET_KEY=YourSecureAgentKey!
-CYART_Server_URL=http://your-server-ip:3000
-```
-
-### Step 2.4: Launch
-```bash
-npm run build
-pm2 start npm --name "cyart-dashboard" -- start
-# Build the Next.js App
-npm run build
-
-# Start the dashboard with PM2
-pm2 start npm --name "cyart-dashboard" -- start
-
-# Configure PM2 to start on system boot
-pm2 startup
-# IMPORTANT: Copy and paste the command generated by 'pm2 startup' into your terminal and run it.
-
-# Save the current process list
-pm2 save
-```
-
-### Step 2.5: Monitoring & Management
-*Keep your server running smoothly with these commands:*
-*   **Check Status**: `pm2 status` (Shows if the app is online/offline).
-*   **View Logs**: `pm2 logs cyart-dashboard` (Real-time error and output logs).
-*   **Restart App**: `pm2 restart cyart-dashboard`.
-*   **Stop App**: `pm2 stop cyart-dashboard`.
-*   **Visual Monitor**: `pm2 monit` (Dashboard for CPU/RAM usage).
-
-*Your Dashboard is now live at `http://your-server-ip:3000`.*
-pm2 save && pm2 startup
----
-
-## LEVEL 3: THE AGENT FACTORY (MANUFACTURING)
-*You must build the agent with your specific Server URL.*
-
-**Prerequisite**: Windows 10/11 with Go installed.
-
-### Step 3.1: Run the Factory
-1.  Open PowerShell as Admin.
-2.  Navigate to `CyArt-Project-\scripts`.
-3.  Run: `.\build-agent.ps1`
-
-### Step 3.2: Configuration
-*   **Prompt**: "Enter Server URL"
-*   **Input**: `http://YOUR-PHYSICAL-SERVER-IP:3000`
-*   **Prompt**: "Enter Agent Key"
-*   **Input**: `YourSecureAgentKey!` (Must match `AGENT_SECRET_KEY` from Step 2.3)
-*   *Result*: The script bakes this URL and Key into `CyArtAgent.exe`.
-
-### Step 3.3: Collect Artifacts
-Open `build/deployment`. Copys contents to USB/Network Share:
-*   `CyArtAgent.exe`
-*   `install.bat`
-*   `gpo-deploy.ps1`
+1.  [Project Overview & Architecture](#1-project-overview--architecture)
+2.  [Security Implementations](#2-security-implementations)
+3.  [Deployment Guide](#3-deployment-guide)
+4.  [Administration Guide](#4-administration-guide)
+5.  [System Flows & Diagrams](#5-system-flows--diagrams)
+6.  [Troubleshooting & Support](#6-troubleshooting--support)
+7.  [Developer Reference & File Manifest](#7-developer-reference--file-manifest)
+8.  [Standard User Guide](#8-standard-user-guide)
+9.  [Appendix](#appendix)
 
 ---
 
-## LEVEL 4: ENDPOINT DEPLOYMENT (THE ROLLOUT)
+# 1. Project Overview & Architecture
 
-### A. Windows (Manual / Pilot)
-1.  Copy deployment folder to `C:\Temp`.
-2.  Run `install.bat` as Admin.
-3.  **Result**: Service installed. Device appears Online in Dashboard.
+## 1.1 Executive Summary
+CyArt is a comprehensive endpoint security management system designed for enterprise environments. It features a hybrid architecture with a globally accessible Next.js dashboard and a dedicated physical API server, managing a fleet of secure Windows Agents.
 
-### B. Windows (GPO / Enterprise)
-1.  Copy files to `\\DC01\NETLOGON\CyArt\`.
-2.  **GPMC**: Create GPO "CyArt Agent".
-3.  **Startup Script**: Add `gpo-deploy.ps1`.
-4.  **Parameters**: `-ExecutionPolicy Bypass -File \\DC01\NETLOGON\CyArt\gpo-deploy.ps1`.
+*   **Core Capabilities**:
+    *   **Device Management**: Real-time health monitoring, hardware auditing, and remote quarantine.
+    *   **USB Control**: Granular whitelisting (VID/PID/Serial), read-only policies, and blocking.
+    *   **Software Auditing**: Application whitelisting, signature verification, and process termination.
+    *   **Network Topology**: Layer 2/3 discovery (LLDP/SNMP) and visualization.
+    *   **Security**: Authenticated agent communication, role-based access control (RBAC), and centralized logging.
 
-### C. Linux Servers
-1.  Copy `linux-agent.sh`.
-2.  Edit `API_URL`.
-3.  Run installation commands (Section 1.2 file manifest).
+## 1.2 System Architecture (Visual)
+![CyArt Master System Overview](/c:/Users/kshit/.gemini/antigravity/brain/ec237d51-1490-412a-a799-02ec33e5d433/cyart_master_system_overview_v1_1768409060690.png)
+
+> **Note**: The diagram above shows the complete system architecture including:
+> - **Cloud Layer**: Next.js Dashboard + Supabase Database
+> - **On-Premise Layer**: Physical Node.js API Server
+> - **Multi-Platform Endpoints**: 
+>   - Windows Agents (Desktop PCs) - Go binary service
+>   - Linux Agents (Servers/Workstations) - Bash script service
+>   - macOS Agents (MacBooks) - Bash script daemon
+> - All agents perform: USB Blocking, Software Auditing, Network Quarantine, and Real-time Logging
+
+### Components
+1.  **Web Dashboard (Next.js Application)**
+    *   **Tech Stack**: Next.js 14, React, Tailwind CSS, Shadcn UI.
+    *   **Role**: Provides the user interface for monitoring, alerts, and policy configuration.
+    *   **Auth**: Supabase Auth with Role-Based Access Control (Admin vs. Standard User).
+
+2.  **Cross-Platform Agents (Windows, Linux, macOS)**
+    *   **Tech Stack**: 
+        *   **Windows**: Go binary (`CyArtAgent.exe`) running as a Windows Service.
+        *   **Linux**: Bash script (`linux-agent.sh`) running as a systemd service.
+        *   **macOS**: Bash script (`mac-agent.sh`) running as a LaunchDaemon.
+    *   **Role**: Runs with elevated privileges on endpoints. Enforces USB blocking, network quarantine, and collects logs.
+    *   **Security**: 
+        *   **X-Agent-Key**: All API requests must include this secret header.
+        *   **Fail-safe**: Auto-restores network connectivity if the server is unreachable.
+
+3.  **Database (Supabase/PostgreSQL)**
+    *   **Role**: Central reliable storage for inventory, logs, and policies.
+    *   **Security**: Row Level Security (RLS) ensures users only access their assigned devices.
 
 ---
 
-## LEVEL 5: OPERATIONAL ADMINISTRATION
-*Day-to-day usage.*
+# 2. Security Implementations
 
-### 5.1 First Admin Creation
-1.  Go to `http://server:3000/auth/admin/sign-up`.
-2.  Enter Email/Password.
-3.  **Admin Code**: Enter the `ADMIN_SECRET_CODE` you set in Level 2.
-4.  Success.
+## 2.1 Global API Hardening (CORS & Origins)
+All API endpoints (`/api/*`) are hardened to prevent Cross-Origin Resource Sharing (CORS) attacks and Cross-Site Request Forgery (CSRF).
+*   **Strict Origin Validation**: The API validates the `Origin` header against the `NEXT_PUBLIC_APP_URL`.
+*   **Standardized Headers**: Uses a unified `getCorsHeaders()` utility to ensure consistent security policies across `logs`, `alerts`, `devices`, and `software` endpoints.
 
-### 5.2 USB Whitelisting
-1.  **Block**: User plugs in USB. Access Denied.
-2.  **Request**: User runs `USB Request Tool` -> "Request Access".
-3.  **Approve**: Admin Dashboard -> USB Whitelist -> "Approve".
-4.  **Unlock**: Agent unlocks that specific Serial Number.
+## 2.2 Agent Authentication (Shared Secret)
+To prevent unauthorized devices from spoofing data, a shared secret model is enforced.
+*   **Mechanism**: A high-entropy `AGENT_SECRET_KEY` is generated on the server (`.env.local`).
+*   **Enforcement**: 
+    *   The Agent is compiled with this key.
+    *   Every HTTP request from the Agent includes the `X-Agent-Key` header.
+    *   The Server (`lib/api-utils.ts`) verifies this key before processing any data.
+    *   **Fail-Secure**: Requests without the key are rejected with `401 Unauthorized`.
 
-### 5.3 Quarantine (Kill Switch)
-1.  **Detect**: Suspicious activity on `HR-PC`.
-2.  **Action**: Dashboard -> Devices -> **Quarantine**.
-3.  **Effect**:
-    *   Network Disabled.
-    *   USB Disabled.
-    *   Device Offline.
-4.  **Restore**: Click **Release**. Agent checks heartbeat (2 mins) and restores access.
+## 2.3 Role-Based Access Control (RBAC)
+*   **Admin**: Full access. Can see all devices, approve/reject requests, and configure system-wide policies.
+*   **Approver**: Can approve requests but has limited system configuration rights.
+*   **User**: Can only view *their own* assigned devices and submit requests for USB/Software access.
 
 ---
 
-# SECTION 4: PHYSICAL SERVER CONFIGURATION
-*For On-Premise System Deployment.*
+# 3. Deployment Guide
 
-## 4.1 Hardware Requirements
-*   **Operating System**: Ubuntu 22.04 LTS (Recommended) or Windows Server 2019+.
-*   **CPU**: 4 vCores or Physical Cores.
-*   **RAM**: 8GB Minimum (16GB Preferred for 500+ agents).
-*   **Storage**: 100GB SSD (Database + Logs).
-*   **Network**: Static IP Address (e.g., `192.168.1.100`), Port 3000 Open.
+## 3.1 Prerequisites
+*   **Server**: Ubuntu 22.04 LTS (Physical or VPS), Node.js 18+, PM2.
+*   **Database**: Supabase Project (Cloud or Local).
+*   **Client Endpoints**: 
+    *   Windows 10/11 (for Windows Agent)
+    *   Linux (Ubuntu 20.04+, Debian, RHEL-based) (for Linux Agent)
+    *   macOS 11+ (Big Sur or later) (for macOS Agent)
 
-## 4.2 Software Installation (Ubuntu Example)
-1.  **System Updates**:
+## 3.2 Server Setup (Physical/VPS)
+1.  **Clone Repository**:
     ```bash
-    sudo apt update && sudo apt upgrade -y
-    sudo apt install -y curl git unzip
-    ```
-2.  **Node.js Runtime (v18+)**:
-    ```bash
-    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-    sudo apt install -y nodejs
-    ```
-3.  **Process Manager (PM2)**:
-    ```bash
-    sudo npm install -g pm2
+    git clone https://github.com/KshitijPatil08/CyArt-Project-.git /var/www/cyart
+    cd /var/www/cyart
+    npm install --legacy-peer-deps
     ```
 
-## 4.3 Application Deployment
-1.  **Clone Source Code**:
+2.  **Configure Secrets (`.env.local`)**:
+    Create this file and ensure `AGENT_SECRET_KEY` is set to a strong random string.
+    ```env
+    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh...
+    SUPABASE_SERVICE_ROLE_KEY=eyJh...
+    ADMIN_SECRET_CODE=SecureAdminCode123!
+    AGENT_SECRET_KEY=CriticalSecureKey2026!
+    ALLOWED_ORIGINS=https://your-domain.com
+    ```
+
+3.  **Build & Launch**:
     ```bash
-    git clone https://github.com/KshitijPatil08/CyArt-Project-.git /opt/cyart
-    cd /opt/cyart
+    npm run build
+    pm2 start npm --name "cyart-backend" -- start
+    pm2 save && pm2 startup
+    ```
+
+## 3.3 Agent Deployment
+
+### 3.3.1 Windows Agent
+1.  **Build the Agent**:
+    On a Windows machine with Go installed:
+    ```powershell
+    cd scripts
+    .\build-agent.ps1
+    ```
+2.  **Configure during Build**:
+    The script will ask for:
+    *   **Server URL**: `http://<your-server-ip>:3000` (or your domain).
+    *   **Agent Key**: Must match the `AGENT_SECRET_KEY` from the server.
+3.  **Deploy**:
+    Copy `CyArtAgent.exe` and `install.bat` to the target machine and run `install.bat` as Administrator.
+
+### 3.3.2 Linux Agent
+1.  **Deploy the Script**:
+    ```bash
+    cd scripts
+    chmod +x linux-agent.sh
+    sudo ./linux-agent.sh "https://your-server.com" "$(hostname)" "user@example.com" "Office"
     ```
 2.  **Install Dependencies**:
     ```bash
-    npm install --legacy-peer-deps
+    sudo apt-get install -y jq snmp net-tools
     ```
-3.  **Environment Variables**:
-    Create the `.env.local` file:
+3.  **Run as Service** (Optional):
+    Create a systemd service to run the agent on boot.
+
+### 3.3.3 macOS Agent
+1.  **Deploy the Script**:
     ```bash
-    nano .env.local
+    cd scripts
+    chmod +x mac-agent.sh
+    sudo ./mac-agent.sh "https://your-server.com" "$(hostname)" "user@example.com" "Office"
     ```
-    Paste the following secrets:
-    ```env
-    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh... (Your Public Key)
-    SUPABASE_SERVICE_ROLE_KEY=ey... (Your Private Admin Key)
-    ADMIN_SECRET_CODE=MySecureAdminCode!
-    AGENT_SECRET_KEY=YourSecureAgentKey!
+2.  **Install Dependencies**:
+    ```bash
+    brew install jq net-snmp
     ```
-
-## 4.4 Start & Enable Service
-```bash
-# Build the Next.js App
-npm run build
-
-# Start with PM2
-pm2 start npm --name "cyart-backend" -- start
-
-# Save for Auto-Start on Reboot
-pm2 save
-pm2 startup
-```
-
-## 4.5 Firewall Rules (UFW)
-```bash
-sudo ufw allow 22/tcp   # SSH
-sudo ufw allow 3000/tcp # API/Dashboard
-sudo ufw allow 443/tcp  # HTTPS
-sudo ufw enable
-```
+3.  **Run as LaunchDaemon** (Optional):
+    Create a plist file in `/Library/LaunchDaemons/` to run the agent on boot.
 
 ---
-**End of Master Deployment Manual**
+
+# 4. Administration Guide
+
+## 4.1 USB Whitelisting Workflow
+1.  **Block**: By default, unauthorized USB storage devices are blocked by the Agent.
+2.  **Request**: The user sees a popup and requests access via the Agent UI.
+3.  **Approve**:
+    *   Admin logs in to Dashboard -> **USB Whitelist**.
+    *   Locate the "Pending Request".
+    *   Click **Approve** and set policies (e.g., Read-Only, Expire in 30 days).
+4.  **Effect**: The Agent polls the whitelist, sees the new serial number, and unlocks the USB port.
+
+## 4.2 Software Approval Workflow
+1.  **Detection**: The Agent detects a new process execution.
+2.  **Verification**: Checks the process signature/hash against the `Authorized Software` list.
+3.  **Action**: 
+    *   If unknown: **Process Terminated**. User notified.
+    *   User requests approval.
+4.  **Admin Action**: Admin approves the software (Vendor/Name) in the Dashboard.
+5.  **Result**: The software is now trusted globally across the fleet.
+
+## 4.3 Device Quarantine (Kill Switch)
+In case of a breach (e.g., ransomware detection):
+1.  Admin clicks **Quarantine** on the device in the Dashboard.
+2.  Server updates status to `Quarantined`.
+3.  Agent receives signal (within 5 seconds):
+    *   **Network**: Disables all non-loopback network adapters.
+    *   **USB**: Disables USB drivers.
+    *   **User**: Shows "DEVICE QUARANTINED" lock screen.
+
+---
+
+# 5. System Flows & Diagrams
+
+### Visual Authentication & RBAC Flow
+![Authentication & RBAC Workflow](/c:/Users/kshit/.gemini/antigravity/brain/ec237d51-1490-412a-a799-02ec33e5d433/authentication_rbac_workflow_v1_1768408896327.png)
+
+## 5.2 Device Registration Flow
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant API
+    participant DB
+    
+    Agent->>Agent: Generate/Read Device ID
+    Agent->>API: POST /api/devices/register (Header: X-Agent-Key)
+    API->>API: Verify X-Agent-Key
+    API->>DB: Upsert Device Record
+    DB-->>API: Success
+    API-->>Agent: {status: "registered", config: {...}}
+```
+
+## 5.3 Workflows: USB & Software Control
+
+### Visual USB Access Workflow
+![USB Access Workflow](/c:/Users/kshit/.gemini/antigravity/brain/ec237d51-1490-412a-a799-02ec33e5d433/usb_access_workflow_v1_1768408874396.png)
+
+### Visual Software Security Workflow
+![Software Security Workflow](/c:/Users/kshit/.gemini/antigravity/brain/ec237d51-1490-412a-a799-02ec33e5d433/software_security_workflow_v1_1768408854324.png)
+
+
+### Visual Quarantine Workflow
+![Agent Security Workflow](/c:/Users/kshit/.gemini/antigravity/brain/ec237d51-1490-412a-a799-02ec33e5d433/agent_security_workflow_v1_1768408261736.png)
+
+---
+
+# 6. Troubleshooting & Support
+
+## 6.1 Agent Not Connected
+*   **Symptom**: Device shows "Offline" in dashboard.
+*   **Fix**:
+    1.  Check internet connection on device.
+    2.  Verify `CyArtAgent` service is running (`Get-Service CyArtAgent`).
+    3.  **CRITICAL**: Ensure the Agent was built with the correct `AGENT_SECRET_KEY` matching the server's `.env.local`. If they mismatch, the server will reject all logs with `401 Unauthorized`.
+
+## 6.2 Logs Not Appearing
+*   **Symptom**: Device is online but logs list is empty.
+*   **Check**:
+    *   Browser Console: Check for CORS errors (should be fixed with Global Hardening).
+    *   Server Logs: Check for "Invalid Agent Key" errors.
+
+## 6.3 USB Still Blocked After Approval
+*   **Cause**: Polymerization delay or mismatch in Serial Number.
+*   **Fix**: 
+    *   Ask user to unplug and replug the device.
+    *   Check if "Read-Only" policy is conflicting with write attempts.
+
+---
+
+# 7. Developer Reference & File Manifest
+
+## 7.1 Backend Structure (`/app`)
+*   `app/auth/*` - Authentication pages (Sign In, Admin Login).
+*   `app/api/devices/*` - Device management endpoints (Register, Quarantine, List).
+*   `app/api/usb/*` - USB Whitelisting and Request/Approval management.
+*   `app/api/software/*` - Software Execution Control policies.
+*   `app/api/logs/*` - Centralized logging intake.
+*   `middleware.ts` - Edge Middleware for Session validation and Rate Limiting.
+
+## 7.2 Component Library (`/components`)
+*   **Dashboards**:
+    *   `SecurityDashboard.tsx`: Primary Admin interface (Alerts, Devices, Logs).
+    *   `device-management.tsx`: Grid/Table view of all managed endpoints.
+*   **Management Widgets**:
+    *   `usb-whitelist-management.tsx`: Interface for approving/rejecting USBs and setting policies.
+    *   `software-management.tsx`: Interface for global software allow-lists.
+    *   `network-topology.tsx`: Visual graph of discovered network assets.
+*   **User Interface**:
+    *   `usb-request-dialog.tsx`: Popup for users to submit justification for USB access.
+    *   `user/user-usb-requests.tsx`: Status tracker for a user's submitted requests.
+
+## 7.3 Agent Scripts (`/scripts`)
+*   **`windows-agent-production.go`**: The Windows Agent (Go). Contains logic for:
+    *   WMI Hardware Scanning.
+    *   USB Driver hooking (`USBSTOR`).
+    *   Software process auditing.
+    *   Network Quarantine (Netsh commands).
+*   **`linux-agent.sh`**: The Linux Agent (Bash). Contains logic for:
+    *   USB device tracking via `udevadm` and `lsblk`.
+    *   Network discovery via SNMP.
+    *   Software auditing (`.deb`, `.rpm`, `.AppImage` files).
+    *   Network quarantine via `ip link`.
+*   **`mac-agent.sh`**: The macOS Agent (Bash). Contains logic for:
+    *   USB device tracking via `system_profiler` and `diskutil`.
+    *   Network discovery via SNMP.
+    *   Software auditing (`.dmg`, `.pkg`, `.app` files).
+    *   Network quarantine via `networksetup`.
+*   **`build-agent.ps1`**: PowerShell factory script. Compiles the Go agent and embeds the `Server URL` and `Agent Key`.
+*   **`register-server.sh`**: Helper to register the backend server itself as a trusted node in the topology.
+*   **`usb_request_gui.ps1`**: A lightweight PowerShell GUI deployed to Windows endpoints, allowing users to initiate a USB access request if blocked.
+
+## 7.4 Security Utilities (`/lib`)
+*   `lib/api-utils.ts`: Contains the critical security logic:
+    *   `verifyAgentKey(req)`: Validates the `X-Agent-Key`.
+    *   `getCorsHeaders(req)`: Enforces Strict Origin policies.
+*   `lib/supabase/middleware.ts`: Handles Supabase Auth session refreshing.
+
+---
+
+# 8. Standard User Guide
+
+## 8.1 Your Dashboard
+Standard users have limited access. You can only see **devices assigned to you**.
+*   **View Devices**: See the online status and health of your workstations.
+*   **My Profile**: Manage your password and session.
+
+## 8.2 Requesting Access
+If a USB device or Software application is blocked by the CyArt Agent:
+1.  **Notification**: You will see a Windows Toast Notification ("Action Blocked").
+2.  **Request Popup**: Click the notification to open the Request Dialog.
+3.  **Submit**: Enter a justification (e.g., "Need for Project X") and submit.
+4.  **Wait**: The Admin receives your request instantly.
+5.  **Approval**: Once approved, you will receive a notification.
+    *   **USB**: Unplug and replug the device.
+    *   **Software**: Restart the application.
+
+## 8.3 Self-Service Troubleshooting
+*   **"Device Offline"**: Check your internet connection. Ensure the "CyArt Agent" service is running in Task Manager.
+*   **"Access Denied"**: If a previously approved device stops working, check if the approval expired (some approvals are temporary).
+
+---
+
+# Appendix
+
+## Appendix A: Detailed System Diagrams
+(Refer to Section 1.2 and 5.2 for Visual Diagrams)
+
+## Appendix B: Environment Variables Reference
+| Variable | Required? | Purpose |
+|----------|-----------|---------|
+| `NEXT_PUBLIC_APP_URL` | Yes | Validates CORS Origins. |
+| `AGENT_SECRET_KEY` | **CRITICAL** | Authenticates Agents. |
+| `ADMIN_SECRET_CODE` | Optional | Emergency Admin Access override. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | DB Connection. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Public API Key. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Admin API Key (Server-side only). |
+
