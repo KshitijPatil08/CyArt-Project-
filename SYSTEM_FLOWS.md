@@ -316,9 +316,17 @@ sequenceDiagram
    - Download `CyArtAgent.exe`
    - Place in `C:\ProgramData\CyArtAgent\`
 
-2. **Configure API URL**
-   - Set environment variable: `CYART_API_URL=https://your-domain.com`
-   - OR create `agent.config` with `{"server_url": "https://your-domain.com"}`
+3. **Configure API URL & Key**
+   - Set environment variables:
+     - `CYART_API_URL=https://your-domain.com`
+     - `CYART_AGENT_KEY=your-secret-agent-key`
+   - OR create `agent.config` with:
+     ```json
+     {
+       "server_url": "https://your-domain.com",
+       "agent_key": "your-secret-agent-key"
+     }
+     ```
 
 3. **Run Agent**
    - Execute `CyArtAgent.exe` (as Administrator recommended)

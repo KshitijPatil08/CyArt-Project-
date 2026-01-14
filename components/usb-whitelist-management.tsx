@@ -60,6 +60,39 @@ interface PendingRequest {
   isUnknownAgent?: boolean
 }
 
+// Common USB Vendor IDs
+const VENDOR_MAP: Record<string, string> = {
+  "0781": "SanDisk",
+  "0951": "Kingston",
+  "13FE": "Phison Electronics",
+  "046D": "Logitech",
+  "03F0": "HP",
+  "0930": "Toshiba",
+  "04E8": "Samsung",
+  "05DC": "Lexar",
+  "8564": "Transcend",
+  "1005": "Apacer",
+  "05AC": "Apple",
+  "045E": "Microsoft",
+  "1058": "Western Digital",
+  "0BC2": "Seagate",
+  "0403": "Future Technology Devices",
+  "125F": "A-DATA",
+  "154B": "PNY",
+  "090C": "Silicon Motion",
+  "1307": "Transcend",
+  "8087": "Intel"
+};
+
+const getVendorName = (vid?: string, name?: string): string => {
+  if (name && name !== "Unknown Vendor") return name;
+  if (!vid) return "Unknown Vendor";
+
+  // Clean VID and try lookup
+  const cleanVid = vid.replace("0x", "").toUpperCase();
+  return VENDOR_MAP[cleanVid] || `Unknown Vendor (${vid})`;
+};
+
 export function USBWhitelistManagement() {
   const [activeTab, setActiveTab] = useState<"authorized" | "pending">("authorized")
   const [devices, setDevices] = useState<AuthorizedUSB[]>([])
@@ -271,7 +304,14 @@ export function USBWhitelistManagement() {
 
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.error || 'Failed to add device')
+        const isDuplicate = data.error === "Device already whitelisted" || data.code === "DUPLICATE_WHITELIST";
+
+        toast({
+          title: isDuplicate ? "Already Exists" : "Error",
+          description: isDuplicate ? "This device is already in your whitelist." : (data.error || "Failed to add device"),
+          variant: "destructive"
+        })
+        return
       }
 
       toast({ title: "Success", description: "USB device added to whitelist" })
@@ -287,7 +327,15 @@ export function USBWhitelistManagement() {
       fetchDevices()
     } catch (error: any) {
       console.error("Error adding USB device:", error)
-      toast({ title: "Error", description: "Failed to add USB device", variant: "destructive" })
+      const message = error.message === "Device already whitelisted"
+        ? "This device is already in your whitelist."
+        : "Failed to add USB device";
+
+      toast({
+        title: error.message === "Device already whitelisted" ? "Already Exists" : "Error",
+        description: message,
+        variant: "destructive"
+      })
     }
   }
 
@@ -375,8 +423,15 @@ export function USBWhitelistManagement() {
       const data = await response.json() as { success: boolean; error?: string }
       console.log('[USB-UI] Server Response:', data)
 
-      if (!data.success) {
-        throw new Error(data.error || "Failed to authorize device")
+      if (!response.ok) {
+        const isDuplicate = data.error === "Device already whitelisted";
+        console.log('[USB-UI] Duplicate detected. Showing toast. isDuplicate:', isDuplicate);
+        toast({
+          title: isDuplicate ? "Already Exists" : "Approval Failed",
+          description: isDuplicate ? "This device is already in your whitelist." : (data.error || "Failed to authorize device"),
+          variant: "destructive"
+        })
+        return
       }
 
       toast({ title: "Approved", description: "Device authorized successfully" })
@@ -385,9 +440,11 @@ export function USBWhitelistManagement() {
       fetchDevices()
     } catch (error: any) {
       console.error('[USB-UI] Approval failed:', error)
+      const isDuplicate = error.message === "Device already whitelisted";
+
       toast({
-        title: "Approval Failed",
-        description: error.message || "An unexpected error occurred",
+        title: isDuplicate ? "Already Exists" : "Approval Failed",
+        description: isDuplicate ? "This device is already in your whitelist." : (error.message || "An unexpected error occurred"),
         variant: "destructive"
       })
     } finally {
@@ -465,7 +522,7 @@ export function USBWhitelistManagement() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">USB Whitelist Management</h2>
@@ -593,106 +650,133 @@ export function USBWhitelistManagement() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Device Name</TableHead>
-                        <TableHead>Agent / Machine</TableHead>
-                        <TableHead>Serial Number</TableHead>
-                        <TableHead>Policies</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Created</TableHead>
+                  {/* Calculate duplicates */}
+                  {(() => {
+                    const serialCounts: Record<string, number> = {};
+                    devices.forEach(d => {
+                      if (d.serial_number) {
+                        const s = d.serial_number.toLowerCase().trim();
+                        serialCounts[s] = (serialCounts[s] || 0) + 1;
+                      }
+                    });
+                    const duplicates = new Set(
+                      Object.keys(serialCounts).filter(s => serialCounts[s] > 1)
+                    );
 
-                        {(isAdmin || isApprover) && <TableHead>Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {devices.map((device) => (
-                        <TableRow key={device.id}>
-                          <TableCell className="font-medium">
-                            <div>{device.device_name}</div>
-                            <div className="text-xs text-muted-foreground">{device.vendor_name}</div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1 font-medium text-sm">
-                              <Monitor className="w-3 h-3 text-muted-foreground" />
-                              {device.computer_name || "Unknown"}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <code className="text-xs bg-muted px-2 py-1 rounded">
-                              {userRole === 'admin' ? device.serial_number : '••••••••'}
-                            </code>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {device.is_read_only && <Badge variant="outline" className="text-xs"><Lock className="w-3 h-3 mr-1" /> Read-Only</Badge>}
-                              {device.expiration_date && <Badge variant="outline" className="text-xs"><Calendar className="w-3 h-3 mr-1" /> Exp: {new Date(device.expiration_date).toLocaleString()}</Badge>}
-                              {device.allowed_start_time && <Badge variant="outline" className="text-xs"><Clock className="w-3 h-3 mr-1" /> {device.allowed_start_time}-{device.allowed_end_time}</Badge>}
-                              {!device.is_read_only && !device.expiration_date && !device.allowed_start_time && (
-                                <span className="text-xs text-muted-foreground">Unrestricted</span>
+                    return (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Device Name</TableHead>
+                            <TableHead>Agent / Machine</TableHead>
+                            <TableHead>Serial Number</TableHead>
+                            <TableHead>Policies</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Created</TableHead>
+
+                            {(isAdmin || isApprover) && <TableHead>Actions</TableHead>}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {devices.map((device) => (
+                            <TableRow key={device.id}>
+                              <TableCell className="font-medium">
+                                <div>{device.device_name}</div>
+                                <div className="text-xs text-muted-foreground">{device.vendor_name}</div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1 font-medium text-sm">
+                                  <Monitor className="w-3 h-3 text-muted-foreground" />
+                                  {device.computer_name || "Unknown"}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-col gap-1">
+                                  <code className="text-xs bg-muted px-2 py-1 rounded w-fit">
+                                    {(userRole === 'admin' || userRole === 'approver') ? (
+                                      <span className="truncate max-w-[150px] inline-block align-bottom" title={device.serial_number}>
+                                        {device.serial_number}
+                                      </span>
+                                    ) : '••••••••'}
+                                  </code>
+                                  {device.serial_number && duplicates.has(device.serial_number.toLowerCase().trim()) && (
+                                    <Badge variant="destructive" className="text-[10px] py-0 px-1.5 h-4 w-fit uppercase font-bold tracking-tight">
+                                      Duplicate
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {device.is_read_only && <Badge variant="outline" className="text-xs"><Lock className="w-3 h-3 mr-1" /> Read-Only</Badge>}
+                                  {device.expiration_date && <Badge variant="outline" className="text-xs"><Calendar className="w-3 h-3 mr-1" /> Exp: {new Date(device.expiration_date).toLocaleString()}</Badge>}
+                                  {device.allowed_start_time && <Badge variant="outline" className="text-xs"><Clock className="w-3 h-3 mr-1" /> {device.allowed_start_time}-{device.allowed_end_time}</Badge>}
+                                  {!device.is_read_only && !device.expiration_date && !device.allowed_start_time && (
+                                    <span className="text-xs text-muted-foreground">Unrestricted</span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-col gap-1">
+                                  {/* Connection Status */}
+                                  <Badge variant={getConnectionStatus(device) === 'connected' ? "default" : "secondary"}
+                                    className={getConnectionStatus(device) === 'connected' ? "bg-green-500 hover:bg-green-600" : ""}
+                                  >
+                                    {getConnectionStatus(device) === 'connected' ? "Connected" : "Disconnected"}
+                                  </Badge>
+
+                                  {/* Authorization Status */}
+                                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <span className={`w-2 h-2 rounded-full ${device.is_active ? "bg-green-500" : "bg-red-500"}`}></span>
+                                    {device.is_active ? "Authorized" : "Disabled"}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {new Date(device.created_at).toLocaleDateString()}
+                              </TableCell>
+                              {(isAdmin || isApprover) && (
+                                <TableCell>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleEditClick(device)}
+                                      className="text-blue-600 hover:text-blue-700"
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </Button>
+                                    {isAdmin && (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleToggleActive(device.id, device.is_active)}
+                                          className={device.is_active ? "text-red-600 hover:text-red-700" : "text-green-600 hover:text-green-700"}
+                                          title={device.is_active ? "Block Device" : "Unblock Device"}
+                                        >
+                                          {device.is_active ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleDeleteDevice(device.id)}
+                                          className="text-gray-600 hover:text-gray-700"
+                                          title="Delete from whitelist"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
                               )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              {/* Connection Status */}
-                              <Badge variant={getConnectionStatus(device) === 'connected' ? "default" : "secondary"}
-                                className={getConnectionStatus(device) === 'connected' ? "bg-green-500 hover:bg-green-600" : ""}
-                              >
-                                {getConnectionStatus(device) === 'connected' ? "Connected" : "Disconnected"}
-                              </Badge>
-
-                              {/* Authorization Status */}
-                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <span className={`w-2 h-2 rounded-full ${device.is_active ? "bg-green-500" : "bg-red-500"}`}></span>
-                                {device.is_active ? "Authorized" : "Disabled"}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {new Date(device.created_at).toLocaleDateString()}
-                          </TableCell>
-                          {(isAdmin || isApprover) && (
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleEditClick(device)}
-                                  className="text-blue-600 hover:text-blue-700"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                                {isAdmin && (
-                                  <>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleToggleActive(device.id, device.is_active)}
-                                      className={device.is_active ? "text-red-600 hover:text-red-700" : "text-green-600 hover:text-green-700"}
-                                      title={device.is_active ? "Block Device" : "Unblock Device"}
-                                    >
-                                      {device.is_active ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleDeleteDevice(device.id)}
-                                      className="text-gray-600 hover:text-gray-700"
-                                      title="Delete from whitelist"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    );
+                  })()}
                 </div>
               )}
             </CardContent>
@@ -716,6 +800,7 @@ export function USBWhitelistManagement() {
                       <TableRow>
                         <TableHead>Device</TableHead>
                         <TableHead>Details</TableHead>
+                        <TableHead>Reason</TableHead>
                         <TableHead>Requested By</TableHead>
                         <TableHead>Time</TableHead>
                         <TableHead>Actions</TableHead>
@@ -726,8 +811,24 @@ export function USBWhitelistManagement() {
                         <TableRow key={request.id}>
                           <TableCell className="font-medium">
                             <div>{request.device_name}</div>
-                            <div className="text-xs text-muted-foreground">{request.vendor_name || "Unknown Vendor"}</div>
-                            <Badge variant="outline" className="mt-1 text-xs">{request.device_class || "Unknown Class"}</Badge>
+                            <div className="text-xs text-muted-foreground">{getVendorName(request.vendor_id, request.vendor_name)}</div>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              <Badge variant="outline" className="text-xs">{request.device_class || "Unknown Class"}</Badge>
+                              {devices.some(d => d.serial_number?.toLowerCase().trim() === request.serial_number?.toLowerCase().trim()) && (
+                                <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] uppercase font-bold px-1.5 h-4">
+                                  Already Whitelisted
+                                </Badge>
+                              )}
+                              {request.isUnknownAgent ? (
+                                <Badge variant="destructive" className="bg-destructive/15 text-destructive dark:text-red-400 border-destructive/30 text-[10px] uppercase font-bold px-1.5 h-4">
+                                  Unverified User
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px] uppercase font-bold px-1.5 h-4">
+                                  Verified User
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="space-y-1 text-sm">
@@ -735,6 +836,9 @@ export function USBWhitelistManagement() {
                               <div className="flex gap-2"><span className="text-muted-foreground w-12">VID:</span> <code>{request.vendor_id}</code></div>
                               <div className="flex gap-2"><span className="text-muted-foreground w-12">PID:</span> <code>{request.product_id}</code></div>
                             </div>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {request.description || '-'}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1 font-medium text-sm">
@@ -747,26 +851,47 @@ export function USBWhitelistManagement() {
                               )}
                             </div>
                           </TableCell>
+
                           <TableCell className="text-sm">
                             {new Date(request.requested_at).toLocaleString()}
                           </TableCell>
                           <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                className="bg-green-600 hover:bg-green-700 text-white"
-                                onClick={() => handleApproveClick(request)}
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleReject(request.id)}
-                              >
-                                Reject
-                              </Button>
-                            </div>
+                            {(() => {
+                              const isAlreadyWhitelisted = devices.some(d => d.serial_number?.toLowerCase().trim() === request.serial_number?.toLowerCase().trim());
+
+                              return (
+                                <div className="flex items-center gap-2">
+                                  {isAlreadyWhitelisted ? (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+                                      onClick={() => handleReject(request.id)}
+                                      title="Dismiss redundant request (Already Whitelisted)"
+                                    >
+                                      <CheckCircle2 className="w-5 h-5" />
+                                    </Button>
+                                  ) : (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        className="bg-green-600 hover:bg-green-700 text-white"
+                                        onClick={() => handleApproveClick(request)}
+                                      >
+                                        Approve
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => handleReject(request.id)}
+                                      >
+                                        Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -926,4 +1051,3 @@ export function USBWhitelistManagement() {
     </div >
   )
 }
-

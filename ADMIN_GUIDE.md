@@ -657,8 +657,8 @@ graph TD
 - **Solution**: Set up approval workflows, delegate to sub-admins
 
 **Issue**: "Logs not showing"
-- **Cause**: Agent not sending logs
-- **Solution**: Check agent connectivity, verify API URL configuration
+- **Cause**: Agent not sending logs or authentication failure
+- **Solution**: Check agent connectivity, verify API URL, and **ensure Agent Key matches** server configuration.
 
 ---
 

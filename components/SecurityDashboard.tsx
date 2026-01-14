@@ -2,22 +2,26 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from "next/navigation";
-import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap, ShieldAlert, Lock, UserCog } from 'lucide-react';
+import { Monitor, Usb, AlertCircle, Activity, Network, List, Server, Search, ShieldCheck, Settings, Wifi, AlertTriangle, Clock, Power, Zap, ShieldAlert, Lock, UserCog, Trash2, Filter } from 'lucide-react';
 import { NetworkTopology } from './network-topology';
 import { USBWhitelistManagement } from './usb-whitelist-management';
 import { QuarantineManagement } from './quarantine-management';
 import { SeverityRulesManagement } from './severity-rules-management';
 import { SoftwareManagement } from './software-management';
+import { UsbRequestDialog } from './usb-request-dialog';
+import { UserUsbRequests } from './user/user-usb-requests';
 import { createClient } from '@/lib/supabase/client';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useToast } from '@/components/ui/use-toast';
 
 interface Device {
   device_id: string;
@@ -74,7 +78,13 @@ export default function SecurityDashboard() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [showAssignOwnerDialog, setShowAssignOwnerDialog] = useState(false);
   const [assignOwnerEmail, setAssignOwnerEmail] = useState('');
+  const { toast } = useToast();
   const devicesRef = useRef<Device[]>([]);
+
+  // USB Filtering & Clearing Local State
+  const [showConnections, setShowConnections] = useState(true);
+  const [showDisconnections, setShowDisconnections] = useState(true);
+  const [clearedLogsMap, setClearedLogsMap] = useState<Record<string, string>>({}); // device_id -> ISO timestamp
 
   // Keep devicesRef updated
   useEffect(() => {
@@ -107,7 +117,7 @@ export default function SecurityDashboard() {
 
   const fetchDevices = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/devices/list`);
+      const res = await fetch(`/api/devices/list`);
       const data = await res.json();
 
       // Helper function to check if device is truly online
@@ -152,7 +162,7 @@ export default function SecurityDashboard() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/logs?limit=100`);
+      const res = await fetch(`/api/logs?limit=100`);
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (error) {
@@ -162,7 +172,7 @@ export default function SecurityDashboard() {
 
   const fetchUsbEventsCount = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/logs?usb_only=true&limit=1`);
+      const res = await fetch(`/api/logs?usb_only=true&limit=1`);
       const data = await res.json();
       setUsbEventCount(data.total || data.count || 0);
     } catch (error) {
@@ -172,7 +182,7 @@ export default function SecurityDashboard() {
 
   const fetchAlerts = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/alerts/list?resolved=false`);
+      const res = await fetch(`/api/alerts/list?resolved=false`);
       const data = await res.json();
       setAlerts(data.alerts || []);
     } catch (error) {
@@ -182,7 +192,7 @@ export default function SecurityDashboard() {
 
   const fetchAuthorizedUSBs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/usb/whitelist`);
+      const res = await fetch(`/api/usb/whitelist`);
       const data = await res.json();
       if (data.success) {
         setAuthorizedUSBs(data.devices || data.authorizedDevices || data.data || []);
@@ -224,7 +234,11 @@ export default function SecurityDashboard() {
             };
             setDevices(prev => {
               if (payload.eventType === 'INSERT') return [normalized, ...prev];
-              return prev.map(d => d.device_id === normalized.device_id ? { ...d, ...normalized } : d);
+              return prev.map(d =>
+                d.device_id === normalized.device_id
+                  ? { ...d, ...normalized, is_server: d.is_server } // Preserve is_server flag
+                  : d
+              );
             });
           } else if (payload.eventType === 'DELETE') {
             setDevices(prev => prev.filter(d => d.device_id !== payload.old.id));
@@ -291,10 +305,37 @@ export default function SecurityDashboard() {
   };
 
   const getUSBLogs = (deviceId: string) => {
-    return getDeviceLogs(deviceId).filter(log =>
-      (log.log_type === 'hardware' || log.log_type === 'usb') &&
-      (log.hardware_type === 'usb' || log.message?.toLowerCase().includes('usb'))
-    );
+    const clearTimestamp = clearedLogsMap[deviceId];
+
+    return getDeviceLogs(deviceId).filter(log => {
+      // 1. Basic USB type filtering
+      const isUsb = (log.log_type === 'hardware' || log.log_type === 'usb') &&
+        (log.hardware_type === 'usb' || log.message?.toLowerCase().includes('usb'));
+      if (!isUsb) return false;
+
+      // 2. Clear filter (UI-only)
+      if (clearTimestamp && new Date(log.timestamp) <= new Date(clearTimestamp)) {
+        return false;
+      }
+
+      // 3. Show/Hide toggles
+      const isConnected = log.event === 'connected' || log.event === 'insert';
+      if (isConnected && !showConnections) return false;
+      if (!isConnected && !showDisconnections) return false;
+
+      return true;
+    });
+  };
+
+  const handleClearUSBActivity = (deviceId: string) => {
+    setClearedLogsMap(prev => ({
+      ...prev,
+      [deviceId]: new Date().toISOString()
+    }));
+    toast({
+      title: "Activity Cleared",
+      description: "Previous events have been hidden from view.",
+    });
   };
 
   const getDeviceWhitelistedUSBs = (hostname: string) => {
@@ -328,13 +369,24 @@ export default function SecurityDashboard() {
         setSelectedDevice({ ...selectedDevice, owner: assignOwnerEmail });
         setShowAssignOwnerDialog(false);
         setAssignOwnerEmail('');
-        alert('Owner assigned successfully!');
+        toast({
+          title: "Success",
+          description: "Owner assigned successfully!",
+        });
       } else {
-        alert(`Error: ${data.error || 'Failed to assign owner'}`);
+        toast({
+          title: "Error",
+          description: data.error || "Failed to assign owner",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error assigning owner:', error);
-      alert('Failed to assign owner. Please try again.');
+      toast({
+        title: "Error",
+        description: "Failed to assign owner. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -342,52 +394,20 @@ export default function SecurityDashboard() {
 
   const filteredDevices = useMemo(() => (
     devices.filter(device => {
-      // Determine effective role
-      const isApprover = userRole === 'approver' || (Array.isArray(userRole) && userRole.includes('approver'));
-      const isAdmin = userRole === 'admin' || (Array.isArray(userRole) && userRole.includes('admin'));
-
-      // Admin or Approver:
-      if (isAdmin || isApprover) {
-        // Apply search filter
-        if (!searchQuery) return true;
-
-        const deviceName = (device.device_name || '').toLowerCase();
-        const hostname = (device.hostname || '').toLowerCase();
-        const ipAddress = device.ip_address || '';
-        const searchLower = searchQuery.toLowerCase();
-
-        return (
-          deviceName.includes(searchLower) ||
-          hostname.includes(searchLower) ||
-          ipAddress.includes(searchQuery)
-        );
-      }
-
-      // Standard user:
-      if (!userEmail) return false;
-      if (device.is_server) return false;
-
-      const ownerLower = device.owner?.toLowerCase().trim() || '';
-      const emailLower = userEmail.toLowerCase().trim();
-      const username = emailLower.split('@')[0];
-
-      const isMatch =
-        ownerLower === emailLower ||
-        ownerLower.includes(username) ||
-        (ownerLower.length > 3 && emailLower.includes(ownerLower));
-
-      if (!isMatch) return false;
+      // API already validates access rights. We only filter based on UI search/query here.
       if (!searchQuery) return true;
 
       const deviceName = (device.device_name || '').toLowerCase();
       const hostname = (device.hostname || '').toLowerCase();
       const ipAddress = device.ip_address || '';
+      const owner = (device.owner || '').toLowerCase();
       const searchLower = searchQuery.toLowerCase();
 
       return (
         deviceName.includes(searchLower) ||
         hostname.includes(searchLower) ||
-        ipAddress.includes(searchQuery)
+        ipAddress.includes(searchQuery) ||
+        owner.includes(searchLower)
       );
     })
   ), [devices, searchQuery, userRole, userEmail]);
@@ -490,7 +510,7 @@ export default function SecurityDashboard() {
           {/* Status Card - Different for Admin vs Standard User */}
           {isAdmin ? (
             // Admin: Server Status Card
-            <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border/40">
+            <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border">
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
@@ -566,7 +586,7 @@ export default function SecurityDashboard() {
               const agentStatus = onlineDevices.length > 0 ? 'online' : 'offline';
 
               return (
-                <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border/40">
+                <div className="bg-card dark:bg-gradient-to-br dark:from-slate-500/10 dark:via-slate-500/5 dark:to-transparent rounded-lg p-5 shadow-sm hover:shadow-md transition-all border border-border">
                   <div className="space-y-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
@@ -699,12 +719,16 @@ export default function SecurityDashboard() {
                 <Button
                   variant={viewMode === 'software' ? "default" : "outline"}
                   onClick={() => setViewMode('software')}
-                  className={`gap-2 ${viewMode === 'software' ? '' : 'border-indigo-500/20 hover:border-indigo-500/50 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10'} transition-all`}
+                  className={`gap-2 ${viewMode === 'software' ? '' : 'border-indigo-50/20 hover:border-indigo-500/50 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10'} transition-all`}
                 >
                   <ShieldCheck className="w-4 h-4" />
                   <span className="hidden lg:inline">Software Approval</span>
                   <span className="lg:hidden">Software</span>
                 </Button>
+              )}
+
+              {userRole === 'user' && (
+                <UsbRequestDialog devices={devices} />
               )}
             </div>
           </div>
@@ -712,19 +736,19 @@ export default function SecurityDashboard() {
 
         {/* Main Content */}
         {viewMode === 'whitelist' ? (
-          <div className="bg-card border rounded-lg shadow-sm">
+          <div className="bg-card border rounded-lg shadow-sm p-6">
             <USBWhitelistManagement />
           </div>
         ) : viewMode === 'quarantine' ? (
-          <div className="bg-card border rounded-lg shadow-sm">
+          <div className="bg-card border rounded-lg shadow-sm p-6">
             <QuarantineManagement />
           </div>
         ) : viewMode === 'software' ? (
-          <div className="bg-card border rounded-lg shadow-sm">
+          <div className="bg-card border rounded-lg shadow-sm p-6">
             <SoftwareManagement />
           </div>
         ) : viewMode === 'rules' ? (
-          <div className="bg-card border rounded-lg shadow-sm">
+          <div className="bg-card border rounded-lg shadow-sm p-6">
             <SeverityRulesManagement />
           </div>
         ) : viewMode === 'topology' ? (
@@ -746,9 +770,9 @@ export default function SecurityDashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {/* Devices List */}
-            <div className="lg:col-span-1">
-              <div className="bg-card border rounded-lg shadow-sm lg:sticky lg:top-24">
-                <div className="p-4 border-b flex justify-between items-center bg-muted/30">
+            <div className="lg:col-span-1 lg:sticky lg:top-24 space-y-6">
+              <div className="bg-card border rounded-lg shadow-sm">
+                <div className="p-4 border-b flex justify-between items-center bg-muted/20 dark:bg-muted/30">
                   <h2 className="text-lg font-semibold text-foreground">Device List</h2>
                   <span className="text-xs text-muted-foreground">{filteredDevices.length} devices</span>
                 </div>
@@ -763,7 +787,7 @@ export default function SecurityDashboard() {
                       {/* Servers Section */}
                       {serverDevices.length > 0 && (
                         <>
-                          <div className="px-4 py-2 bg-muted/50 text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b flex items-center gap-2">
+                          <div className="px-4 py-2 bg-muted/30 dark:bg-muted/50 text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b flex items-center gap-2">
                             <Server className="w-3 h-3" />
                             Infrastructure (Servers)
                           </div>
@@ -790,7 +814,7 @@ export default function SecurityDashboard() {
                       )}
 
                       {/* Endpoints Section */}
-                      <div className="px-4 py-2 bg-muted/50 text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b border-t flex items-center gap-2">
+                      <div className="px-4 py-2 bg-muted/30 dark:bg-muted/50 text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b border-t flex items-center gap-2">
                         <Monitor className="w-3 h-3" />
                         Monitored Endpoints
                       </div>
@@ -828,6 +852,10 @@ export default function SecurityDashboard() {
                   )}
                 </div>
               </div>
+
+              {userRole === 'user' && (
+                <UserUsbRequests />
+              )}
             </div>
 
             {/* Device Details */}
@@ -916,7 +944,7 @@ export default function SecurityDashboard() {
                                       {(isAdmin || isApprover) && (
                                         <>
                                           <span>•</span>
-                                          <code className="bg-muted px-1 rounded">{usb.serial_number}</code>
+                                          <code className="bg-muted px-1 rounded truncate max-w-[150px] inline-block align-bottom" title={usb.serial_number}>{usb.serial_number}</code>
                                         </>
                                       )}
                                     </div>
@@ -943,20 +971,52 @@ export default function SecurityDashboard() {
                   )}
 
                   <div className="bg-card border rounded-lg shadow-sm">
-                    <div className="p-4 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <h2 className="text-lg font-semibold text-foreground">USB Activity</h2>
-                        <p className="text-xs text-muted-foreground">Recent connections & security context</p>
+                    <div className="p-4 border-b">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h2 className="text-lg font-semibold text-foreground">USB Activity</h2>
+                          <p className="text-xs text-muted-foreground">Recent connections & security context</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Filter Toggles */}
+                          <div className="flex items-center bg-muted/50 rounded-lg p-1 mr-2 border border-border">
+                            <Badge
+                              variant={showConnections ? "default" : "outline"}
+                              className={`cursor-pointer text-[10px] uppercase font-bold py-0.5 px-2 transition-all ${showConnections ? 'bg-green-600 hover:bg-green-700' : 'text-muted-foreground hover:bg-muted'}`}
+                              onClick={() => setShowConnections(!showConnections)}
+                            >
+                              Connections
+                            </Badge>
+                            <Badge
+                              variant={showDisconnections ? "default" : "outline"}
+                              className={`ml-1 cursor-pointer text-[10px] uppercase font-bold py-0.5 px-2 transition-all ${showDisconnections ? 'bg-red-600 hover:bg-red-700' : 'text-muted-foreground hover:bg-muted'}`}
+                              onClick={() => setShowDisconnections(!showDisconnections)}
+                            >
+                              Disconnections
+                            </Badge>
+                          </div>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-2 text-xs font-medium hover:bg-red-50 hover:text-red-600 transition-colors"
+                            onClick={() => handleClearUSBActivity(selectedDevice.device_id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Clear Activity
+                          </Button>
+                        </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {getUSBLogs(selectedDevice.device_id).length} events
-                      </span>
+                      <div className="flex items-center gap-2 mt-4 text-xs text-muted-foreground">
+                        <Filter className="w-3 h-3" />
+                        <span>Showing {getUSBLogs(selectedDevice.device_id).length} filtered events</span>
+                      </div>
                     </div>
                     <div className="divide-y max-h-96 overflow-y-auto">
                       {getUSBLogs(selectedDevice.device_id).length === 0 ? (
                         <div className="p-8 text-center text-muted-foreground">
-                          <Usb className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                          <p>No USB activity recorded</p>
+                          <Usb className="w-12 h-12 mx-auto mb-2 opacity-10" />
+                          <p className="text-sm font-medium">No activity matching filters</p>
                         </div>
                       ) : (
                         getUSBLogs(selectedDevice.device_id).map((log) => {
@@ -1004,9 +1064,10 @@ export default function SecurityDashboard() {
                 </div>
               )}
             </div>
-          </div>
-        )}
-      </div>
+          </div >
+        )
+        }
+      </div >
 
       {/* Assign Owner Dialog */}
       {

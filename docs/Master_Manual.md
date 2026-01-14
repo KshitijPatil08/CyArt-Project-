@@ -150,6 +150,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh...
 SUPABASE_SERVICE_ROLE_KEY=eyJh...
 ADMIN_SECRET_CODE=ChangeMeToSomethingSecure123!
+AGENT_SECRET_KEY=YourSecureAgentKey!
 CYART_Server_URL=http://your-server-ip:3000
 ```
 
@@ -196,7 +197,9 @@ pm2 save && pm2 startup
 ### Step 3.2: Configuration
 *   **Prompt**: "Enter Server URL"
 *   **Input**: `http://YOUR-PHYSICAL-SERVER-IP:3000`
-*   *Result*: The script bakes this URL into `CyArtAgent.exe`.
+*   **Prompt**: "Enter Agent Key"
+*   **Input**: `YourSecureAgentKey!` (Must match `AGENT_SECRET_KEY` from Step 2.3)
+*   *Result*: The script bakes this URL and Key into `CyArtAgent.exe`.
 
 ### Step 3.3: Collect Artifacts
 Open `build/deployment`. Copys contents to USB/Network Share:
@@ -299,6 +302,7 @@ Open `build/deployment`. Copys contents to USB/Network Share:
     NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJh... (Your Public Key)
     SUPABASE_SERVICE_ROLE_KEY=ey... (Your Private Admin Key)
     ADMIN_SECRET_CODE=MySecureAdminCode!
+    AGENT_SECRET_KEY=YourSecureAgentKey!
     ```
 
 ## 4.4 Start & Enable Service
