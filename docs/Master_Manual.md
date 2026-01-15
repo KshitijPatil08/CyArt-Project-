@@ -299,7 +299,7 @@ sequenceDiagram
     *   Network quarantine via `networksetup`.
 *   **`build-agent.ps1`**: PowerShell factory script. Compiles the Go agent and embeds the `Server URL` and `Agent Key`.
 *   **`register-server.sh`**: Helper to register the backend server itself as a trusted node in the topology.
-*   **`usb_request_gui.ps1`**: A lightweight PowerShell GUI deployed to Windows endpoints, allowing users to initiate a USB access request if blocked.
+*   **`register-server.sh`**: Helper to register the backend server itself as a trusted node in the topology.
 
 ## 7.4 Security Utilities (`/lib`)
 *   `lib/api-utils.ts`: Contains the critical security logic:

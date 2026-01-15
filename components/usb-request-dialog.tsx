@@ -162,6 +162,12 @@ export function UsbRequestDialog({ devices, onSuccess }: UsbRequestDialogProps) 
                 throw new Error(data.error || "Failed to submit request")
             }
 
+            // Show success message from API (handles "already pending", "already authorized", etc.)
+            toast({
+                title: data.message === "Request submitted successfully" ? "Request Submitted" : "Info",
+                description: data.message || "Request submitted successfully",
+                variant: data.message.includes("already") ? "default" : "default",
+            })
 
             setOpen(false)
             setFormData({
