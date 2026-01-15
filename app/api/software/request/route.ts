@@ -124,8 +124,20 @@ export async function GET(request: NextRequest) {
                 });
             }
         } else {
-            // Standard user
-            filteredRequests = [];
+            // Standard user - filter by their owned devices
+            const { data: myDevices } = await supabase
+                .from('devices')
+                .select('hostname')
+                .eq('owner', user.email);
+
+            if (!myDevices || myDevices.length === 0) {
+                filteredRequests = [];
+            } else {
+                const myHostnames = myDevices.map(d => d.hostname?.toLowerCase()).filter(Boolean);
+                filteredRequests = filteredRequests.filter(req =>
+                    req.computer_name && myHostnames.includes(req.computer_name.toLowerCase())
+                );
+            }
         }
 
         // Enrichment: Check for unknown agents

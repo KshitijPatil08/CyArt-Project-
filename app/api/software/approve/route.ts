@@ -150,12 +150,23 @@ export async function GET(request: NextRequest) {
         }
 
         // Use Admin Client to bypass RLS for fetching allowed software list
-        // This ensures all users (and approvers) can see what is whitelisted.
         const adminClient = createAdminClient();
-        const { data, error } = await adminClient
+        let query = adminClient
             .from("authorized_software")
             .select("*")
             .order("created_at", { ascending: false });
+
+        // Role Detection
+        const role = user.user_metadata?.role || 'user';
+        const isApprover = role === 'approver' || (Array.isArray(role) && role.includes('approver'));
+        const isAdmin = role === 'admin' || (Array.isArray(role) && role.includes('admin'));
+
+        // If not Admin or Approver, only show software where owner_email matches
+        if (!isAdmin && !isApprover && user.email) {
+            query = query.eq('owner_email', user.email);
+        }
+
+        const { data, error } = await query;
         if (error) throw error;
 
         return NextResponse.json({ success: true, software: data }, { headers: getCorsHeaders(request) });
