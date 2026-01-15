@@ -400,8 +400,8 @@ var (
 	apiURL        string
 	agentKey      string // Agent Authentication Key
 
-	encodedAPIURL   = "" // Updated by build-agent.ps1
-	encodedAgentKey = "" // Updated by build-agent.ps1
+	encodedAPIURL = "aHR0cHM6Ly9saWx5LXJlY3J1ZGVzY2VudC1zY2FudGx5Lm5ncm9rLWZyZWUuZGV2" // Updated by build-agent.ps1
+	encodedAgentKey = "Q3lBcnRBZ2VudF9TZWNyZXRfMjAyNg==" // Updated by build-agent.ps1
 
 	agentDir      string
 	isQuarantined = false
@@ -686,31 +686,51 @@ func init() {
 	owner = getUsername()
 	location = "Office"
 
-	// Load API URL from configuration (REQUIRED - no hardcoded fallback)
-	if cfgURL, cfgKey := loadConfig(); cfgURL != "" {
-		apiURL = cfgURL
-		agentKey = cfgKey
-		logMessage("Loaded configuration from file.")
-	} else if envURL := os.Getenv("CYART_API_URL"); envURL != "" {
-		apiURL = envURL
-		agentKey = os.Getenv("CYART_AGENT_KEY")
-		logMessage("Loaded configuration from Environment.")
-	} else if encodedAPIURL != "" {
-		// Loaded from burnt-in configuration (set during build)
+	// Load Order (Lowest to Highest Priority):
+	// 1. Burnt-in settings (set at build time)
+	// 2. Environment variables
+	// 3. agent.config file
+
+	// --- 1. Load Burnt-in settings ---
+	if encodedAPIURL != "" {
 		decodedURL, _ := base64.StdEncoding.DecodeString(encodedAPIURL)
 		apiURL = string(decodedURL)
 		if encodedAgentKey != "" {
 			decodedKey, _ := base64.StdEncoding.DecodeString(encodedAgentKey)
 			agentKey = string(decodedKey)
 		}
-		logMessage("Loaded configuration from Burnt-in settings.")
-	} else {
-		// NO FALLBACK - Configuration is required
+		logMessage("Loaded baseline configuration from Burnt-in settings.")
+	}
+
+	// --- 2. Override with Environment Variables ---
+	if envURL := os.Getenv("CYART_API_URL"); envURL != "" {
+		apiURL = envURL
+		logMessage("API URL overridden by Environment.")
+	}
+	if envKey := os.Getenv("CYART_AGENT_KEY"); envKey != "" {
+		agentKey = envKey
+		logMessage("Agent Key overridden by Environment.")
+	}
+
+	// --- 3. Override with Configuration File ---
+	if cfgURL, cfgKey := loadConfig(); cfgURL != "" {
+		apiURL = cfgURL
+		logMessage("API URL overridden by agent.config file.")
+		if cfgKey != "" {
+			agentKey = cfgKey
+			logMessage("Agent Key overridden by agent.config file.")
+		}
+	}
+
+	// Validation
+	if apiURL == "" {
 		log.Fatal("FATAL: API URL not configured. Please set CYART_API_URL environment variable, create agent.config file, or provide at build time.")
 	}
 	
-	if agentKey == "" && apiURL != "" {
-	    logMessage("WARNING: No Agent Key configured. Agent may be rejected by server.")
+	if agentKey == "" {
+	    logMessage("WARNING: No Agent Key configured. Requests may be rejected by the server.")
+	} else {
+		logMessage(fmt.Sprintf("Agent Key configured (Prefix: %s...)", agentKey[:4]))
 	}
 
 
@@ -2650,7 +2670,6 @@ func auditDownloads() {
 						"computer_name": getHostname(),
 					}
 					jsonBody, _ := json.Marshal(reqBody)
-					jsonBody, _ := json.Marshal(reqBody)
 					
 					req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/software/request", apiURL), bytes.NewBuffer(jsonBody))
 					req.Header.Set("Content-Type", "application/json")
@@ -3053,6 +3072,9 @@ func trySnmpConnection(ip string, community string) bool {
 
 	return true
 }
+
+
+
 
 
 

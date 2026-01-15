@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 
 export const AGENT_HEADER = 'x-agent-key';
 
@@ -6,21 +7,43 @@ export const AGENT_HEADER = 'x-agent-key';
  * Verifies the agent authentication key from the request headers.
  * comparing it against the server-side AGENT_SECRET_KEY environment variable.
  */
-export function verifyAgentKey(request: NextRequest): boolean {
+
+export function verifyAgentKey(request: NextRequest, isOptional = false): boolean {
     const agentKey = request.headers.get(AGENT_HEADER);
     const serverKey = process.env.AGENT_SECRET_KEY;
 
     if (!serverKey) {
-        // If server isn't configured, we log a critical error.
-        // We deny the request to ensure security-by-default.
         console.error('[SECURITY] AGENT_SECRET_KEY is not set in environment variables. Denying access.');
         return false;
     }
 
-    // Simple string comparison. 
-    // In a high-security context, we would use crypto.timingSafeEqual, 
-    // but for this token length, direct comparison is acceptable for this level.
-    return agentKey === serverKey;
+    if (!agentKey) {
+        if (isOptional) {
+            console.log(`[SECURITY] Allowing unauthenticated access to ${request.nextUrl.pathname} (optional mode)`);
+            return true;
+        }
+        console.warn(`[SECURITY] Agent key missing in request: ${request.nextUrl.pathname}`);
+        return false;
+    }
+
+    // PROFESSIONAL SECURITY: Use timing-safe comparison to prevent side-channel attacks.
+    // timingSafeEqual requires both buffers to be of the same length.
+    const agentBytes = Buffer.from(agentKey);
+    const serverBytes = Buffer.from(serverKey);
+
+    if (agentBytes.length !== serverBytes.length) {
+        // NON-LEAKING DIAGNOSTIC: Log lengths to help spot invisible character issues.
+        console.warn(`[SECURITY] Key length mismatch from ${request.nextUrl.pathname}. Received: ${agentBytes.length}, Expected: ${serverBytes.length}`);
+        return false;
+    }
+
+    const isValid = crypto.timingSafeEqual(agentBytes, serverBytes);
+
+    if (!isValid) {
+        console.warn(`[SECURITY] Invalid agent key from ${request.nextUrl.pathname} (Timing-Safe Check Failed)`);
+    }
+
+    return isValid;
 }
 
 /**

@@ -79,7 +79,9 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!verifyAgentKey(request)) {
+  // Registration is allowed without a key to support simple onboarding scripts,
+  // but if a key IS provided, it must be correct.
+  if (!verifyAgentKey(request, true)) {
     return unauthorizedResponse();
   }
   try {
