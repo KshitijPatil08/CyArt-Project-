@@ -400,6 +400,9 @@ var (
 	apiURL        string
 	agentKey      string // Agent Authentication Key
 
+	encodedAPIURL   = "" // Updated by build-agent.ps1
+	encodedAgentKey = "" // Updated by build-agent.ps1
+
 	agentDir      string
 	isQuarantined = false
 	// Rate limiting for network logs: key = "process:remote_ip:port", value = last log time
@@ -692,9 +695,18 @@ func init() {
 		apiURL = envURL
 		agentKey = os.Getenv("CYART_AGENT_KEY")
 		logMessage("Loaded configuration from Environment.")
+	} else if encodedAPIURL != "" {
+		// Loaded from burnt-in configuration (set during build)
+		decodedURL, _ := base64.StdEncoding.DecodeString(encodedAPIURL)
+		apiURL = string(decodedURL)
+		if encodedAgentKey != "" {
+			decodedKey, _ := base64.StdEncoding.DecodeString(encodedAgentKey)
+			agentKey = string(decodedKey)
+		}
+		logMessage("Loaded configuration from Burnt-in settings.")
 	} else {
 		// NO FALLBACK - Configuration is required
-		log.Fatal("FATAL: API URL not configured. Please set CYART_API_URL environment variable or create agent.config file.")
+		log.Fatal("FATAL: API URL not configured. Please set CYART_API_URL environment variable, create agent.config file, or provide at build time.")
 	}
 	
 	if agentKey == "" && apiURL != "" {
@@ -3041,6 +3053,7 @@ func trySnmpConnection(ip string, community string) bool {
 
 	return true
 }
+
 
 
 

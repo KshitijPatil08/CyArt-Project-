@@ -4,9 +4,10 @@
 # Includes: USB Policies, Quarantine, Network Discovery (SNMP), Network Monitoring, Software Auditing
 
 API_URL="${1:-https://lily-recrudescent-scantly.ngrok-free.dev}"
-DEVICE_NAME="${2:-$(hostname)}"
-OWNER="${3:-$(whoami)}"
-LOCATION="${4:-Office}"
+AGENT_KEY="${2:-CyArtAgent_Secret_2026}"
+DEVICE_NAME="${3:-$(hostname)}"
+OWNER="${4:-$(whoami)}"
+LOCATION="${5:-Office}"
 DEVICE_ID=""
 POLL_INTERVAL=30
 REGISTRATION_FILE="$HOME/.cyart-agent/device_id.txt"
@@ -107,6 +108,7 @@ EOF
 
     response=$(curl -s -X POST "$API_URL/api/devices/register" \
         -H "Content-Type: application/json" \
+        -H "x-agent-key: $AGENT_KEY" \
         -d "$payload")
 
     DEVICE_ID=$(echo "$response" | grep -o '"device_id":"[^"]*' | cut -d'"' -f4)
@@ -126,7 +128,7 @@ check_quarantine_and_policies() {
         return
     fi
 
-    local response=$(curl -s "$API_URL/api/devices/quarantine/status?device_id=$DEVICE_ID" 2>/dev/null)
+    local response=$(curl -s -H "x-agent-key: $AGENT_KEY" "$API_URL/api/devices/quarantine/status?device_id=$DEVICE_ID" 2>/dev/null)
     
     if [ -z "$response" ]; then
         return
@@ -474,6 +476,7 @@ EOF
     
     curl -s -X POST "$API_URL/api/agent-log" \
         -H "Content-Type: application/json" \
+        -H "x-agent-key: $AGENT_KEY" \
         -d "$payload" > /dev/null
 }
 
@@ -615,6 +618,7 @@ EOF
 
     curl -s -X POST "$API_URL/api/agent-log" \
         -H "Content-Type: application/json" \
+        -H "x-agent-key: $AGENT_KEY" \
         -d "$payload" > /dev/null
 }
 
@@ -672,6 +676,7 @@ EOF
 
     curl -s -X POST "$API_URL/api/devices/status" \
         -H "Content-Type: application/json" \
+        -H "x-agent-key: $AGENT_KEY" \
         -d "$payload" > /dev/null
 }
 

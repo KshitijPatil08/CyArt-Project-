@@ -1,25 +1,60 @@
 # CyArt Agent - Mass Deployment Script for Windows
 # This script compiles the agent and creates deployment packages
 
-Param([string]$ServerUrl)
+Param(
+    [string]$ServerUrl,
+    [string]$AgentKey
+)
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  CyArt Agent Builder" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Prompt for server URL if not provided as parameter
+# Load from .env.local if it exists
+$ENV_FILE = Join-Path $PSScriptRoot "..\.env.local"
+$DEFAULT_URL = ""
+$DEFAULT_KEY = ""
+
+if (Test-Path $ENV_FILE) {
+    Write-Host "Loading defaults from .env.local..." -ForegroundColor Gray
+    $envContent = Get-Content $ENV_FILE
+    foreach ($line in $envContent) {
+        if ($line -match "^CYART_API_URL=(.*)") { $DEFAULT_URL = $matches[1].Trim() }
+        if ($line -match "^AGENT_SECRET_KEY=(.*)") { $DEFAULT_KEY = $matches[1].Trim() }
+    }
+}
+
+# Prompt for server URL if not provided
 if ([string]::IsNullOrWhiteSpace($ServerUrl)) {
-    Write-Host "Enter your Ubuntu server URL:" -ForegroundColor Yellow
-    Write-Host "  Examples:" -ForegroundColor Gray
-    Write-Host "    - Public IP: http://203.0.113.45:3000" -ForegroundColor Gray
-    Write-Host "    - Domain: https://server.yourcompany.com" -ForegroundColor Gray
-    Write-Host "    - ngrok: https://abc123.ngrok.io" -ForegroundColor Gray
-    Write-Host ""
-    $SERVER_URL = Read-Host "Server URL"
+    if ($DEFAULT_URL) {
+        Write-Host "Found default URL: $DEFAULT_URL" -ForegroundColor Gray
+        $SERVER_URL = Read-Host "Server URL (Press enter to use default)"
+        if ([string]::IsNullOrWhiteSpace($SERVER_URL)) { $SERVER_URL = $DEFAULT_URL }
+    }
+    else {
+        Write-Host "Enter your Ubuntu server URL (e.g., https://abc123.ngrok.io):" -ForegroundColor Yellow
+        $SERVER_URL = Read-Host "Server URL"
+    }
 }
 else {
     $SERVER_URL = $ServerUrl
+}
+
+# Prompt for Agent Key if not provided
+if ([string]::IsNullOrWhiteSpace($AgentKey)) {
+    if ($DEFAULT_KEY) {
+        Write-Host "Found default Agent Key: $DEFAULT_KEY" -ForegroundColor Gray
+        $AGENT_KEY = Read-Host "Agent Key (Press enter to use default)"
+        if ([string]::IsNullOrWhiteSpace($AGENT_KEY)) { $AGENT_KEY = $DEFAULT_KEY }
+    }
+    else {
+        Write-Host "Enter your Agent Secret Key:" -ForegroundColor Yellow
+        $AGENT_KEY = Read-Host "Agent Key"
+    }
+}
+else {
+    $AGENT_KEY = $AgentKey
 }
 
 if ([string]::IsNullOrWhiteSpace($SERVER_URL)) {
@@ -31,6 +66,7 @@ if ([string]::IsNullOrWhiteSpace($SERVER_URL)) {
 Write-Host ""
 Write-Host "Building CyArt Security Agent..." -ForegroundColor Cyan
 Write-Host "Target Server: $SERVER_URL" -ForegroundColor Green
+Write-Host "Agent Key: $AGENT_KEY" -ForegroundColor Green
 
 # Set variables
 $AGENT_VERSION = "3.0.0"
@@ -54,12 +90,17 @@ catch {
     Write-Host "Warning: go get failed." -ForegroundColor Yellow
 }
 
-# Update the DEFAULT_API_URL in the source code
+# Update the encoded constants in the source code
 $srcFile = Join-Path $SCRIPT_DIR "windows-agent-production.go"
-Write-Host "Configuring server URL in source..." -ForegroundColor Yellow
+Write-Host "Configuring server URL and Agent Key in source..." -ForegroundColor Yellow
 $agentCode = Get-Content $srcFile -Raw
+
 $encodedServerUrl = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($SERVER_URL))
+$encodedAgentKeyVal = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($AGENT_KEY))
+
 $newCode = $agentCode -replace 'encodedAPIURL\s*=\s*".*?"', ('encodedAPIURL = "' + $encodedServerUrl + '"')
+$newCode = $newCode -replace 'encodedAgentKey\s*=\s*".*?"', ('encodedAgentKey = "' + $encodedAgentKeyVal + '"')
+
 Set-Content -Path $srcFile -Value $newCode -Encoding UTF8
 
 # Compile Windows agent
