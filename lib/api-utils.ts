@@ -61,11 +61,10 @@ export function getCorsHeaders(request: NextRequest) {
     ).filter(Boolean);
 
     // Allow requests with no origin (agents/curl) or if origin is in allowed list
-    // Note: Agents often don't send Origin headers.
-    const isAllowed = !origin || allowedOrigins.includes(origin);
+    const isAllowed = origin && allowedOrigins.includes(origin);
 
     return {
-        'Access-Control-Allow-Origin': isAllowed ? (origin || '*') : 'null',
+        'Access-Control-Allow-Origin': isAllowed ? origin : allowedOrigins[0] || 'null',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-agent-key, x-device-id',
         'Access-Control-Allow-Credentials': 'true',
