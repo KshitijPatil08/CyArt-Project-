@@ -9,8 +9,8 @@ export const AGENT_HEADER = 'x-agent-key';
  */
 
 export function verifyAgentKey(request: NextRequest, isOptional = false): boolean {
-    const agentKey = request.headers.get(AGENT_HEADER);
-    const serverKey = process.env.AGENT_SECRET_KEY;
+    const agentKey = request.headers.get(AGENT_HEADER)?.trim();
+    const serverKey = process.env.AGENT_SECRET_KEY?.trim();
 
     if (!serverKey) {
         console.error('[SECURITY] AGENT_SECRET_KEY is not set in environment variables. Denying access.');

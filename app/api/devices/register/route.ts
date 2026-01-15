@@ -22,15 +22,20 @@ const registerSchema = z.object({
 
 // Admin client for bypassing RLS during server registration
 async function getAdminSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
 
   if (!supabaseUrl || !supabaseServiceKey) {
-    console.warn("Missing SUPABASE_SERVICE_ROLE_KEY, falling back to anon client (RLS may fail)")
-    return getSupabaseClient() // Fallback if key missing, though unlikely to work for protected tables
+    console.warn("[SECURITY] Missing SUPABASE_SERVICE_ROLE_KEY, falling back to anon client (RLS may fail)")
+    return getSupabaseClient()
   }
 
-  // Use createClient directly from supabase-js for admin access without cookies
+  // HUMAN DEVELOPER CHECK: Verify the key Ref matches the URL Ref to catch placeholders
+  const urlRef = supabaseUrl.split('//')[1]?.split('.')[0];
+  if (supabaseServiceKey.includes('service_role') && !supabaseServiceKey.includes(urlRef)) {
+    console.warn(`[SECURITY] WARNING: SUPABASE_SERVICE_ROLE_KEY appears to contain a placeholder reference ("service_role"). It does not match project URL ref: ${urlRef}. This will cause "Invalid API key" errors.`);
+  }
+
   const { createClient } = await import('@supabase/supabase-js')
   return createClient(supabaseUrl, supabaseServiceKey, {
     auth: {
